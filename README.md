@@ -36,17 +36,49 @@ pip install -e .[gui,dev]
 ```python
 import pyscanbox
 
-# Load configuration
-config = pyscanbox.config.load_config('config.yaml')
+# Load configuration (searches standard locations automatically)
+config = pyscanbox.config.load_config()
+
+# Or specify a custom config file path
+# config = pyscanbox.config.load_config('my_config.yaml')
 
 # Initialize hardware
-alazar = pyscanbox.hardware.alazar.AlazarDigitizer(config)
-controller = pyscanbox.hardware.controller.ScanboxController(config)
+alazar = pyscanbox.hardware.alazar.AlazarDigitizer(config.to_dict())
+controller = pyscanbox.hardware.controller.ScanboxController(config.to_dict())
 
 # Run acquisition
-scanner = pyscanbox.acquisition.scan.Scanner(config, alazar, controller)
+scanner = pyscanbox.acquisition.scan.Scanner(config.to_dict(), alazar, controller)
 scanner.run()
 ```
+
+## Configuration
+
+### Creating a Configuration File
+
+Copy the example configuration and customize for your rig:
+
+```bash
+# Linux/Mac
+mkdir -p ~/.config/pyscanbox
+cp examples/config_examples/default_config.yaml ~/.config/pyscanbox/config.yaml
+
+# Windows
+mkdir %APPDATA%\pyscanbox
+copy examples\config_examples\default_config.yaml %APPDATA%\pyscanbox\config.yaml
+```
+
+### Configuration File Locations
+
+pyscanbox searches for configuration files in the following locations:
+
+**Option A: User configuration directory (Recommended)**
+- Linux/Mac: `~/.config/pyscanbox/config.yaml`
+- Windows: `%APPDATA%\pyscanbox\config.yaml`
+
+**Option B: System-wide configuration (Multi-user systems)**
+- Linux: `/etc/pyscanbox/config.yaml`
+- Windows: `C:\ProgramData\pyscanbox\config.yaml`
+
 
 ## Project Status
 

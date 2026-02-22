@@ -13,12 +13,11 @@ Configuration container class.
 **Methods:**
 - `__init__(config_dict)` - Initialize with configuration dictionary
 - `to_dict()` - Convert to dictionary
-- `_default_config()` - Get default configuration
 
 **Functions:**
-- `load_config(filepath)` - Load configuration from YAML file
+- `find_config()` - Find configuration file in standard locations
+- `load_config(filepath=None)` - Load configuration from YAML file
 - `save_config(config, filepath)` - Save configuration to YAML file
-- `get_default_config()` - Get default configuration object
 
 ---
 
@@ -282,7 +281,7 @@ Rate limiter for operations.
 ```python
 import pyscanbox
 
-config = pyscanbox.config.get_default_config()
+config = pyscanbox.config.load_config()
 scanner = pyscanbox.acquisition.scan.Scanner(
     config.to_dict(),
     output_path='data/my_scan'
@@ -295,7 +294,7 @@ scanner.run()
 ```python
 import pyscanbox
 
-config = pyscanbox.config.get_default_config()
+config = pyscanbox.config.load_config()
 motors = pyscanbox.hardware.motor.TrinamicMotor(config.to_dict())
 motors.open()
 motors.move_absolute(motor=0, position=1000)
@@ -307,7 +306,7 @@ motors.close()
 ```python
 import pyscanbox
 
-config = pyscanbox.config.get_default_config()
+config = pyscanbox.config.load_config()
 ctrl = pyscanbox.hardware.controller.ScanboxController(config.to_dict())
 ctrl.open()
 ctrl.set_pockels(base=50, active=100)

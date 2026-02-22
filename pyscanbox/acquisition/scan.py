@@ -11,8 +11,8 @@ Reference:
 
 Example:
     >>> import pyscanbox
-    >>> config = pyscanbox.config.get_default_config()
-    >>> scanner = pyscanbox.acquisition.scan.Scanner(config)
+    >>> config = pyscanbox.config.load_config()
+    >>> scanner = pyscanbox.acquisition.scan.Scanner(config.to_dict())
     >>> scanner.run()
 """
 
