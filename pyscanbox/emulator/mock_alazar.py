@@ -68,43 +68,43 @@ class Board:
 
         logger.info(f"Mock Alazar board initialized: System {system_id}, Board {board_id}")
 
-    def setCaptureClock(self, source: int, sample_rate: int,
+    def setCaptureClock(self, source: int, rate: int,
                        edge: int = 0, decimation: int = 0) -> int:
         """Configure capture clock.
 
         Args:
             source: Clock source
-            sample_rate: Sample rate code or value
+            rate: Sample rate code or value
             edge: Clock edge (0 = rising)
             decimation: Decimation factor
 
         Returns:
             Status code (512 = success)
         """
-        self.sample_rate = sample_rate
-        logger.debug(f"Clock configured: {sample_rate} S/s")
+        self.sample_rate = rate
+        logger.debug(f"Clock configured: {rate} S/s")
         return 512  # ApiSuccess
 
-    def inputControl(self, channel: int, coupling: int, input_range: int,
+    def inputControl(self, channel: int, coupling: int, inputRange: int,
                     impedance: int) -> int:
         """Configure input channel.
 
         Args:
             channel: Channel ID
             coupling: Coupling mode
-            input_range: Input range code
+            inputRange: Input range code
             impedance: Input impedance
 
         Returns:
             Status code (512 = success)
         """
-        self.input_range = input_range
+        self.input_range = inputRange
         logger.debug(f"Channel {channel} configured")
         return 512
 
     def setTriggerOperation(self, operation: int, engine1: int, source1: int,
                            slope1: int, level1: int, engine2: int,
-                           source2: int, slope2: int, level2: int) -> int:
+                           source2: int, slope2: int, level2: int) -> None:
         """Configure trigger operation.
 
         Args:
@@ -113,79 +113,56 @@ class Board:
             source1-2: Trigger sources
             slope1-2: Trigger slopes
             level1-2: Trigger levels
-
-        Returns:
-            Status code (512 = success)
         """
         logger.debug("Trigger configured")
-        return 512
 
-    def setExternalTrigger(self, coupling: int, range: int) -> int:
+    def setExternalTrigger(self, coupling: int, range: int) -> None:
         """Configure external trigger.
 
         Args:
             coupling: Coupling mode
             range: Input range
-
-        Returns:
-            Status code (512 = success)
         """
         logger.debug("External trigger configured")
-        return 512
 
-    def configureLSB(self, lsb0_source: int, lsb1_source: int) -> bool:
+    def configureLSB(self, valueLSB0: int, valueLSB1: int) -> None:
         """Configure LSB output bits for frame/line sync.
 
         Args:
-            lsb0_source: Source for LSB[0]
-            lsb1_source: Source for LSB[1]
-
-        Returns:
-            True on success.
+            valueLSB0: Value for LSB[0]
+            valueLSB1: Value for LSB[1]
         """
-        logger.debug(f"LSB configured: LSB0={lsb0_source}, LSB1={lsb1_source}")
+        logger.debug(f"LSB configured: LSB0={valueLSB0}, LSB1={valueLSB1}")
         self.is_configured = True
-        return True
 
-    def beforeAsyncRead(self, channels: int, transfer_offset: int,
-                       samples_per_record: int, records_per_buffer: int,
-                       records_per_acquisition: int, flags: int) -> int:
+    def beforeAsyncRead(self, channels: int, transferOffset: int,
+                       samplesPerRecord: int, recordsPerBuffer: int,
+                       recordsPerAcquisition: int, flags: int) -> None:
         """Setup asynchronous acquisition.
 
         Args:
             channels: Channel mask
-            transfer_offset: Transfer offset in samples
-            samples_per_record: Samples per record
-            records_per_buffer: Records per buffer
-            records_per_acquisition: Total records (or infinite)
+            transferOffset: Transfer offset in samples
+            samplesPerRecord: Samples per record
+            recordsPerBuffer: Records per buffer
+            recordsPerAcquisition: Total records (or infinite)
             flags: Configuration flags
-
-        Returns:
-            Status code (512 = success)
         """
-        self.buffer_size_samples = samples_per_record * records_per_buffer
+        self.buffer_size_samples = samplesPerRecord * recordsPerBuffer
         logger.debug(f"Async read configured: {self.buffer_size_samples} samples/buffer")
-        return 512
 
-    def postAsyncBuffer(self, buffer: np.ndarray) -> int:
+    def postAsyncBuffer(self, buffer: np.ndarray, bufferLength: Optional[int] = None) -> None:
         """Post buffer for DMA.
 
         Args:
-            buffer: NumPy array to fill with data
-
-        Returns:
-            Status code (512 = success)
+            buffer: NumPy array or pointer to fill with data
+            bufferLength: Buffer length in bytes (optional for numpy arrays)
         """
         with self.buffer_lock:
             self.posted_buffers.append(buffer)
-        return 512
 
-    def startCapture(self) -> int:
-        """Start data acquisition.
-
-        Returns:
-            Status code (512 = success)
-        """
+    def startCapture(self) -> None:
+        """Start data acquisition."""
         self.is_acquiring = True
         logger.info("Mock acquisition started")
 
@@ -196,18 +173,16 @@ class Board:
         )
         self._generation_thread.start()
 
-        return 512
-
     def waitAsyncBufferComplete(self, buffer: np.ndarray,
-                               timeout_ms: int = 5000) -> int:
+                               timeout_ms: int = 5000) -> None:
         """Wait for buffer to be filled with data.
 
         Args:
             buffer: Buffer to wait for
             timeout_ms: Timeout in milliseconds
-
-        Returns:
-            Status code (512 = success, 573 = timeout)
+            
+        Raises:
+            Exception: If timeout occurs (matching atsapi behavior)
         """
         start_time = time.time()
         timeout_sec = timeout_ms / 1000.0
@@ -218,26 +193,22 @@ class Board:
                     # Fill buffer with generated data
                     data = self.completed_buffers.pop(0)
                     np.copyto(buffer, data)
-                    return 512  # ApiSuccess
+                    return  # Success
 
             # Check timeout
             if time.time() - start_time > timeout_sec:
                 logger.warning("Buffer wait timeout")
-                return 573  # ApiWaitTimeout
+                raise Exception(f"Timeout waiting for buffer (code {ApiWaitTimeout})")
 
             time.sleep(0.001)  # 1ms sleep
 
-        return 573
+        # Acquisition stopped
+        raise Exception(f"Acquisition aborted (code {ApiWaitTimeout})")
 
-    def abortAsyncRead(self) -> int:
-        """Abort asynchronous acquisition.
-
-        Returns:
-            Status code (512 = success)
-        """
+    def abortAsyncRead(self) -> None:
+        """Abort asynchronous acquisition."""
         self.is_acquiring = False
         logger.info("Mock acquisition aborted")
-        return 512
 
     def _generate_data_loop(self) -> None:
         """Background thread to generate synthetic data.
