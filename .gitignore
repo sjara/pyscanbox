@@ -72,3 +72,6 @@ Thumbs.db
 venv/
 env/
 ENV/
+
+# Vendored proprietary SDK files (do not commit)
+pyscanbox/vendor/alazar/atsapi.py

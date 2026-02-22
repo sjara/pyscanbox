@@ -310,13 +310,17 @@ class Board:
         }
 
 
+# Store reference to Board class before defining factory function
+_BoardClass = Board
+
+
 def Board() -> Board:
     """Factory function to create mock board.
 
     Returns:
         Mock Board instance.
     """
-    return Board(system_id=1, board_id=1)
+    return _BoardClass(system_id=1, board_id=1)
 
 
 # API success code

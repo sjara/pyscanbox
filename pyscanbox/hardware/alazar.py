@@ -21,20 +21,45 @@ from typing import Tuple, Optional, List
 def _get_alazar_module(use_emulation: bool):
     """Get appropriate Alazar module based on emulation setting.
     
+    Priority order:
+        1. If emulation enabled: use mock_alazar
+        2. Try system-installed atsapi (from AlazarTech SDK)
+        3. Fall back to vendored atsapi (development)
+        4. Raise error if neither available
+    
     Args:
         use_emulation: If True, use mock Alazar
         
     Returns:
         Alazar module (either atsapi or mock_alazar)
+        
+    Raises:
+        ImportError: If atsapi not available and not in emulation mode
     """
     if use_emulation:
         from pyscanbox.emulator import mock_alazar
         return mock_alazar
-    else:
-        # TODO: Import real atsapi when available
-        # import atsapi
-        # return atsapi
-        raise NotImplementedError("AlazarTech API not yet integrated")
+    
+    # Try system-installed atsapi first (production)
+    try:
+        import atsapi
+        return atsapi
+    except ImportError:
+        pass
+    
+    # Fall back to vendored copy (development)
+    try:
+        from pyscanbox.vendor.alazar import atsapi
+        return atsapi
+    except ImportError:
+        pass
+    
+    # Neither available
+    raise ImportError(
+        "AlazarTech API (atsapi.py) not found. "
+        "Please install AlazarTech SDK or place atsapi.py in "
+        "pyscanbox/vendor/alazar/ for development."
+    )
 
 
 class AlazarDigitizer:
