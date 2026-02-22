@@ -1,9 +1,14 @@
-"""PyQt6 GUI modules (Phase 3).
+"""pyscanbox GUI module.
 
-This package will contain the graphical user interface using PyQt6.
-GUI development is deferred until Phase 3, after hardware control
-and acquisition are fully tested and stable.
+This module provides the PyQt6-based graphical user interface for the
+pyscanbox two-photon microscope control system.
+
+Main components:
+- MainWindow: The primary application window
+- panels: Control and display panels
+- widgets: Individual widget components
 """
 
-# GUI modules will be implemented in Phase 3
-__all__ = []
+from pyscanbox.gui.main_window import MainWindow
+
+__all__ = ['MainWindow']
