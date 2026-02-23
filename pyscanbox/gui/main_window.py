@@ -9,6 +9,7 @@ import PyQt6.QtWidgets as QtWidgets
 import PyQt6.QtCore as QtCore
 import PyQt6.QtGui as QtGui
 
+import pyscanbox
 from pyscanbox.gui import panels
 
 
@@ -136,6 +137,6 @@ class MainWindow(QtWidgets.QMainWindow):
             "About pyscanbox",
             "<h2>pyscanbox</h2>"
             "<p>Two-Photon Microscope Control Software</p>"
-            "<p>Version 0.2.0</p>"
+            f"<p>Version {pyscanbox.__version__}</p>"
             "<p>Python implementation of the Scanbox system</p>"
         )
