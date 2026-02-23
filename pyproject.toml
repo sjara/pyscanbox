@@ -52,8 +52,8 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
-addopts = "-v --cov=pyscanbox --cov-report=term-missing"
-
+addopts = "-v --cov=pyscanbox --cov-report=term-missing"# Exclude integration tests and benchmarks from default test runs
+norecursedirs = ["integration", "benchmarks"]
 [tool.mypy]
 python_version = "3.8"
 warn_return_any = true
