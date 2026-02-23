@@ -141,15 +141,19 @@ class Board:
         """Setup asynchronous acquisition.
 
         Args:
-            channels: Channel mask
+            channels: Channel mask (bit 0 = Ch A, bit 1 = Ch B)
             transferOffset: Transfer offset in samples
-            samplesPerRecord: Samples per record
+            samplesPerRecord: Samples per record PER CHANNEL
             recordsPerBuffer: Records per buffer
             recordsPerAcquisition: Total records (or infinite)
             flags: Configuration flags
         """
-        self.buffer_size_samples = samplesPerRecord * recordsPerBuffer
-        logger.debug(f"Async read configured: {self.buffer_size_samples} samples/buffer")
+        # Count active channels from bitmask
+        num_channels = bin(channels).count('1')
+        
+        # In interleaved mode, buffer size = samplesPerRecord * channels * recordsPerBuffer
+        self.buffer_size_samples = samplesPerRecord * num_channels * recordsPerBuffer
+        logger.debug(f"Async read configured: {self.buffer_size_samples} samples/buffer ({num_channels} channels interleaved)")
 
     def postAsyncBuffer(self, buffer: np.ndarray, bufferLength: Optional[int] = None) -> None:
         """Post buffer for DMA.

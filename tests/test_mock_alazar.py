@@ -119,10 +119,12 @@ class TestAsyncAcquisitionSetup:
         
         samplesPerRecord = 2048
         recordsPerBuffer = 1
+        channels_mask = 3  # Both channels (bits 0 and 1 set)
+        num_channels = 2  # bin(3).count('1') = 2
         
         # Should not raise exception
         board.beforeAsyncRead(
-            channels=3,  # Both channels
+            channels=channels_mask,
             transferOffset=0,
             samplesPerRecord=samplesPerRecord,
             recordsPerBuffer=recordsPerBuffer,
@@ -130,7 +132,8 @@ class TestAsyncAcquisitionSetup:
             flags=0x200  # NPT mode
         )
         
-        assert board.buffer_size_samples == samplesPerRecord * recordsPerBuffer
+        # Buffer size should account for interleaved channels
+        assert board.buffer_size_samples == samplesPerRecord * num_channels * recordsPerBuffer
 
     def test_postAsyncBuffer(self):
         """Test posting buffers for DMA."""
@@ -192,13 +195,13 @@ class TestAcquisitionControl:
         board = mock_alazar._BoardClass()
         board.beforeAsyncRead(3, 0, 2048, 1, 0, 0x200)
         
-        # Post and start
-        buffer = np.zeros(2048, dtype=np.uint16)
+        # Post and start (buffer size = 2048 samples/ch * 2 channels = 4096)
+        buffer = np.zeros(4096, dtype=np.uint16)
         board.postAsyncBuffer(buffer)
         board.startCapture()
         
         # Wait for buffer - should not raise exception
-        result_buffer = np.zeros(2048, dtype=np.uint16)
+        result_buffer = np.zeros(4096, dtype=np.uint16)
         board.waitAsyncBufferComplete(result_buffer, timeout_ms=1000)
         
         # Data should be non-zero (synthetic data generated)
@@ -293,9 +296,9 @@ class TestContinuousAcquisition:
         board = mock_alazar._BoardClass()
         board.beforeAsyncRead(3, 0, 2048, 1, 0, 0x200)
         
-        # Post multiple buffers
+        # Post multiple buffers (buffer size = 2048 * 2 channels = 4096)
         num_buffers = 5
-        buffers = [np.zeros(2048, dtype=np.uint16) for _ in range(num_buffers)]
+        buffers = [np.zeros(4096, dtype=np.uint16) for _ in range(num_buffers)]
         
         for buf in buffers:
             board.postAsyncBuffer(buf)
@@ -306,7 +309,7 @@ class TestContinuousAcquisition:
         # Retrieve buffers
         retrieved_buffers = []
         for i in range(num_buffers):
-            buf = np.zeros(2048, dtype=np.uint16)
+            buf = np.zeros(4096, dtype=np.uint16)
             try:
                 board.waitAsyncBufferComplete(buf, timeout_ms=1000)
                 retrieved_buffers.append(buf.copy())
@@ -330,9 +333,9 @@ class TestContinuousAcquisition:
         board = mock_alazar._BoardClass()
         board.beforeAsyncRead(3, 0, 1024, 1, 0, 0x200)
         
-        # Post buffers
+        # Post buffers (buffer size = 1024 * 2 channels = 2048)
         for _ in range(3):
-            board.postAsyncBuffer(np.zeros(1024, dtype=np.uint16))
+            board.postAsyncBuffer(np.zeros(2048, dtype=np.uint16))
         
         board.startCapture()
         

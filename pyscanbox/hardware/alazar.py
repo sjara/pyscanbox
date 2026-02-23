@@ -96,11 +96,15 @@ class AlazarDigitizer:
         self.use_emulation = config.get('emulation', {}).get('enabled', False)
         self.emulation_verbose = config.get('emulation', {}).get('verbose', False)
         
+        # Get appropriate Alazar module (needed for DMABuffer later)
+        self.alazar = _get_alazar_module(self.use_emulation)
+        
         self.board_handle = None
         
         # Buffer management
         self.buffers: List[np.ndarray] = []
         self.buffer_pointers: List[ctypes.c_void_p] = []
+        self.current_buffer_index = 0
         
         # Acquisition state
         self.is_configured = False
@@ -115,11 +119,9 @@ class AlazarDigitizer:
         Raises:
             RuntimeError: If no board is found or connection fails.
         """
-        # Get appropriate Alazar module
-        alazar_module = _get_alazar_module(self.use_emulation)
-        
+        # Use the Alazar module stored in __init__
         # Create board instance
-        self.board_handle = alazar_module.Board()
+        self.board_handle = self.alazar.Board()
         
         # Configure emulation verbosity if using mock
         if self.use_emulation and hasattr(self.board_handle, 'verbose'):
@@ -143,28 +145,52 @@ class AlazarDigitizer:
         # Configure clock source and sample rate
         if hasattr(self.board_handle, 'setCaptureClock'):
             self.board_handle.setCaptureClock(
-                source=1,  # INTERNAL_CLOCK
-                sample_rate=self.sample_rate,
-                edge=0,  # CLOCK_EDGE_RISING
-                decimation=0
+                1,  # INTERNAL_CLOCK
+                self.sample_rate,
+                0,  # CLOCK_EDGE_RISING
+                0   # decimation
             )
         
         # Configure input channels (AC coupling, input range)
         if hasattr(self.board_handle, 'inputControl'):
             for channel in range(self.channels):
                 self.board_handle.inputControl(
-                    channel=channel,
-                    coupling=2,  # AC_COUPLING
-                    input_range=7,  # INPUT_RANGE_PM_400_MV
-                    impedance=2  # IMPEDANCE_50_OHM
+                    channel,
+                    2,  # AC_COUPLING
+                    7,  # INPUT_RANGE_PM_400_MV
+                    2   # IMPEDANCE_50_OHM
                 )
         
-        # Configure trigger (external, rising edge)
-        # TODO: Implement trigger configuration when needed
+        # Configure trigger operation (external trigger, no second engine)
+        # TRIG_ENGINE_OP_J = 0 (trigger on J engine only)
+        # TRIG_ENGINE_J = 0 (J engine identifier)
+        # TRIG_EXTERNAL = 2 (external trigger source)
+        # TRIGGER_SLOPE_POSITIVE = 1 (rising edge)
+        # Level: 128 (mid-range for external trigger)
+        # Second engine (K): disabled with TRIG_ENGINE_K = 1, TRIG_DISABLE = 3
+        if hasattr(self.board_handle, 'setTriggerOperation'):
+            self.board_handle.setTriggerOperation(
+                0,    # TRIG_ENGINE_OP_J
+                0,    # TRIG_ENGINE_J
+                2,    # TRIG_EXTERNAL
+                1,    # TRIGGER_SLOPE_POSITIVE
+                128,  # Mid-range level
+                1,    # TRIG_ENGINE_K
+                3,    # TRIG_DISABLE
+                1,    # TRIGGER_SLOPE_POSITIVE (ignored)
+                128   # Level (ignored)
+            )
+        
+        # Configure external trigger input (DC coupling, TTL range)
+        if hasattr(self.board_handle, 'setExternalTrigger'):
+            self.board_handle.setExternalTrigger(
+                2,  # DC_COUPLING
+                2   # ETR_TTL
+            )
         
         # Configure LSB outputs for frame/line sync
-        if hasattr(self.board_handle, 'configureLSB'):
-            self.board_handle.configureLSB(lsb0_source=2, lsb1_source=3)
+        # LSB[0] = AUX_IN[0] (2), LSB[1] = AUX_IN[1] (3)
+        self.configure_lsb_outputs(lsb0_source=2, lsb1_source=3)
         
         self.is_configured = True
 
@@ -182,12 +208,16 @@ class AlazarDigitizer:
         Reference:
             See core/configureLsb9440.m for implementation details.
         """
-        # TODO: Read register 29
-        # TODO: Set LSB[0] source (bits 13:12)
-        # TODO: Set LSB[1] source (bits 15:14)
-        # TODO: Write register 29
-        # TODO: Configure AUX_IN_1 as input if needed (register 15, bit 27)
-        raise NotImplementedError("LSB configuration pending")
+        if self.board_handle is None:
+            raise RuntimeError("Board not opened. Call open() first.")
+        
+        # Use SDK's built-in configureLSB if available
+        if hasattr(self.board_handle, 'configureLSB'):
+            self.board_handle.configureLSB(lsb0_source, lsb1_source)
+        else:
+            # If not available (shouldn't happen with real hardware),
+            # this would be where manual register manipulation goes
+            raise NotImplementedError("configureLSB not available in this SDK version")
 
     def allocate_buffers(self) -> None:
         """Allocate DMA buffers for data acquisition.
@@ -198,13 +228,30 @@ class AlazarDigitizer:
         Note:
             Must use ctypes to allocate pinned memory for DMA safety.
         """
-        bytes_per_buffer = self.samples_per_buffer * 2  # 16-bit samples
+        if self.board_handle is None:
+            raise RuntimeError("Board not opened. Call open() first.")
         
+        # Clear any existing buffers
+        self.buffers.clear()
+        self.buffer_pointers.clear()
+        
+        # Calculate buffer size in bytes (16-bit samples, 2 channels interleaved)
+        bytes_per_buffer = self.samples_per_buffer * self.channels * 2
+        
+        # Allocate specified number of DMA buffers
         for i in range(self.buffer_count):
-            # TODO: Allocate pinned memory using ctypes
-            # buffer = np.empty(self.samples_per_buffer, dtype=np.uint16)
-            # self.buffers.append(buffer)
-            pass
+            # Use DMABuffer from atsapi if available, otherwise create numpy array
+            if hasattr(self.alazar, 'DMABuffer'):
+                # Use SDK's DMABuffer class for pinned memory
+                dma_buffer = self.alazar.DMABuffer(ctypes.c_uint16, bytes_per_buffer)
+                self.buffers.append(dma_buffer.buffer)  # NumPy array view
+                self.buffer_pointers.append(dma_buffer.addr)  # C pointer for posting
+            else:
+                # Fall back to numpy array (emulation mode)
+                buffer = np.empty(self.samples_per_buffer * self.channels, dtype=np.uint16)
+                self.buffers.append(buffer)
+                # For emulation, store the buffer itself (mock expects numpy array)
+                self.buffer_pointers.append(buffer)
 
     def start_acquisition(self) -> None:
         """Start continuous acquisition mode.
@@ -218,8 +265,37 @@ class AlazarDigitizer:
         if not self.is_configured:
             raise RuntimeError("Board not configured. Call configure() first.")
         
-        # TODO: Post DMA buffers to board
-        # TODO: Start acquisition (AlazarStartCapture)
+        if not self.buffers:
+            raise RuntimeError("Buffers not allocated. Call allocate_buffers() first.")
+        
+        # Configure acquisition mode
+        # channels: bitmask for channel A and B (1 | 2 = 3)
+        # transferOffset: 0 (no pretrigger samples)
+        # samplesPerRecord: samples per buffer
+        # recordsPerBuffer: 1 (NPT mode - continuous streaming)
+        # recordsPerAcquisition: 0x7FFFFFFF (infinite acquisition)
+        # flags: ADMA_NPT (0x200) | ADMA_CONTINUOUS_MODE (0x100)
+        channels_mask = (1 << 0) | (1 << 1)  # CHANNEL_A | CHANNEL_B = 3
+        if hasattr(self.board_handle, 'beforeAsyncRead'):
+            self.board_handle.beforeAsyncRead(
+                channels_mask,
+                0,  # transferOffset
+                self.samples_per_buffer,
+                1,  # recordsPerBuffer
+                0x7FFFFFFF,  # Continuous
+                0x200 | 0x100  # ADMA_NPT | ADMA_CONTINUOUS_MODE
+            )
+        
+        # Post all buffers to the board for DMA
+        for buffer_ptr in self.buffer_pointers:
+            if hasattr(self.board_handle, 'postAsyncBuffer'):
+                # Calculate buffer size in bytes
+                bytes_per_buffer = self.samples_per_buffer * self.channels * 2
+                self.board_handle.postAsyncBuffer(buffer_ptr, bytes_per_buffer)
+        
+        # Start the acquisition
+        if hasattr(self.board_handle, 'startCapture'):
+            self.board_handle.startCapture()
         
         self.is_acquiring = True
 
@@ -240,11 +316,31 @@ class AlazarDigitizer:
         if not self.is_acquiring:
             raise RuntimeError("Acquisition not started.")
         
-        # TODO: Wait for buffer (AlazarWaitAsyncBufferComplete)
-        # TODO: Return buffer data
-        # TODO: Repost buffer to board
+        # Rotate to next buffer (circular buffer management)
+        buffer_index = self.current_buffer_index
+        self.current_buffer_index = (self.current_buffer_index + 1) % self.buffer_count
         
-        return None
+        # Wait for buffer to be filled by the board
+        buffer_ptr = self.buffer_pointers[buffer_index]
+        try:
+            if hasattr(self.board_handle, 'waitAsyncBufferComplete'):
+                self.board_handle.waitAsyncBufferComplete(buffer_ptr, timeout_ms)
+            
+            # Copy data from DMA buffer (to prevent race conditions)
+            data = self.buffers[buffer_index].copy()
+            
+            # Repost buffer for continuous acquisition
+            if hasattr(self.board_handle, 'postAsyncBuffer'):
+                bytes_per_buffer = self.samples_per_buffer * self.channels * 2
+                self.board_handle.postAsyncBuffer(buffer_ptr, bytes_per_buffer)
+            
+            return data
+            
+        except Exception as e:
+            # Handle timeout or other errors
+            # In production, might want to be more specific about exception types
+            print(f"Error reading buffer: {e}")
+            return None
 
     def stop_acquisition(self) -> None:
         """Stop acquisition and release DMA buffers.
@@ -254,8 +350,18 @@ class AlazarDigitizer:
         if not self.is_acquiring:
             return
         
-        # TODO: Abort acquisition (AlazarAbortAsyncRead)
-        # TODO: Free DMA buffers
+        # Abort the asynchronous acquisition
+        if hasattr(self.board_handle, 'abortAsyncRead'):
+            try:
+                self.board_handle.abortAsyncRead()
+            except Exception as e:
+                print(f"Warning: Error aborting acquisition: {e}")
+        
+        # Clear buffer lists (actual memory cleanup handled by garbage collector
+        # or SDK's DMABuffer.__exit__ when objects are destroyed)
+        self.buffers.clear()
+        self.buffer_pointers.clear()
+        self.current_buffer_index = 0
         
         self.is_acquiring = False
 
