@@ -69,14 +69,21 @@ class LaserControlGroup(QtWidgets.QGroupBox):
         
         # Right sub-layout (power slider)
         right_layout = QtWidgets.QVBoxLayout()
-        right_layout.addWidget(QtWidgets.QLabel("Power"))
+        right_layout.addWidget(QtWidgets.QLabel("Power"), alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
+        
+        # Add stretch before slider to center it
+        right_layout.addStretch()
         
         self.power_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Vertical)
         self.power_slider.setRange(0, 100)
         self.power_slider.setValue(0)
         self.power_slider.setTickPosition(QtWidgets.QSlider.TickPosition.TicksRight)
         self.power_slider.setTickInterval(10)
-        right_layout.addWidget(self.power_slider)
+        self.power_slider.setSingleStep(2)  # 2% step for mouse wheel
+        right_layout.addWidget(self.power_slider, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
+        
+        # Add stretch after slider to center it
+        right_layout.addStretch()
         
         self.power_label = QtWidgets.QLabel("0%")
         self.power_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
@@ -134,8 +141,8 @@ class ScannerControlGroup(QtWidgets.QGroupBox):
         
         # Total frames
         self.total_frames_spinbox = QtWidgets.QSpinBox()
-        self.total_frames_spinbox.setRange(1, 1000000)
-        self.total_frames_spinbox.setValue(1000)
+        self.total_frames_spinbox.setRange(0, 1000000)
+        self.total_frames_spinbox.setValue(0)
         layout.addRow("Total frames:", self.total_frames_spinbox)
         
         # Lines/frame
@@ -155,14 +162,11 @@ class ScannerControlGroup(QtWidgets.QGroupBox):
         self.frame_rate_label = QtWidgets.QLabel("30.5 Hz")
         layout.addRow("Frame rate:", self.frame_rate_label)
         
-        # Scan mode selector
-        scan_mode_layout = QtWidgets.QHBoxLayout()
-        self.unidirectional_radio = QtWidgets.QRadioButton("Unidirectional")
-        self.bidirectional_radio = QtWidgets.QRadioButton("Bidirectional")
-        self.unidirectional_radio.setChecked(True)
-        scan_mode_layout.addWidget(self.unidirectional_radio)
-        scan_mode_layout.addWidget(self.bidirectional_radio)
-        layout.addRow("Scan mode:", scan_mode_layout)
+        # Scan mode selector (combo box)
+        self.scan_mode_combobox = QtWidgets.QComboBox()
+        self.scan_mode_combobox.addItems(["Unidirectional", "Bidirectional"])
+        self.scan_mode_combobox.setCurrentIndex(0)
+        layout.addRow("Scan mode:", self.scan_mode_combobox)
         
         self.setLayout(layout)
 
@@ -178,7 +182,7 @@ class PositionDisplayGroup(QtWidgets.QGroupBox):
     
     def __init__(self):
         """Initialize the position display group."""
-        super().__init__("Position")
+        super().__init__("Objective Position")
         self._init_ui()
         
     def _init_ui(self):
@@ -186,44 +190,49 @@ class PositionDisplayGroup(QtWidgets.QGroupBox):
         layout = QtWidgets.QGridLayout()
         
         # Objective angle
-        layout.addWidget(QtWidgets.QLabel("Objective angle:"), 0, 0)
+        layout.addWidget(QtWidgets.QLabel("Angle:"), 0, 0)
         self.objective_angle_edit = QtWidgets.QLineEdit("0.0°")
         self.objective_angle_edit.setReadOnly(True)
         layout.addWidget(self.objective_angle_edit, 0, 1, 1, 3)
         
+        # X, Y, Z labels above coordinate fields
+        layout.addWidget(QtWidgets.QLabel("X"), 1, 1, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(QtWidgets.QLabel("Y"), 1, 2, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(QtWidgets.QLabel("Z"), 1, 3, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
+        
         # World coordinates
-        layout.addWidget(QtWidgets.QLabel("World:"), 1, 0)
+        layout.addWidget(QtWidgets.QLabel("World:"), 2, 0)
         self.world_x_edit = QtWidgets.QLineEdit("0.00")
         self.world_x_edit.setReadOnly(True)
         self.world_x_edit.setMaximumWidth(70)
-        layout.addWidget(self.world_x_edit, 1, 1)
+        layout.addWidget(self.world_x_edit, 2, 1)
         
         self.world_y_edit = QtWidgets.QLineEdit("0.00")
         self.world_y_edit.setReadOnly(True)
         self.world_y_edit.setMaximumWidth(70)
-        layout.addWidget(self.world_y_edit, 1, 2)
+        layout.addWidget(self.world_y_edit, 2, 2)
         
         self.world_z_edit = QtWidgets.QLineEdit("0.00")
         self.world_z_edit.setReadOnly(True)
         self.world_z_edit.setMaximumWidth(70)
-        layout.addWidget(self.world_z_edit, 1, 3)
+        layout.addWidget(self.world_z_edit, 2, 3)
         
         # Rotated coordinates
-        layout.addWidget(QtWidgets.QLabel("Rotated:"), 2, 0)
+        layout.addWidget(QtWidgets.QLabel("Rotated:"), 3, 0)
         self.rotated_x_edit = QtWidgets.QLineEdit("0.00")
         self.rotated_x_edit.setReadOnly(True)
         self.rotated_x_edit.setMaximumWidth(70)
-        layout.addWidget(self.rotated_x_edit, 2, 1)
+        layout.addWidget(self.rotated_x_edit, 3, 1)
         
         self.rotated_y_edit = QtWidgets.QLineEdit("0.00")
         self.rotated_y_edit.setReadOnly(True)
         self.rotated_y_edit.setMaximumWidth(70)
-        layout.addWidget(self.rotated_y_edit, 2, 2)
+        layout.addWidget(self.rotated_y_edit, 3, 2)
         
         self.rotated_z_edit = QtWidgets.QLineEdit("0.00")
         self.rotated_z_edit.setReadOnly(True)
         self.rotated_z_edit.setMaximumWidth(70)
-        layout.addWidget(self.rotated_z_edit, 2, 3)
+        layout.addWidget(self.rotated_z_edit, 3, 3)
         
         self.setLayout(layout)
 
@@ -254,6 +263,7 @@ class AcquisitionControlGroup(QtWidgets.QGroupBox):
         self.focus_button.setStyleSheet(
             "QPushButton { min-height: 40px; font-size: 14px; }"
         )
+        self.focus_button.clicked.connect(self._on_focus_toggle)
         top_row.addWidget(self.focus_button)
         
         self.grab_button = QtWidgets.QPushButton("Grab")
@@ -261,6 +271,7 @@ class AcquisitionControlGroup(QtWidgets.QGroupBox):
         self.grab_button.setStyleSheet(
             "QPushButton { min-height: 40px; font-size: 14px; }"
         )
+        self.grab_button.clicked.connect(self._on_grab_toggle)
         top_row.addWidget(self.grab_button)
         layout.addLayout(top_row)
         
@@ -299,6 +310,28 @@ class AcquisitionControlGroup(QtWidgets.QGroupBox):
         layout.addLayout(bottom_row)
         
         self.setLayout(layout)
+        
+    def _on_focus_toggle(self, checked):
+        """Handle focus button toggle.
+        
+        Args:
+            checked: True if focus mode is active.
+        """
+        if checked:
+            self.focus_button.setText("Stop")
+        else:
+            self.focus_button.setText("Focus")
+            
+    def _on_grab_toggle(self, checked):
+        """Handle grab button toggle.
+        
+        Args:
+            checked: True if grab mode is active.
+        """
+        if checked:
+            self.grab_button.setText("Abort")
+        else:
+            self.grab_button.setText("Grab")
 
 
 class FileStorageGroup(QtWidgets.QGroupBox):
@@ -327,7 +360,7 @@ class FileStorageGroup(QtWidgets.QGroupBox):
         
         self.directory_edit = QtWidgets.QLineEdit()
         self.directory_edit.setReadOnly(True)
-        self.directory_edit.setText("/home/user/data")
+        self.directory_edit.setText("/data/")
         layout.addWidget(self.directory_edit, dir_row, 1)
         
         # Metadata fields
@@ -351,7 +384,7 @@ class FileStorageGroup(QtWidgets.QGroupBox):
         # Save channels selector
         layout.addWidget(QtWidgets.QLabel("Save Channels:"), 4, 0)
         self.channels_combobox = QtWidgets.QComboBox()
-        self.channels_combobox.addItems(["PMT0", "PMT1", "Both"])
+        self.channels_combobox.addItems(["PMT0", "PMT1", "PMT0 & PMT1"])
         self.channels_combobox.setCurrentIndex(2)
         layout.addWidget(self.channels_combobox, 4, 1)
         
@@ -480,10 +513,10 @@ class PMTControlGroup(QtWidgets.QGroupBox):
         
         self.pmt0_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.pmt0_slider.setRange(0, 100)
-        self.pmt0_slider.setValue(50)
+        self.pmt0_slider.setValue(0)
         pmt0_layout.addWidget(self.pmt0_slider)
         
-        self.pmt0_label = QtWidgets.QLabel("50%")
+        self.pmt0_label = QtWidgets.QLabel("0%")
         self.pmt0_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         pmt0_layout.addWidget(self.pmt0_label)
         
@@ -499,10 +532,10 @@ class PMTControlGroup(QtWidgets.QGroupBox):
         
         self.pmt1_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.pmt1_slider.setRange(0, 100)
-        self.pmt1_slider.setValue(50)
+        self.pmt1_slider.setValue(0)
         pmt1_layout.addWidget(self.pmt1_slider)
         
-        self.pmt1_label = QtWidgets.QLabel("50%")
+        self.pmt1_label = QtWidgets.QLabel("0%")
         self.pmt1_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         pmt1_layout.addWidget(self.pmt1_label)
         
@@ -536,7 +569,7 @@ class ImageDisplayControlGroup(QtWidgets.QGroupBox):
         # Channel display selector
         layout.addWidget(QtWidgets.QLabel("Channel:"))
         self.channel_combobox = QtWidgets.QComboBox()
-        self.channel_combobox.addItems(["PMT0", "PMT1", "PMT0/PMT1"])
+        self.channel_combobox.addItems(["PMT0", "PMT1", "PMT0 & PMT1"])
         self.channel_combobox.setCurrentIndex(0)
         layout.addWidget(self.channel_combobox)
         

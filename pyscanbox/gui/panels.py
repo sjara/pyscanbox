@@ -49,8 +49,8 @@ class LeftControlPanel(QtWidgets.QWidget):
         layout.addStretch()
         
         self.setLayout(layout)
-        self.setMinimumWidth(300)
-        self.setMaximumWidth(500)
+        self.setMinimumWidth(240)
+        self.setMaximumWidth(400)
 
 
 class RightDisplayPanel(QtWidgets.QWidget):
