@@ -49,6 +49,55 @@ class ScanboxConfig:
         self.motor = config_dict.get('motor', {})
         self.acquisition = config_dict.get('acquisition', {})
         self.io = config_dict.get('io', {})
+        self.knobby = config_dict.get('knobby', {})
+        self.scanner = config_dict.get('scanner', {})
+        self.pockels = config_dict.get('pockels', {})
+        self.laser = config_dict.get('laser', {})
+        self.optotune = config_dict.get('optotune', {})
+        self.camera_path = config_dict.get('camera_path', {})
+        self.pmt = config_dict.get('pmt', {})
+        self.processing = config_dict.get('processing', {})
+        self.objective = config_dict.get('objective', {})
+        self.alignment = config_dict.get('alignment', {})
+        self.auxiliary = config_dict.get('auxiliary', {})
+        self.external_events = config_dict.get('external_events', {})
+        self.trigger = config_dict.get('trigger', {})
+        self.quadrature = config_dict.get('quadrature', {})
+
+    def __getitem__(self, key: str) -> Any:
+        """Get configuration value by key (dictionary-like access).
+        
+        Args:
+            key: Configuration key
+            
+        Returns:
+            Configuration value for the given key
+            
+        Raises:
+            KeyError: If key does not exist
+        """
+        return getattr(self, key)
+    
+    def __setitem__(self, key: str, value: Any) -> None:
+        """Set configuration value by key (dictionary-like access).
+        
+        Args:
+            key: Configuration key
+            value: Value to set
+        """
+        setattr(self, key, value)
+    
+    def get(self, key: str, default: Any = None) -> Any:
+        """Get configuration value with default (dictionary-like access).
+        
+        Args:
+            key: Configuration key
+            default: Default value if key doesn't exist
+            
+        Returns:
+            Configuration value or default
+        """
+        return getattr(self, key, default)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary.
@@ -63,6 +112,20 @@ class ScanboxConfig:
             'acquisition': self.acquisition,
             'io': self.io,
             'emulation': self.emulation,
+            'knobby': self.knobby,
+            'scanner': self.scanner,
+            'pockels': self.pockels,
+            'laser': self.laser,
+            'optotune': self.optotune,
+            'camera_path': self.camera_path,
+            'pmt': self.pmt,
+            'processing': self.processing,
+            'objective': self.objective,
+            'alignment': self.alignment,
+            'auxiliary': self.auxiliary,
+            'external_events': self.external_events,
+            'trigger': self.trigger,
+            'quadrature': self.quadrature,
         }
 
 
