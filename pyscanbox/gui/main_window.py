@@ -20,6 +20,16 @@ class MainWindow(QtWidgets.QMainWindow):
     and real-time image display on the right.
     """
     
+    # Default window geometry
+    DEFAULT_WINDOW_X = 100
+    DEFAULT_WINDOW_Y = 100
+    DEFAULT_WINDOW_WIDTH = 1200
+    DEFAULT_WINDOW_HEIGHT = 900
+    
+    # Default panel widths (for splitter)
+    DEFAULT_LEFT_PANEL_WIDTH = 250
+    DEFAULT_RIGHT_PANEL_WIDTH = DEFAULT_WINDOW_WIDTH - DEFAULT_LEFT_PANEL_WIDTH
+    
     def __init__(self, config=None):
         """Initialize the main window.
         
@@ -33,7 +43,12 @@ class MainWindow(QtWidgets.QMainWindow):
     def _init_ui(self):
         """Initialize the user interface components."""
         self.setWindowTitle("pyscanbox - Two-Photon Microscope Control")
-        self.setGeometry(100, 100, 1400, 900)
+        self.setGeometry(
+            self.DEFAULT_WINDOW_X,
+            self.DEFAULT_WINDOW_Y,
+            self.DEFAULT_WINDOW_WIDTH,
+            self.DEFAULT_WINDOW_HEIGHT
+        )
         
         # Create central widget and main layout
         central_widget = QtWidgets.QWidget()
@@ -51,7 +66,10 @@ class MainWindow(QtWidgets.QMainWindow):
         main_splitter.addWidget(right_panel)
         
         # Set initial splitter sizes (left panel narrower than right)
-        main_splitter.setSizes([350, 1050])
+        main_splitter.setSizes([
+            self.DEFAULT_LEFT_PANEL_WIDTH,
+            self.DEFAULT_RIGHT_PANEL_WIDTH
+        ])
         
         # Add splitter to central widget
         layout = QtWidgets.QVBoxLayout()

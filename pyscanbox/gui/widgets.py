@@ -22,38 +22,23 @@ class LaserControlGroup(QtWidgets.QGroupBox):
     """Laser control group box.
     
     Contains:
-    - Indicator (ON/OFF label)
-    - Shutter button (open/close toggle)
     - Wavelength spinbox
-    - Power slider (vertical)
+    - Power slider (horizontal, Pockels control)
     """
     
-    def __init__(self):
-        """Initialize the laser control group."""
+    def __init__(self, config=None):
+        """Initialize the laser control group.
+        
+        Args:
+            config: Optional ScanboxConfig object (unused but kept for compatibility).
+        """
         super().__init__("Laser")
+        self.config = config
         self._init_ui()
         
     def _init_ui(self):
         """Initialize the UI components."""
-        main_layout = QtWidgets.QHBoxLayout()
-        
-        # Left sub-layout (text/button controls)
-        left_layout = QtWidgets.QVBoxLayout()
-        
-        # Indicator
-        self.indicator_label = QtWidgets.QLabel("OFF")
-        self.indicator_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.indicator_label.setStyleSheet(
-            "QLabel { background-color: #444; color: white; "
-            "padding: 5px; border-radius: 3px; font-weight: bold; }"
-        )
-        left_layout.addWidget(self.indicator_label)
-        
-        # Shutter button
-        self.shutter_button = QtWidgets.QPushButton("Open Shutter")
-        self.shutter_button.setCheckable(True)
-        self.shutter_button.clicked.connect(self._on_shutter_toggle)
-        left_layout.addWidget(self.shutter_button)
+        layout = QtWidgets.QVBoxLayout()
         
         # Wavelength
         wavelength_layout = QtWidgets.QHBoxLayout()
@@ -63,60 +48,30 @@ class LaserControlGroup(QtWidgets.QGroupBox):
         self.wavelength_spinbox.setValue(920)
         self.wavelength_spinbox.setSuffix(" nm")
         wavelength_layout.addWidget(self.wavelength_spinbox)
-        left_layout.addLayout(wavelength_layout)
+        layout.addLayout(wavelength_layout)
         
-        main_layout.addLayout(left_layout)
+        # Power slider (Pockels control)
+        power_layout = QtWidgets.QVBoxLayout()
+        power_layout.addWidget(QtWidgets.QLabel("Power (Pockels)"))
         
-        # Right sub-layout (power slider)
-        right_layout = QtWidgets.QVBoxLayout()
-        right_layout.addWidget(QtWidgets.QLabel("Power"), alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
-        
-        # Add stretch before slider to center it
-        right_layout.addStretch()
-        
-        self.power_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Vertical)
+        self.power_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.power_slider.setRange(0, 100)
         self.power_slider.setValue(0)
-        self.power_slider.setTickPosition(QtWidgets.QSlider.TickPosition.TicksRight)
+        self.power_slider.setTickPosition(QtWidgets.QSlider.TickPosition.TicksBelow)
         self.power_slider.setTickInterval(10)
         self.power_slider.setSingleStep(2)  # 2% step for mouse wheel
-        right_layout.addWidget(self.power_slider, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
-        
-        # Add stretch after slider to center it
-        right_layout.addStretch()
+        power_layout.addWidget(self.power_slider)
         
         self.power_label = QtWidgets.QLabel("0%")
         self.power_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        right_layout.addWidget(self.power_label)
+        power_layout.addWidget(self.power_label)
         
         self.power_slider.valueChanged.connect(
             lambda v: self.power_label.setText(f"{v}%")
         )
         
-        main_layout.addLayout(right_layout)
-        
-        self.setLayout(main_layout)
-        
-    def _on_shutter_toggle(self, checked):
-        """Handle shutter button toggle.
-        
-        Args:
-            checked: True if shutter should be open.
-        """
-        if checked:
-            self.shutter_button.setText("Close Shutter")
-            self.indicator_label.setText("ON")
-            self.indicator_label.setStyleSheet(
-                "QLabel { background-color: #2d2; color: white; "
-                "padding: 5px; border-radius: 3px; font-weight: bold; }"
-            )
-        else:
-            self.shutter_button.setText("Open Shutter")
-            self.indicator_label.setText("OFF")
-            self.indicator_label.setStyleSheet(
-                "QLabel { background-color: #444; color: white; "
-                "padding: 5px; border-radius: 3px; font-weight: bold; }"
-            )
+        layout.addLayout(power_layout)
+        self.setLayout(layout)
 
 
 class ScannerControlGroup(QtWidgets.QGroupBox):
@@ -168,6 +123,12 @@ class ScannerControlGroup(QtWidgets.QGroupBox):
         self.scan_mode_combobox.setCurrentIndex(0)
         layout.addRow("Scan mode:", self.scan_mode_combobox)
         
+        # Bidirectional alignment control
+        self.bidir_alignment_spinbox = QtWidgets.QSpinBox()
+        self.bidir_alignment_spinbox.setRange(-100, 100)
+        self.bidir_alignment_spinbox.setValue(0)
+        layout.addRow("Bidir alignment:", self.bidir_alignment_spinbox)
+        
         self.setLayout(layout)
 
 
@@ -201,7 +162,7 @@ class PositionDisplayGroup(QtWidgets.QGroupBox):
         layout.addWidget(QtWidgets.QLabel("Z"), 1, 3, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
         
         # World coordinates
-        layout.addWidget(QtWidgets.QLabel("World:"), 2, 0)
+        layout.addWidget(QtWidgets.QLabel("World (μm):"), 2, 0)
         self.world_x_edit = QtWidgets.QLineEdit("0.00")
         self.world_x_edit.setReadOnly(True)
         self.world_x_edit.setMaximumWidth(70)
@@ -218,7 +179,7 @@ class PositionDisplayGroup(QtWidgets.QGroupBox):
         layout.addWidget(self.world_z_edit, 2, 3)
         
         # Rotated coordinates
-        layout.addWidget(QtWidgets.QLabel("Rotated:"), 3, 0)
+        layout.addWidget(QtWidgets.QLabel("Rotated (μm):"), 3, 0)
         self.rotated_x_edit = QtWidgets.QLineEdit("0.00")
         self.rotated_x_edit.setReadOnly(True)
         self.rotated_x_edit.setMaximumWidth(70)
@@ -363,32 +324,51 @@ class FileStorageGroup(QtWidgets.QGroupBox):
         self.directory_edit.setText("/data/")
         layout.addWidget(self.directory_edit, dir_row, 1)
         
+        # Filename preview label
+        self.filename_label = QtWidgets.QLabel("Filename: _.sbx")
+        self.filename_label.setStyleSheet("QLabel { color: #666; font-style: italic; }")
+        layout.addWidget(self.filename_label, 1, 0, 1, 2)
+        
         # Metadata fields
-        layout.addWidget(QtWidgets.QLabel("Subject:"), 1, 0)
+        layout.addWidget(QtWidgets.QLabel("Subject:"), 2, 0)
         self.subject_edit = QtWidgets.QLineEdit()
         self.subject_edit.setPlaceholderText("Subject ID")
-        layout.addWidget(self.subject_edit, 1, 1)
+        self.subject_edit.textChanged.connect(self._update_filename)
+        layout.addWidget(self.subject_edit, 2, 1)
         
-        layout.addWidget(QtWidgets.QLabel("Date:"), 2, 0)
+        layout.addWidget(QtWidgets.QLabel("Date:"), 3, 0)
         self.date_edit = QtWidgets.QLineEdit()
-        self.date_edit.setPlaceholderText("YYYY-MM-DD")
+        self.date_edit.setPlaceholderText("YYYYMMDD")
         from datetime import datetime
-        self.date_edit.setText(datetime.now().strftime("%Y-%m-%d"))
-        layout.addWidget(self.date_edit, 2, 1)
+        self.date_edit.setText(datetime.now().strftime("%Y%m%d"))
+        self.date_edit.textChanged.connect(self._update_filename)
+        layout.addWidget(self.date_edit, 3, 1)
         
-        layout.addWidget(QtWidgets.QLabel("Session ID:"), 3, 0)
+        layout.addWidget(QtWidgets.QLabel("Session ID:"), 4, 0)
         self.session_edit = QtWidgets.QLineEdit()
         self.session_edit.setPlaceholderText("001")
-        layout.addWidget(self.session_edit, 3, 1)
+        self.session_edit.textChanged.connect(self._update_filename)
+        layout.addWidget(self.session_edit, 4, 1)
         
         # Save channels selector
-        layout.addWidget(QtWidgets.QLabel("Save Channels:"), 4, 0)
+        layout.addWidget(QtWidgets.QLabel("Save Channels:"), 5, 0)
         self.channels_combobox = QtWidgets.QComboBox()
         self.channels_combobox.addItems(["PMT0", "PMT1", "PMT0 & PMT1"])
         self.channels_combobox.setCurrentIndex(2)
-        layout.addWidget(self.channels_combobox, 4, 1)
+        layout.addWidget(self.channels_combobox, 5, 1)
         
         self.setLayout(layout)
+        
+        # Update filename initially
+        self._update_filename()
+        
+    def _update_filename(self):
+        """Update the filename preview based on metadata fields."""
+        subject = self.subject_edit.text() or "_"
+        date = self.date_edit.text() or "_"
+        session = self.session_edit.text() or "_"
+        filename = f"{subject}_{date}_{session}.sbx"
+        self.filename_label.setText(f"Filename: {filename}")
         
     def _select_directory(self):
         """Open directory selection dialog."""
@@ -545,8 +525,18 @@ class PMTControlGroup(QtWidgets.QGroupBox):
         
         layout.addLayout(pmt1_layout)
         
+        # Zero button
+        self.zero_button = QtWidgets.QPushButton("Zero")
+        self.zero_button.clicked.connect(self._zero_gains)
+        layout.addWidget(self.zero_button)
+        
         layout.addStretch()
         self.setLayout(layout)
+        
+    def _zero_gains(self):
+        """Set both PMT gains to zero."""
+        self.pmt0_slider.setValue(0)
+        self.pmt1_slider.setValue(0)
 
 
 class ImageDisplayControlGroup(QtWidgets.QGroupBox):

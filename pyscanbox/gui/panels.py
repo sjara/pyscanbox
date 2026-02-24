@@ -39,7 +39,7 @@ class LeftControlPanel(QtWidgets.QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
         
         # Add control group boxes
-        layout.addWidget(widgets.LaserControlGroup())
+        layout.addWidget(widgets.LaserControlGroup(self.config))
         layout.addWidget(widgets.ScannerControlGroup())
         layout.addWidget(widgets.PositionDisplayGroup())
         layout.addWidget(widgets.AcquisitionControlGroup())
@@ -49,7 +49,7 @@ class LeftControlPanel(QtWidgets.QWidget):
         layout.addStretch()
         
         self.setLayout(layout)
-        self.setMinimumWidth(240)
+        self.setMinimumWidth(250)
         self.setMaximumWidth(400)
 
 
