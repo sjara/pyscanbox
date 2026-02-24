@@ -140,6 +140,17 @@ class Serial:
         """Reset output buffer (no-op for mock)."""
         pass
 
+    @property
+    def in_waiting(self) -> int:
+        """Return number of bytes available to read.
+        
+        This property mimics pyserial's in_waiting attribute.
+        
+        Returns:
+            Number of bytes in the input buffer.
+        """
+        return len(self._response_buffer)
+
     def _handle_scanbox_command(self, data: bytes) -> None:
         """Handle 3-byte Scanbox controller command.
 
