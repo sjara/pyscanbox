@@ -98,6 +98,17 @@ class ScanboxConfig:
             Configuration value or default
         """
         return getattr(self, key, default)
+    
+    def __contains__(self, key: str) -> bool:
+        """Check if configuration key exists (support for 'in' operator).
+        
+        Args:
+            key: Configuration key to check
+            
+        Returns:
+            True if key exists, False otherwise
+        """
+        return hasattr(self, key)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary.
