@@ -17,6 +17,65 @@ import ctypes
 import numpy as np
 from typing import Tuple, Optional, List
 
+def _convert_sample_rate_to_id(sample_rate_hz: int) -> int:
+    """Convert sample rate in Hz to AlazarTech API constant.
+    
+    Args:
+        sample_rate_hz: Sample rate in samples per second (Hz)
+        
+    Returns:
+        AlazarTech API constant for the sample rate
+        
+    Raises:
+        ValueError: If sample rate is not supported
+    """
+    # Mapping from Hz to AlazarTech API constants
+    # Based on AlazarDefs.m and atsapi.py
+    rate_map = {
+        1000: 0x1,          # SAMPLE_RATE_1KSPS
+        2000: 0x2,          # SAMPLE_RATE_2KSPS
+        5000: 0x4,          # SAMPLE_RATE_5KSPS
+        10000: 0x8,         # SAMPLE_RATE_10KSPS
+        20000: 0xA,         # SAMPLE_RATE_20KSPS
+        50000: 0xC,         # SAMPLE_RATE_50KSPS
+        100000: 0xE,        # SAMPLE_RATE_100KSPS
+        200000: 0x10,       # SAMPLE_RATE_200KSPS
+        500000: 0x12,       # SAMPLE_RATE_500KSPS
+        1000000: 0x14,      # SAMPLE_RATE_1MSPS
+        2000000: 0x18,      # SAMPLE_RATE_2MSPS
+        5000000: 0x1A,      # SAMPLE_RATE_5MSPS
+        10000000: 0x1C,     # SAMPLE_RATE_10MSPS
+        20000000: 0x1E,     # SAMPLE_RATE_20MSPS
+        25000000: 0x21,     # SAMPLE_RATE_25MSPS
+        50000000: 0x22,     # SAMPLE_RATE_50MSPS
+        100000000: 0x24,    # SAMPLE_RATE_100MSPS
+        125000000: 0x25,    # SAMPLE_RATE_125MSPS
+        160000000: 0x26,    # SAMPLE_RATE_160MSPS
+        180000000: 0x27,    # SAMPLE_RATE_180MSPS
+        200000000: 0x28,    # SAMPLE_RATE_200MSPS
+        250000000: 0x2B,    # SAMPLE_RATE_250MSPS
+        400000000: 0x2D,    # SAMPLE_RATE_400MSPS
+        500000000: 0x30,    # SAMPLE_RATE_500MSPS
+        800000000: 0x32,    # SAMPLE_RATE_800MSPS
+        1000000000: 0x35,   # SAMPLE_RATE_1000MSPS
+        1200000000: 0x37,   # SAMPLE_RATE_1200MSPS
+        1500000000: 0x3A,   # SAMPLE_RATE_1500MSPS
+        1600000000: 0x3B,   # SAMPLE_RATE_1600MSPS
+        1800000000: 0x3D,   # SAMPLE_RATE_1800MSPS
+        2000000000: 0x3F,   # SAMPLE_RATE_2000MSPS
+        2400000000: 0x6A,   # SAMPLE_RATE_2400MSPS
+        3000000000: 0x75,   # SAMPLE_RATE_3000MSPS
+        3600000000: 0x7B,   # SAMPLE_RATE_3600MSPS
+        4000000000: 0x80,   # SAMPLE_RATE_4000MSPS
+    }
+    
+    if sample_rate_hz not in rate_map:
+        raise ValueError(
+            f"Unsupported sample rate: {sample_rate_hz} Hz. "
+            f"Supported rates: {list(rate_map.keys())}"
+        )
+    
+    return rate_map[sample_rate_hz]
 
 def _get_alazar_module(use_emulation: bool):
     """Get appropriate Alazar module based on emulation setting.
@@ -144,9 +203,11 @@ class AlazarDigitizer:
         
         # Configure clock source and sample rate
         if hasattr(self.board_handle, 'setCaptureClock'):
+            # Convert sample rate from Hz to API constant
+            sample_rate_id = _convert_sample_rate_to_id(self.sample_rate)
             self.board_handle.setCaptureClock(
                 1,  # INTERNAL_CLOCK
-                self.sample_rate,
+                sample_rate_id,
                 0,  # CLOCK_EDGE_RISING
                 0   # decimation
             )
