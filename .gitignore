@@ -75,3 +75,4 @@ ENV/
 
 # Vendored proprietary SDK files (do not commit)
 pyscanbox/vendor/alazar/atsapi.py
+/pyscanbox.code-workspace

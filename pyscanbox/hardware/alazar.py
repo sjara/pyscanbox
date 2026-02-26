@@ -212,16 +212,30 @@ class AlazarDigitizer:
                 0     # decimation
             )
         
+        # Set external clock level (required for ATS9440)
+        # Reference: scanbox.m lines 771-778
+        if hasattr(self.board_handle, 'setExternalClockLevel'):
+            self.board_handle.setExternalClockLevel(65.0)  # 65% level
+        
         # Configure input channels (DC coupling, input range)
         # Range depends on amplifier type: 200mV for variable, 1V for fixed
+        # Reference: scanbox.m lines 804-827
+        # CHANNEL_A = 0x1, CHANNEL_B = 0x2 (not indices 0, 1!)
         if hasattr(self.board_handle, 'inputControl'):
-            for channel in range(self.channels):
-                self.board_handle.inputControl(
-                    channel,
-                    2,   # DC_COUPLING (0x2)
-                    0x6, # INPUT_RANGE_PM_200_MV (default for variable amps)
-                    2    # IMPEDANCE_50_OHM (0x2)
-                )
+            # Channel A
+            self.board_handle.inputControl(
+                1,   # CHANNEL_A (0x1)
+                2,   # DC_COUPLING (0x2)
+                0x6, # INPUT_RANGE_PM_200_MV (default for variable amps)
+                2    # IMPEDANCE_50_OHM (0x2)
+            )
+            # Channel B
+            self.board_handle.inputControl(
+                2,   # CHANNEL_B (0x2)
+                2,   # DC_COUPLING (0x2)
+                0x6, # INPUT_RANGE_PM_200_MV (default for variable amps)
+                2    # IMPEDANCE_50_OHM (0x2)
+            )
         
         # Configure trigger operation (external trigger, no second engine)
         # TRIG_ENGINE_OP_J = 0 (trigger on J engine only)
@@ -249,6 +263,16 @@ class AlazarDigitizer:
                 2,  # DC_COUPLING
                 2   # ETR_TTL
             )
+        
+        # Set trigger delay (0 samples = no delay)
+        # Reference: scanbox.m lines 853-859
+        if hasattr(self.board_handle, 'setTriggerDelay'):
+            self.board_handle.setTriggerDelay(0)
+        
+        # Set trigger timeout (0 = wait forever)
+        # Reference: scanbox.m lines 861-874
+        if hasattr(self.board_handle, 'setTriggerTimeOut'):
+            self.board_handle.setTriggerTimeOut(0)
         
         # Configure LSB outputs for frame/line sync
         # LSB[0] = AUX_IN[0] (2), LSB[1] = AUX_IN[1] (3)
