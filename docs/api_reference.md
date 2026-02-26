@@ -46,7 +46,7 @@ Interface to ATS9440 digitizer.
 
 ### pyscanbox.hardware.controller
 
-Main Scanbox controller (Arduino) interface.
+Main Scanbox controller (PSoC 5LP) interface.
 
 #### ScanboxController
 

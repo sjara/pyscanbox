@@ -2,7 +2,7 @@
 
 This package contains modules for interfacing with:
     - AlazarTech digitizer (PMT data acquisition)
-    - Main Scanbox controller (Pockels, shutter, mirror)
+    - Main Scanbox controller (PSoC 5LP - Pockels, shutter, mirror)
     - Trinamic motors (knobby motor control)
     - Knobby display (Arduino-based position controller)
 """

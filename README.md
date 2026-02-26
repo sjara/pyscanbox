@@ -6,7 +6,7 @@ Python implementation of Scanbox two-photon microscope software.
 
 pyscanbox is a complete rewrite of the MATLAB-based Scanbox system in Python, providing:
 - AlazarTech PMT data acquisition at ~500 MB/s
-- Knobby motor control (Trinamic/Arduino)
+- Knobby motor control (Trinamic motors)
 - Pockels cell and laser shutter control
 - Data saving in standard `.sbx` and `.mat` formats for compatibility with existing analysis pipelines
 

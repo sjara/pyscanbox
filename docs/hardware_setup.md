@@ -2,56 +2,114 @@
 
 ## Overview
 
-This guide covers the hardware setup and connections for the pyscanbox system.
+This guide covers basic hardware installation and configuration for the pyscanbox system. For detailed technical information about specific components, see:
+
+- **AlazarTech Digitizer:** [alazar_digitizer.md](alazar_digitizer.md) - Clock configuration, LSB outputs, troubleshooting
+- **Knobby Controller:** [knobby_architecture.md](knobby_architecture.md) - Motor control architecture
+- **Communication Protocols:** [../devel/hardware_protocols.md](../devel/hardware_protocols.md) - Low-level protocol details
 
 ## Hardware Components
 
 ### 1. AlazarTech ATS9440 Digitizer
+
 - **Purpose:** High-speed PMT data acquisition
-- **Connection:** PCIe card
+- **Connection:** PCIe x8 card
 - **Data Rate:** 125 MS/s, 14-bit, 2-channel
 - **Throughput:** ~500 MB/s
+- **Sampling:** Two analog and two digital channels sampled at laser frequency (80 MHz) with 16-bit depth **[Reference: https://scanbox.org/2014/03/13/welcome-to-scanbox/]**
 
-**Setup:**
-1. Install ATS9440 card in PCIe slot
+**Quick Setup:**
+1. Install ATS9440 card in PCIe x8 or x16 slot
 2. Install AlazarTech SDK and drivers
-3. Verify installation with AlazarTech test utilities
-4. Configure LSB outputs for frame/line sync
+3. Connect external clock from resonant scanner
+4. Connect trigger and AUX inputs for frame/line sync
+5. Verify installation with AlazarTech test utilities
 
-### 2. Main Scanbox Controller (Arduino)
+**⚠️ Important:** The ATS9440 uses **external clock synchronization** with the resonant scanner. See [alazar_digitizer.md](alazar_digitizer.md) for critical configuration details.
+
+### 2. Main Scanbox Controller (PSoC 5LP)
+
 - **Purpose:** Pockels cell, shutter, and mirror control
 - **Connection:** USB serial (COM port)
-- **Baud Rate:** 1,000,000 baud
-- **Protocol:** 3-byte command packets
+- **Baud Rate:** 1,000,000 baud (1 Mbaud)
+- **Hardware:** Custom PSoC 5LP 32-bit ARM-based processor card (Cypress) **[Reference: https://scanbox.org/2014/03/13/welcome-to-scanbox/]**
+  - Generates scan signals
+  - Generates trigger signals for cameras
+  - Timestamps external TTL events
+  - Communicates via USB serial line
 
-**Setup:**
-1. Connect Arduino via USB
+**Quick Setup:**
+1. Connect controller via USB
 2. Note COM port in Device Manager (e.g., COM3)
 3. Update config.yaml with correct COM port
-4. Test connection with controller example
+4. Test connection with `examples/test_controller.py`
 
-**Pinout:**
-- Pockels cell control: Digital PWM output
-- Shutter control: Digital output
-- Mirror control: Firgelli actuator output
+**For protocol details:** See [hardware_protocols.md](../devel/hardware_protocols.md#scanbox-controller-protocol)
 
 ### 3. Trinamic Motor Controller
+
 - **Purpose:** Focus motor and positioning control
 - **Connection:** USB serial (COM port)
 - **Baud Rate:** 57,600 baud
-- **Protocol:** TMCL 9-byte packets
 
-**Setup:**
+**Quick Setup:**
 1. Connect Trinamic board via USB
 2. Note COM port in Device Manager (e.g., COM4)
 3. Update config.yaml with correct COM port
-4. Test motors with motor control example
+4. Test motors with `examples/motor_control.py`
 
-**Motor Configuration:**
-- Motor 0: Focus Z-axis
-- Motor 1: X-axis positioning
-- Motor 2: Y-axis positioning
-- Motor 3: Reserved/auxiliary
+**For protocol details:** See [hardware_protocols.md](../devel/hardware_protocols.md#trinamic-tmcl-protocol)
+
+## Physical Connections
+
+### Scanbox Controller Box
+
+The Scanbox controller box has multiple front panel connectors that interface with various hardware components.
+
+#### Front Panel Ports
+
+**Multipin Connectors:**
+- **RESONANT SCANNER:** Connection to resonant scanner hardware **⚠️ UNCONFIRMED: provides external clock and sync signals**
+- **SERVO:** Dual connectors (one multipin, one additional) **⚠️ UNCONFIRMED: purpose not verified**
+- **FIRGELLI MIRROR:** Controls the Firgelli linear actuator that switches between 2P and epifluorescence paths
+- **PHOTOMULTIPLIER TUBES:** Two separate Phoenix-style connectors **⚠️ UNCONFIRMED: may be for power only, signal path not verified**
+
+**SMA Connectors:**
+- **CURRENT SOURCE:** Connected **⚠️ UNCONFIRMED: purpose not verified**
+- **TTL1:** Connected **⚠️ UNCONFIRMED: purpose not verified**
+- **TTL0:** (not connected)
+- **POCKELS CELL:** Connected **⚠️ UNCONFIRMED: controls laser power via Pockels cell - not verified**
+- **SAMPLE TRIGGER:** Timing signal for data acquisition (connected to AlazarTech digitizer TRIG IN)
+- **LASER SHUTTER:** Connected to external ThorLabs shutter in laser path
+- **CAMERA TRIG1:** (not connected)
+- **CAMERA TRIG0:** Connected **⚠️ UNCONFIRMED: purpose not verified**
+
+**Other Connectors:**
+- **I2C BUS:** I2C communication bus (typically not connected)
+
+#### Critical Connections for Two-Photon Imaging
+
+1. **SAMPLE TRIGGER** → AlazarTech digitizer **TRIG IN**
+2. **LASER SHUTTER** → External ThorLabs shutter in laser path
+
+**⚠️ UNCONFIRMED - Typical connections (to be verified):**
+- **POCKELS CELL** → Pockels cell driver
+- **FIRGELLI MIRROR** → Mirror actuator
+- **PHOTOMULTIPLIER TUBES** → PMT amplifier outputs or power supply (signal path unknown)
+- **TTL1** → External stimulus/trigger systems
+- **CAMERA TRIG0/1** → Camera triggers
+
+### AlazarTech Digitizer Connections
+
+See [alazar_digitizer.md](alazar_digitizer.md#signal-connections) for complete digitizer connection details.
+
+**Summary of connections:**
+- **ECLK (External Clock):** Connected to laser
+- **Channel A:** Connected **⚠️ UNCONFIRMED: signal source unknown - may be direct from PMT or via controller box**
+- **Channel B:** Connected **⚠️ UNCONFIRMED: signal source unknown - may be direct from PMT or via controller box**
+- **TRIG IN:** Connected to **SAMPLE TRIGGER** from Scanbox controller box
+- **AUX 0:** Connected to stimulus presentation system **⚠️ UNCONFIRMED: default behavior as TRIG OUT not verified**
+- **AUX 1:** Not connected
 
 ## Software Requirements
 
@@ -117,56 +175,28 @@ python examples/test_alazar.py
 - Update drivers
 
 ### Alazar Not Detected
-- Verify PCIe card is seated properly
-- Check BIOS for PCIe configuration
-- Reinstall AlazarTech SDK
-- Run AlazarTech diagnostic tools
+See detailed troubleshooting in [alazar_digitizer.md](alazar_digitizer.md#common-issues-and-troubleshooting)
 
 ### Motor Not Responding
 - Check baud rate (57600)
-- Verify TMCL checksum
+- Verify TMCL checksum calculation
 - Test with Trinamic software
 - Check power supply to motors
+- See [hardware_protocols.md](../devel/hardware_protocols.md#trinamic-tmcl-protocol) for protocol details
 
-### High-Speed Acquisition Fails
-- Verify PCIe lane configuration (x8 or x16 recommended)
-- Check for other PCIe bandwidth users
-- Disable power saving on PCIe
-- Update AlazarTech firmware
+### Configuration Errors
+See [alazar_digitizer.md](alazar_digitizer.md#apiinvaliddata-error) for AlazarTech-specific errors
 
 ## Performance Optimization
 
-### Windows Settings
-1. Disable Windows Update during acquisition
-2. Disable antivirus real-time scanning on data directory
-3. Use high-performance power plan
-4. Disable network adapters during acquisition
+For detailed performance tuning, see [alazar_digitizer.md](alazar_digitizer.md#performance-optimization)
 
-### PCIe Optimization
-1. Use PCIe x8 or x16 slot
-2. Do not share lanes with other high-bandwidth devices
-3. Check PCIe link speed in Device Manager
-4. Consider PCIe 3.0 or later motherboard
-
-### Storage
-1. Use dedicated SSD for data (not system drive)
-2. NVMe SSD recommended for 500 MB/s sustained write
-3. Ensure sufficient free space (200+ GB recommended)
-4. Avoid RAID configurations with high overhead
-
-## Safety
-
-### Laser Safety
-- Always verify shutter closes properly
-- Test emergency stop procedures
-- Post laser safety warnings
-- Use appropriate laser safety glasses
-
-### Motor Safety
-- Test motor limits before unattended operation
-- Implement soft limits in software
-- Add emergency stop button
-- Keep clear of moving parts
+**Key recommendations:**
+- Use PCIe x8 or x16 slot (not x4)
+- Disable Windows Update during acquisition
+- Use NVMe SSD for data storage
+- Disable power saving on PCIe
+- Close unnecessary applications
 
 ## Next Steps
 
@@ -176,5 +206,12 @@ After hardware setup:
 3. Calibrate Pockels cell power
 4. Adjust motor speeds and limits
 5. Perform test acquisitions
+
+## Additional Documentation
+
+- **AlazarTech Details:** [alazar_digitizer.md](alazar_digitizer.md)
+- **Knobby Architecture:** [knobby_architecture.md](knobby_architecture.md)
+- **Communication Protocols:** [../devel/hardware_protocols.md](../devel/hardware_protocols.md)
+- **API Reference:** [api_reference.md](api_reference.md)
 
 For support, see project documentation or contact maintainers.

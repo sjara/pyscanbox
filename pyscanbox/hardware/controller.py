@@ -1,7 +1,7 @@
 """Main Scanbox controller interface for Pockels, shutter, and mirror control.
 
 This module provides serial communication with the main Scanbox controller
-(Arduino) at 1,000,000 baud using 3-byte command packets.
+(PSoC 5LP) at 1,000,000 baud using 3-byte command packets.
 
 Protocol:
     All commands are 3-byte packets: [Command_ID, Param1, Param2]
@@ -47,7 +47,7 @@ def _get_serial_module(use_emulation: bool):
 class ScanboxController:
     """Interface to main Scanbox controller box.
 
-    This class handles serial communication with the Arduino-based
+    This class handles serial communication with the PSoC 5LP-based
     controller for Pockels cell, shutter, and epi/2P mirror control.
 
     Attributes:
@@ -58,6 +58,7 @@ class ScanboxController:
     """
 
     # Command IDs
+    CMD_SCAN = 4
     CMD_MIRROR = 5
     CMD_POCKELS = 8
     CMD_SHUTTER = 16
@@ -85,6 +86,7 @@ class ScanboxController:
         self.current_pockels = {'base': 0, 'active': 0}
         self.shutter_open = False
         self.mirror_mode = '2p'  # '2p' or 'epi'
+        self.scan_running = False
 
     def open(self) -> None:
         """Open serial connection to controller.
@@ -116,8 +118,9 @@ class ScanboxController:
         
         self.is_open = True
         
-        # Wait for Arduino to reset after serial connection
-        time.sleep(2.0)
+        # Wait for controller to reset after serial connection (real hardware only)
+        if not self.use_emulation:
+            time.sleep(2.0)
         
         # Flush any startup data
         self.port.reset_input_buffer()
@@ -225,3 +228,35 @@ class ScanboxController:
             Current mirror mode ('2p' or 'epi').
         """
         return self.mirror_mode
+
+    def start_scan(self) -> None:
+        """Start scanning.
+
+        Sends command to start the resonant scanner and galvo mirrors.
+        Does NOT start PMTs or data acquisition - this only starts
+        the physical scanning mechanism.
+
+        Reference:
+            See sb/sb_scan.m (sends [4, 0, 1])
+        """
+        self._send_command(self.CMD_SCAN, 0, 1)
+        self.scan_running = True
+
+    def stop_scan(self) -> None:
+        """Stop scanning.
+
+        Sends abort command to stop the scanning system.
+
+        Reference:
+            See sb/sb_abort.m
+        """
+        self._send_command(self.CMD_SCAN, 0, 0)
+        self.scan_running = False
+
+    def get_scan_state(self) -> bool:
+        """Get current scan state.
+
+        Returns:
+            True if scanning is running, False if stopped.
+        """
+        return self.scan_running

@@ -202,24 +202,25 @@ class AlazarDigitizer:
             raise RuntimeError("Board not opened. Call open() first.")
         
         # Configure clock source and sample rate
+        # Note: Scanbox uses EXTERNAL clock (from resonant scanner)
+        # Sample rate is determined by external clock frequency, not this parameter
         if hasattr(self.board_handle, 'setCaptureClock'):
-            # Convert sample rate from Hz to API constant
-            sample_rate_id = _convert_sample_rate_to_id(self.sample_rate)
             self.board_handle.setCaptureClock(
-                1,  # INTERNAL_CLOCK
-                sample_rate_id,
-                0,  # CLOCK_EDGE_RISING
-                0   # decimation
+                2,    # FAST_EXTERNAL_CLOCK (0x2)
+                0x40, # SAMPLE_RATE_USER_DEF (ignored when using external clock)
+                0,    # CLOCK_EDGE_RISING
+                0     # decimation
             )
         
-        # Configure input channels (AC coupling, input range)
+        # Configure input channels (DC coupling, input range)
+        # Range depends on amplifier type: 200mV for variable, 1V for fixed
         if hasattr(self.board_handle, 'inputControl'):
             for channel in range(self.channels):
                 self.board_handle.inputControl(
                     channel,
-                    2,  # AC_COUPLING
-                    7,  # INPUT_RANGE_PM_400_MV
-                    2   # IMPEDANCE_50_OHM
+                    2,   # DC_COUPLING (0x2)
+                    0x6, # INPUT_RANGE_PM_200_MV (default for variable amps)
+                    2    # IMPEDANCE_50_OHM (0x2)
                 )
         
         # Configure trigger operation (external trigger, no second engine)

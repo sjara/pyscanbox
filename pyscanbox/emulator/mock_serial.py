@@ -37,6 +37,7 @@ class Serial:
     """
 
     # Scanbox controller command IDs
+    CMD_SCAN = 4
     CMD_MIRROR = 5
     CMD_POCKELS = 8
     CMD_SHUTTER = 16
@@ -175,6 +176,11 @@ class Serial:
             self.state['mirror'] = 'epi' if param2 else '2p'
             if self.verbose:
                 logger.debug(f"Mirror: {self.state['mirror']}")
+
+        elif cmd_id == self.CMD_SCAN:
+            self.state['scan_running'] = bool(param2)
+            if self.verbose:
+                logger.debug(f"Scan: {'started' if param2 else 'stopped'}")
 
         else:
             if self.verbose:
