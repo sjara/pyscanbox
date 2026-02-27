@@ -56,7 +56,7 @@ This guide covers basic hardware installation and configuration for the pyscanbo
 1. Connect Trinamic board via USB
 2. Note COM port in Device Manager (e.g., COM4)
 3. Update config.yaml with correct COM port
-4. Test motors with `examples/motor_control.py`
+4. Test motors with `examples/test_motor.py`
 
 **For protocol details:** See [hardware_protocols.md](../devel/hardware_protocols.md#trinamic-tmcl-protocol)
 
@@ -156,7 +156,7 @@ python examples/test_controller.py
 
 Test motors:
 ```bash
-python examples/motor_control.py
+python examples/test_motor.py
 ```
 
 ### 4. Verify Alazar Connection

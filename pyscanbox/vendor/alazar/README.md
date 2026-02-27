@@ -42,3 +42,6 @@ The import logic in `pyscanbox/hardware/alazar.py`:
 ## License Note
 
 `atsapi.py` is proprietary AlazarTech SDK code and should not be committed to version control or distributed. It is excluded via `.gitignore`.
+
+The version used for testing came from:
+https://github.com/jyr-king/PyQCLab/blob/master/Instrument/atsapi.py

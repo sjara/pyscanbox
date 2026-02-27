@@ -149,7 +149,14 @@ class AlazarDigitizer:
         self.bits_per_sample = config['alazar']['bits_per_sample']
         self.channels = config['alazar']['channels']
         self.buffer_count = config['alazar']['buffer_count']
-        self.samples_per_buffer = config['alazar']['samples_per_buffer']
+        
+        # AlazarTech digitizers require samplesPerRecord to be aligned
+        # Typically to 64-sample boundaries for optimal DMA performance
+        raw_samples = config['alazar']['samples_per_buffer']
+        self.samples_per_buffer = self._align_sample_count(raw_samples)
+        
+        if self.samples_per_buffer != raw_samples:
+            print(f"Note: Aligned buffer size from {raw_samples} to {self.samples_per_buffer} samples")
         
         # Check if emulation is enabled
         self.use_emulation = config.get('emulation', {}).get('enabled', False)
@@ -168,6 +175,28 @@ class AlazarDigitizer:
         # Acquisition state
         self.is_configured = False
         self.is_acquiring = False
+
+    def _align_sample_count(self, samples: int, alignment: int = 64) -> int:
+        """Align sample count to required boundary.
+        
+        AlazarTech digitizers require samplesPerRecord to be aligned to
+        specific boundaries (typically 64 samples) for optimal DMA performance.
+        Also enforces a minimum size for reliable operation.
+        
+        Args:
+            samples: Requested number of samples
+            alignment: Required alignment (default 64)
+            
+        Returns:
+            Aligned sample count (rounded up to nearest multiple of alignment)
+        """
+        # Enforce minimum buffer size (256 samples is typical minimum)
+        min_samples = 256
+        if samples < min_samples:
+            samples = min_samples
+            
+        # Align to boundary
+        return ((samples + alignment - 1) // alignment) * alignment
 
     def open(self) -> None:
         """Open connection to Alazar board.
@@ -354,22 +383,24 @@ class AlazarDigitizer:
         if not self.buffers:
             raise RuntimeError("Buffers not allocated. Call allocate_buffers() first.")
         
-        # Configure acquisition mode
-        # channels: bitmask for channel A and B (1 | 2 = 3)
-        # transferOffset: 0 (no pretrigger samples)
-        # samplesPerRecord: samples per buffer
-        # recordsPerBuffer: 1 (NPT mode - continuous streaming)
-        # recordsPerAcquisition: 0x7FFFFFFF (infinite acquisition)
-        # flags: ADMA_NPT (0x200) | ADMA_CONTINUOUS_MODE (0x100)
-        channels_mask = (1 << 0) | (1 << 1)  # CHANNEL_A | CHANNEL_B = 3
+        # Configure acquisition mode for NPT (No Pre-Trigger) streaming
+        # Reference: AlazarTech SDK documentation for NPT mode
+        # 
+        # channels: bitmask for channels to acquire (CHANNEL_A=1, CHANNEL_B=2)
+        # transferOffset: 0 (no pretrigger samples in NPT mode)
+        # samplesPerRecord: number of samples per record (must be aligned)
+        # recordsPerBuffer: 1 for NPT mode (continuous streaming)
+        # recordsPerAcquisition: 0x7FFFFFFF for infinite acquisition
+        # flags: ADMA_NPT | ADMA_CONTINUOUS_MODE for streaming mode
+        channels_mask = 1 | 2  # CHANNEL_A | CHANNEL_B (bitmask: 3)
         if hasattr(self.board_handle, 'beforeAsyncRead'):
             self.board_handle.beforeAsyncRead(
-                channels_mask,
-                0,  # transferOffset
-                self.samples_per_buffer,
-                1,  # recordsPerBuffer
-                0x7FFFFFFF,  # Continuous
-                0x200 | 0x100  # ADMA_NPT | ADMA_CONTINUOUS_MODE
+                channels_mask,              # U32: channels to acquire
+                0,                          # c_long: transferOffset (pretrigger samples)
+                self.samples_per_buffer,    # U32: samplesPerRecord (aligned)
+                1,                          # U32: recordsPerBuffer (1 for NPT)
+                0x7FFFFFFF,                 # U32: recordsPerAcquisition (infinite)
+                0x200 | 0x100               # U32: ADMA_NPT | ADMA_CONTINUOUS_MODE
             )
         
         # Post all buffers to the board for DMA
