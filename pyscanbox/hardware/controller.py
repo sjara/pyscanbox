@@ -1,4 +1,4 @@
-"""Main Scanbox controller interface for Pockels, shutter, and mirror control.
+"""Main Scanbox controller interface for Pockels, mirror, and scan control.
 
 This module provides serial communication with the main Scanbox controller
 (PSoC 5LP) at 1,000,000 baud using 3-byte command packets.
@@ -7,13 +7,19 @@ Protocol:
     All commands are 3-byte packets: [Command_ID, Param1, Param2]
     
     Commands:
-        Pockels Cell (ID 8):  [8, base_power, active_power]
+        Scan (ID 4):          [4, 0, 1] (start) or [4, 0, 0] (stop)
         Epi/2P Mirror (ID 5): [5, 0, 0] (2P) or [5, 0, 1] (Epi)
+        Pockels Cell (ID 8):  [8, base_power, active_power]
         Shutter (ID 16):      [16, 0, 1] (Open) or [16, 0, 0] (Close)
+                              Original system: controls a Uniblitz shutter.
+                              On some rigs (e.g., ThorLabs shutter wired to
+                              LASER SHUTTER output), this command has no
+                              effect; the shutter opens with Scan Control
+                              (ID 4) instead.
 
 Reference:
     Original MATLAB implementation: sb/sb_open.m, sb/sb_pockels.m,
-    sb/sb_shutter.m, sb/sb_mirror.m
+    sb/sb_shutter.m, sb/sb_mirror.m, sb/sb_scan.m, sb/sb_abort.m
 
 Example:
     >>> import pyscanbox.hardware.controller

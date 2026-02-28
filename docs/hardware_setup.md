@@ -21,11 +21,11 @@ This guide covers basic hardware installation and configuration for the pyscanbo
 **Quick Setup:**
 1. Install ATS9440 card in PCIe x8 or x16 slot
 2. Install AlazarTech SDK and drivers
-3. Connect external clock from resonant scanner
-4. Connect trigger and AUX inputs for frame/line sync
+3. Connect external clock from laser sync-out (~80 MHz) via BBP-70+ band-pass filter ([source](https://scanbox.org/2014/03/18/synchronize-to-the-laser/))
+4. Connect trigger from Scanbox controller SAMPLE TRIGGER output and AUX inputs for frame/line sync
 5. Verify installation with AlazarTech test utilities
 
-**⚠️ Important:** The ATS9440 uses **external clock synchronization** with the resonant scanner. See [alazar_digitizer.md](alazar_digitizer.md) for critical configuration details.
+**⚠️ Important:** The ATS9440 uses **external clock from the laser sync-out**, not the internal clock. See [alazar_digitizer.md](alazar_digitizer.md) for critical configuration details.
 
 ### 2. Main Scanbox Controller (PSoC 5LP)
 
@@ -42,7 +42,7 @@ This guide covers basic hardware installation and configuration for the pyscanbo
 1. Connect controller via USB
 2. Note COM port in Device Manager (e.g., COM3)
 3. Update config.yaml with correct COM port
-4. Test connection with `examples/test_controller.py`
+4. Check connection with `examples/check_controller.py`
 
 **For protocol details:** See [hardware_protocols.md](../devel/hardware_protocols.md#scanbox-controller-protocol)
 
@@ -56,7 +56,7 @@ This guide covers basic hardware installation and configuration for the pyscanbo
 1. Connect Trinamic board via USB
 2. Note COM port in Device Manager (e.g., COM4)
 3. Update config.yaml with correct COM port
-4. Test motors with `examples/test_motor.py`
+4. Check motors with `examples/check_motor.py`
 
 **For protocol details:** See [hardware_protocols.md](../devel/hardware_protocols.md#trinamic-tmcl-protocol)
 
@@ -69,7 +69,7 @@ The Scanbox controller box has multiple front panel connectors that interface wi
 #### Front Panel Ports
 
 **Multipin Connectors:**
-- **RESONANT SCANNER:** Connection to resonant scanner hardware **⚠️ UNCONFIRMED: provides external clock and sync signals**
+- **RESONANT SCANNER:** Connection to resonant scanner hardware **⚠️ UNCONFIRMED: likely carries drive signals to the scanner and sync signal back; does NOT provide the Alazar external clock (that comes from the laser sync-out)**
 - **SERVO:** Dual connectors (one multipin, one additional) **⚠️ UNCONFIRMED: purpose not verified**
 - **FIRGELLI MIRROR:** Controls the Firgelli linear actuator that switches between 2P and epifluorescence paths
 - **PHOTOMULTIPLIER TUBES:** Two separate Phoenix-style connectors **⚠️ UNCONFIRMED: may be for power only, signal path not verified**
@@ -91,6 +91,10 @@ The Scanbox controller box has multiple front panel connectors that interface wi
 
 1. **SAMPLE TRIGGER** → AlazarTech digitizer **TRIG IN**
 2. **LASER SHUTTER** → External ThorLabs shutter in laser path
+   *(On this rig the shutter opens in response to Scan Control (CMD 4),
+   not the dedicated Shutter command (CMD 16). See
+   [scanbox_controller.md](../devel/protocols/scanbox_controller.md#shutter-control-id-16)
+   for details.)*
 
 **⚠️ UNCONFIRMED - Typical connections (to be verified):**
 - **POCKELS CELL** → Pockels cell driver
@@ -115,7 +119,7 @@ See [alazar_digitizer.md](alazar_digitizer.md#signal-connections) for complete d
 
 ### Windows OS
 - **Required:** Windows 10 or later (64-bit)
-- **Reason:** Hardware drivers require Windows
+- **Reason:** The physical hardware rig runs Windows; deployment and HIL testing require a Windows machine
 
 ### Python Environment
 - **Version:** Python 3.8 or later
@@ -151,19 +155,19 @@ motor:
 
 Test controller:
 ```bash
-python examples/test_controller.py
+python examples/check_controller.py
 ```
 
 Test motors:
 ```bash
-python examples/test_motor.py
+python examples/check_motor.py
 ```
 
 ### 4. Verify Alazar Connection
 
 Run Alazar test (when implemented):
 ```bash
-python examples/test_alazar.py
+python examples/check_alazar.py
 ```
 
 ## Troubleshooting

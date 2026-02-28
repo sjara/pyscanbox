@@ -1,7 +1,7 @@
 """Mock serial interface for controller and motor emulation.
 
 This module provides a mock serial.Serial replacement that:
-- Tracks hardware state for Scanbox controller (Pockels, shutter, mirror)
+- Tracks hardware state for Scanbox controller (Pockels, shutter, mirror, scan)
 - Returns valid TMCL responses for Trinamic motor commands
 - Prevents crashes during Linux/offline development
 
