@@ -379,10 +379,14 @@ class TestThreadSafety:
         """Test that buffer lock prevents race conditions."""
         board = mock_alazar._BoardClass()
         board.beforeAsyncRead(3, 0, 1024, 1, 0, 0x200)
-        
+
+        # channels=3 (2 active), samplesPerRecord=1024, recordsPerBuffer=1
+        # → buffer_size_samples = 1024 * 2 * 1 = 2048
+        buffer_size = 2048
+
         # Post buffers and start
         for _ in range(5):
-            board.postAsyncBuffer(np.zeros(1024, dtype=np.uint16))
+            board.postAsyncBuffer(np.zeros(buffer_size, dtype=np.uint16))
         board.startCapture()
         
         # Rapidly access buffers from main thread while generation thread runs
