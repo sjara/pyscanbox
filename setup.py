@@ -1,10 +1,10 @@
 """Setup script for pyscanbox.
 
-For development installation:
+Default installation (includes GUI):
     pip install -e .
 
-For development with all extras:
-    pip install -e .[gui,dev]
+For development (adds testing and linting tools):
+    pip install -e .[dev]
 """
 
 from setuptools import setup, find_packages

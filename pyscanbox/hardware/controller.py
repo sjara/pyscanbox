@@ -12,7 +12,7 @@ Protocol:
         Pockels Cell (ID 8):  [8, base_power, active_power]
         Shutter (ID 16):      [16, 0, 1] (Open) or [16, 0, 0] (Close)
                               Original system: controls a Uniblitz shutter.
-                              On some rigs (e.g., ThorLabs shutter wired to
+                              On some rigs (e.g., shutter wired to
                               LASER SHUTTER output), this command has no
                               effect; the shutter opens with Scan Control
                               (ID 4) instead.
