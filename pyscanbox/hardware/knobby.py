@@ -112,6 +112,37 @@ def units_to_steps(motor_id: int, value: float) -> int:
     return round(value / MOTOR_GAIN[motor_id])
 
 
+def build_position_packet(motor_id: int, steps: int) -> bytes:
+    """Build the 5-byte position packet sent by Knobby firmware to the PC.
+
+    Mirrors the transmit loop in knobby2.ino (normal and rotate modes):
+        cmd[0] = i;
+        Serial.write(cmd[0]);
+        for (int j = 0; j <= 3; j++) {
+            Serial.write((dpos[i] >> (8 * j)) & 0x0ff);
+        }
+
+    This is the exact byte sequence that Knobby.read_command() parses on
+    the PC side, making the two functions symmetric counterparts.
+
+    Args:
+        motor_id: Motor index — 0=Z, 1=Y, 2=X, 3=A.
+        steps: Accumulated position in steps (firmware dpos[motor_id]).
+
+    Returns:
+        5-byte packet: [motor_id, b0, b1, b2, b3] where b0-b3 are the
+        32-bit signed step count in little-endian order.
+
+    Example:
+        >>> pyscanbox.hardware.knobby.build_position_packet(0, 1000)
+        b'\\x00\\xe8\\x03\\x00\\x00'
+    """
+    packet = bytearray(5)
+    packet[0] = motor_id
+    packet[1:5] = steps.to_bytes(4, byteorder='little', signed=True)
+    return bytes(packet)
+
+
 def _get_serial_module(use_emulation: bool):
     """Get appropriate serial module based on emulation setting.
     
