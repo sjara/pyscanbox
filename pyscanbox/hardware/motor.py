@@ -339,3 +339,13 @@ class TrinamicMotor:
             Dictionary mapping motor ID to position.
         """
         return self.motor_positions.copy()
+
+    def __enter__(self):
+        """Context manager entry."""
+        self.open()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit."""
+        self.close()
+        return False
