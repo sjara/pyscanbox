@@ -77,6 +77,9 @@ class Serial:
         # Buffer for responses
         self._response_buffer = bytearray()
 
+        # Last bytes written to this port (useful for test assertions)
+        self._last_written: bytes = b''
+
         logger.info(f"Mock serial port opened: {port} @ {baudrate} baud")
 
     def write(self, data: bytes) -> int:
@@ -92,6 +95,8 @@ class Serial:
         """
         if not self.is_open:
             raise RuntimeError("Port is not open")
+
+        self._last_written = bytes(data)
 
         # Determine command type by length and baudrate
         if len(data) == 3:

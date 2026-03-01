@@ -85,6 +85,8 @@ class MatWriter:
         # Load existing data if file exists
         if os.path.exists(self.mat_path):
             existing = scipy.io.loadmat(self.mat_path)
+            # Strip scipy internal keys (e.g. __header__, __version__, __globals__)
+            existing = {k: v for k, v in existing.items() if not k.startswith('__')}
             # Update with new metadata
             existing.update(metadata)
             metadata = existing

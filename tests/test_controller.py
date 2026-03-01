@@ -127,5 +127,85 @@ class TestScanboxController(unittest.TestCase):
             ctrl._send_command(0, 0, 300)  # param2 > 255
 
 
+class TestScanControl(unittest.TestCase):
+    """Test start_scan and stop_scan commands."""
+
+    def setUp(self):
+        self.config = {
+            'controller': {
+                'com_port': 'COM3',
+                'baud_rate': 1_000_000,
+                'timeout': 1.0,
+            }
+        }
+
+    # -- Initial state ----------------------------------------------------------
+
+    @mock.patch('serial.Serial')
+    def test_scan_state_initial_false(self, mock_serial):
+        """Scan state is False before any command is issued."""
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        self.assertFalse(ctrl.get_scan_state())
+
+    # -- start_scan() -----------------------------------------------------------
+
+    @mock.patch('serial.Serial')
+    def test_start_scan_sends_correct_packet(self, mock_serial):
+        """start_scan sends [4, 0, 1]."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        ctrl.start_scan()
+        mock_port.write.assert_called_with(bytes([4, 0, 1]))
+
+    @mock.patch('serial.Serial')
+    def test_start_scan_sets_state(self, mock_serial):
+        """start_scan sets scan_running to True."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        ctrl.start_scan()
+        self.assertTrue(ctrl.get_scan_state())
+
+    # -- stop_scan() ------------------------------------------------------------
+
+    @mock.patch('serial.Serial')
+    def test_stop_scan_sends_correct_packet(self, mock_serial):
+        """stop_scan sends [4, 0, 0]."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        ctrl.stop_scan()
+        mock_port.write.assert_called_with(bytes([4, 0, 0]))
+
+    @mock.patch('serial.Serial')
+    def test_stop_scan_clears_state(self, mock_serial):
+        """stop_scan sets scan_running to False."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        ctrl.stop_scan()
+        self.assertFalse(ctrl.get_scan_state())
+
+    # -- Roundtrip --------------------------------------------------------------
+
+    @mock.patch('serial.Serial')
+    def test_start_then_stop_roundtrip(self, mock_serial):
+        """Scan state tracks start → stop transitions correctly."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        ctrl.start_scan()
+        self.assertTrue(ctrl.get_scan_state())
+        ctrl.stop_scan()
+        self.assertFalse(ctrl.get_scan_state())
+
+
 if __name__ == '__main__':
     unittest.main()
