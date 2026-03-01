@@ -7,7 +7,7 @@ The Knobby is an Arduino-based hardware controller that provides manual position
 ## Hardware Components
 
 ### 1. Arduino Microcontroller
-- Runs the knobby firmware (knobby2.ino)
+- Runs the knobby firmware (`Scanbox/scanknob/knobby2/knobby2.ino`)
 - Connects to PC via Serial at **57600 baud** (COM5)
 - Manages all I/O between encoders, display, and PC
 

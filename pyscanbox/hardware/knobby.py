@@ -10,6 +10,12 @@ The Knobby acts as an intermediary between the user and the motor controller:
 - Displays positions in microns/degrees on screen
 - Sends position commands to PC (which forwards to motor controller)
 
+Module-level constants (from knobby2.ino):
+    MOTOR_GAIN: Steps-to-unit conversion factors for each motor axis.
+    MOTOR_MSTEP: Steps-per-encoder-count table for each velocity mode.
+    AXIS_NAMES: Human-readable axis labels ['Z', 'Y', 'X', 'A'].
+    AXIS_UNITS: Physical unit strings ['μm', 'μm', 'μm', 'deg'].
+
 Protocol:
     PC -> Knobby: 9-byte command packets
     Knobby -> PC: 5-byte position packets [motor_id, byte0-3 of position]
@@ -24,9 +30,86 @@ Example:
     >>> knobby.open()
     >>> knobby.move_motor(0, 100.0)  # Move Z-axis by 100 microns
     >>> knobby.close()
+    >>> pos_um = pyscanbox.hardware.knobby.steps_to_units(motor_id=2, steps=19843)
 """
 
 from typing import Optional
+
+
+# Motor-to-unit conversion factors (from knobby2.ino, line 29).
+# Index order: [Z, Y, X, A]  (matches motor_gain[4] in firmware).
+#
+# Units are μm/step (motors 0-2) and deg/step (motor 3). This is confirmed by
+# two usages in knobby2.ino:
+#   1. update_axis():  display_value = dpos[i] * motor_gain[i]
+#      dpos is in steps, display_value is shown in μm or deg on screen,
+#      so motor_gain must be μm/step or deg/step.
+#   2. Move command handler:  encoder_counts = fval / motor_gain[i] / mstep[vel][i]
+#      fval is the PC command value in μm, confirming the same unit direction.
+MOTOR_GAIN = [
+    2000.0 / 400.0 / 32.0 / 2.0,      # Motor 0 (Z): 0.078125  μm/step  (12.8   steps/μm)
+    (0.02 * 25400.0) / 400.0 / 64.0,  # Motor 1 (Y): 0.019843  μm/step  (50.4   steps/μm)
+    (0.02 * 25400.0) / 400.0 / 64.0,  # Motor 2 (X): 0.019843  μm/step  (50.4   steps/μm)
+    0.0225 / 64.0,                    # Motor 3 (A): 3.516e-4  deg/step (2844.4 steps/deg)
+]
+
+# Steps per encoder count for each velocity mode (from knobby2.ino mstep[3][4]).
+# First index: 0=coarse, 1=fine, 2=superfine.
+# Second index: motor (Z=0, Y=1, X=2, A=3).
+MOTOR_MSTEP = [
+    [10, 3.9370 * 10, 3.9370 * 10, 10],  # Coarse
+    [5,  3.9370 * 5,  3.9370 * 5,  5],   # Fine
+    [1,  3.9370,      3.9370,      1],   # Superfine
+]
+
+AXIS_NAMES = ['Z', 'Y', 'X', 'A']
+AXIS_UNITS = ['um', 'um', 'um', 'deg']
+
+
+def steps_to_units(motor_id: int, steps: int) -> float:
+    """Convert motor steps to physical units.
+
+    Uses the conversion factors from knobby2.ino (motor_gain array) to
+    translate raw Trinamic step counts into microns (X/Y/Z) or degrees (A).
+
+    Args:
+        motor_id: Motor index — 0=Z, 1=Y, 2=X, 3=A.
+        steps: Position in motor steps (signed integer).
+
+    Returns:
+        Position in microns for motors 0-2, or degrees for motor 3.
+
+    Raises:
+        IndexError: If motor_id is outside 0-3.
+
+    Example:
+        >>> pyscanbox.hardware.knobby.steps_to_units(2, 19843)
+        999.98...
+    """
+    return steps * MOTOR_GAIN[motor_id]
+
+
+def units_to_steps(motor_id: int, value: float) -> int:
+    """Convert physical units to motor steps.
+
+    Inverse of steps_to_units(). Useful for computing the step count that
+    corresponds to a desired position in microns or degrees.
+
+    Args:
+        motor_id: Motor index — 0=Z, 1=Y, 2=X, 3=A.
+        value: Position in microns (motors 0-2) or degrees (motor 3).
+
+    Returns:
+        Nearest integer step count.
+
+    Raises:
+        IndexError: If motor_id is outside 0-3.
+
+    Example:
+        >>> pyscanbox.hardware.knobby.units_to_steps(2, 1000.0)
+        50394
+    """
+    return round(value / MOTOR_GAIN[motor_id])
 
 
 def _get_serial_module(use_emulation: bool):
