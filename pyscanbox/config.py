@@ -98,7 +98,23 @@ class ScanboxConfig:
             Configuration value or default
         """
         return getattr(self, key, default)
-    
+
+    def setdefault(self, key: str, default: Any = None) -> Any:
+        """Return value for key; if absent, set it to default and return it.
+
+        Matches the behaviour of dict.setdefault().
+
+        Args:
+            key: Configuration key
+            default: Value to set and return when the key is not present
+
+        Returns:
+            Existing value if key is present, otherwise default.
+        """
+        if not hasattr(self, key):
+            setattr(self, key, default)
+        return getattr(self, key)
+
     def __contains__(self, key: str) -> bool:
         """Check if configuration key exists (support for 'in' operator).
         
