@@ -66,6 +66,14 @@ class Board:
         self.dc_offset = 8192  # Center at middle of 14-bit range
         self.frame_sync_enabled = True
 
+        # Frame-aware synthetic data.  Set via set_frame_shape() before
+        # startCapture() to enable realistic test frames instead of noise.
+        self.frame_shape: tuple | None = None   # (lines_per_frame, pixels_per_line)
+        self._test_frames: list | None = None   # list of packed uint16 arrays
+        self._frame_idx: int = 0
+        self._sample_pos: int = 0  # current position within the current test frame
+        self._n_test_frames: int = 4
+
         logger.info(f"Mock Alazar board initialized: System {system_id}, Board {board_id}")
 
     def setCaptureClock(self, source: int, rate: int,
@@ -134,6 +142,24 @@ class Board:
         """
         logger.debug(f"LSB configured: LSB0={valueLSB0}, LSB1={valueLSB1}")
         self.is_configured = True
+
+    def set_frame_shape(self, lines_per_frame: int, pixels_per_line: int) -> None:
+        """Tell the mock board the frame dimensions for realistic data generation.
+
+        Must be called before startCapture().  When set, _generate_synthetic_frame
+        produces pre-computed Gaussian-spot test frames (simulating labelled
+        neurons) that cycle during the acquisition, making the live-preview
+        display meaningful for visual tuning.
+
+        Args:
+            lines_per_frame: Number of scan lines per frame.
+            pixels_per_line: Number of pixels per scan line.
+        """
+        self.frame_shape = (lines_per_frame, pixels_per_line)
+        self._test_frames = None   # will be built lazily by _prepare_test_frames()
+        self._frame_idx = 0
+        self._sample_pos = 0
+        logger.info("Mock Alazar frame shape set to %d x %d", lines_per_frame, pixels_per_line)
 
     def beforeAsyncRead(self, channels: int, transferOffset: int,
                        samplesPerRecord: int, recordsPerBuffer: int,
@@ -242,34 +268,121 @@ class Board:
     def _generate_synthetic_frame(self) -> np.ndarray:
         """Generate one buffer of synthetic PMT data.
 
+        When set_frame_shape() has been called, slices ``buffer_size_samples``
+        samples from the pre-generated test-frame bank, advancing a position
+        pointer so successive calls stream through the frames continuously.
+        Each returned buffer has exactly ``buffer_size_samples`` samples, so
+        it fits the pre-allocated DMA buffer regardless of whether
+        ``buffer_size_samples`` equals a full frame or a small DMA chunk.
+
+        When frame_shape is unknown, falls back to Gaussian noise.
+
         Returns:
-            Array of uint16 data with 14-bit values.
+            Array of exactly ``buffer_size_samples`` uint16 values in Alazar
+            wire format (14-bit PMT data left-shifted by 2, channels A and B
+            interleaved).
         """
-        # Generate random noise (14-bit)
+        if self.frame_shape is not None:
+            if self._test_frames is None:
+                self._prepare_test_frames()
+
+            n = self.buffer_size_samples
+            frame = self._test_frames[self._frame_idx % self._n_test_frames]
+            frame_len = len(frame)
+            start = self._sample_pos
+            end = start + n
+
+            if end <= frame_len:
+                buf = frame[start:end].copy()
+                self._sample_pos = end
+                if self._sample_pos >= frame_len:
+                    # Finished this test frame — advance to the next.
+                    self._frame_idx += 1
+                    self._sample_pos = 0
+            else:
+                # Wrap: take the tail of this frame, then the head of the next.
+                part1 = frame[start:].copy()
+                self._frame_idx += 1
+                self._sample_pos = 0
+                next_frame = self._test_frames[self._frame_idx % self._n_test_frames]
+                needed = n - len(part1)
+                part2 = next_frame[:needed].copy()
+                buf = np.concatenate([part1, part2])
+                self._sample_pos = needed
+
+            return buf
+
+        # --- Fallback: pure noise (no frame shape set) ---
         noise = np.random.normal(
             self.dc_offset,
             self.noise_level,
             self.buffer_size_samples
         ).astype(np.int32)
-
-        # Clip to 14-bit range
         noise = np.clip(noise, 0, 16383)
+        return (noise << 2).astype(np.uint16)
 
-        # Pack into 16-bit with LSB sync bits
-        data = np.zeros(self.buffer_size_samples, dtype=np.uint16)
+    def _prepare_test_frames(self) -> None:
+        """Pre-compute a bank of synthetic test frames.
 
-        # Shift PMT data to upper 14 bits
-        data = (noise << 2).astype(np.uint16)
+        Generates self._n_test_frames frames, each containing ~15 Gaussian
+        spots (simulated neurons) whose intensities vary sinusoidally across
+        the frame bank — mimicking calcium fluorescence dynamics.  Channel 0
+        (PMT0) is bright; channel 1 (PMT1) is ~40 % of channel 0 intensity.
 
-        # Add synthetic sync bits in LSB positions
-        if self.frame_sync_enabled:
-            # Add frame markers periodically
-            frame_size = 512 * 796  # typical frame size
-            for i in range(0, len(data), frame_size):
-                if i < len(data):
-                    data[i] |= 0b01  # Frame start marker
+        The results are stored as Alazar wire-format buffers in self._test_frames
+        (interleaved channels, values left-shifted by 2 into bits 15:2).
+        """
+        lines, pixels = self.frame_shape
+        n = self._n_test_frames
+        rng = np.random.default_rng(42)   # fixed seed → reproducible layout
 
-        return data
+        # --- Fixed neuron positions and baseline intensities ---
+        n_neurons = 15
+        ny = rng.integers(10, lines  - 10, n_neurons).astype(np.float32)
+        nx = rng.integers(10, pixels - 10, n_neurons).astype(np.float32)
+        peak = rng.uniform(4000, 12000, n_neurons).astype(np.float32)  # 14-bit
+        sigma = rng.uniform(4, 10, n_neurons).astype(np.float32)       # px
+
+        # 1-D coordinate arrays for outer-product Gaussian computation.
+        yy = np.arange(lines,  dtype=np.float32)   # (lines,)
+        xx = np.arange(pixels, dtype=np.float32)   # (pixels,)
+
+        frames = []
+        for f in range(n):
+            imgs = np.zeros((2, lines, pixels), dtype=np.float32)
+
+            for i in range(n_neurons):
+                dy2 = (yy - ny[i]) ** 2           # (lines,)
+                dx2 = (xx - nx[i]) ** 2           # (pixels,)
+                gauss = np.outer(np.exp(-dy2 / (2 * sigma[i] ** 2)),
+                                 np.exp(-dx2 / (2 * sigma[i] ** 2)))  # (lines, pixels)
+
+                # Sinusoidal modulation per neuron simulates calcium transients.
+                phase = 2 * np.pi * f / n + i * 0.7
+                activity = 0.7 + 0.3 * np.sin(phase)
+
+                imgs[0] += peak[i] * activity * gauss
+                imgs[1] += peak[i] * activity * 0.4 * gauss   # ch1 dimmer
+
+            # Low background + photon shot-noise.
+            imgs += rng.normal(300, 150, imgs.shape).astype(np.float32)
+            imgs = np.clip(imgs, 0, 16383)
+
+            # Pack into Alazar wire format:
+            # interleaved [chA_px0, chB_px0, chA_px1, chB_px1, …],
+            # each sample left-shifted by 2 (14-bit value in bits 15:2).
+            ch0 = imgs[0].ravel().astype(np.uint16) << 2
+            ch1 = imgs[1].ravel().astype(np.uint16) << 2
+            packed = np.empty(lines * pixels * 2, dtype=np.uint16)
+            packed[0::2] = ch0
+            packed[1::2] = ch1
+            frames.append(packed)
+
+        self._test_frames = frames
+        logger.info(
+            "Mock Alazar: prepared %d test frames (%d x %d, %d neurons)",
+            n, lines, pixels, n_neurons
+        )
 
     def getChannelInfo(self) -> dict:
         """Get channel configuration info.

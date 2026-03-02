@@ -210,10 +210,18 @@ class AlazarDigitizer:
         # Use the Alazar module stored in __init__
         # Create board instance
         self.board_handle = self.alazar.Board()
-        
+
         # Configure emulation verbosity if using mock
         if self.use_emulation and hasattr(self.board_handle, 'verbose'):
             self.board_handle.verbose = self.emulation_verbose
+
+        # Pass frame dimensions so the emulator can generate spatially
+        # structured test frames rather than pure noise.
+        if self.use_emulation and hasattr(self.board_handle, 'set_frame_shape'):
+            lines = self.config.get('acquisition', {}).get('lines_per_frame')
+            pixels = self.config.get('acquisition', {}).get('pixels_per_line')
+            if lines and pixels:
+                self.board_handle.set_frame_shape(lines, pixels)
 
     def configure(self) -> None:
         """Configure Alazar board for PMT acquisition.
