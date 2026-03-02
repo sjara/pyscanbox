@@ -39,12 +39,18 @@ class LeftControlPanel(QtWidgets.QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
         
         # Add control group boxes
-        layout.addWidget(widgets.LaserControlGroup(self.config))
-        layout.addWidget(widgets.ScannerControlGroup())
-        layout.addWidget(widgets.PositionDisplayGroup())
-        layout.addWidget(widgets.AcquisitionControlGroup())
-        layout.addWidget(widgets.FileStorageGroup())
-        
+        self.laser_group = widgets.LaserControlGroup(self.config)
+        self.scanner_group = widgets.ScannerControlGroup()
+        self.position_group = widgets.PositionDisplayGroup()
+        self.acquisition_group = widgets.AcquisitionControlGroup()
+        self.file_group = widgets.FileStorageGroup(self.config)
+
+        layout.addWidget(self.laser_group)
+        layout.addWidget(self.scanner_group)
+        layout.addWidget(self.position_group)
+        layout.addWidget(self.acquisition_group)
+        layout.addWidget(self.file_group)
+
         # Add stretch to push everything to the top
         layout.addStretch()
         
@@ -77,8 +83,8 @@ class RightDisplayPanel(QtWidgets.QWidget):
         splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
         
         # Top: Main image display
-        image_display = widgets.ImageDisplayWidget()
-        splitter.addWidget(image_display)
+        self.image_display = widgets.ImageDisplayWidget()
+        splitter.addWidget(self.image_display)
         
         # Bottom: Secondary controls
         controls_panel = self._create_secondary_controls()
@@ -104,10 +110,15 @@ class RightDisplayPanel(QtWidgets.QWidget):
         layout.setSpacing(10)
         
         # Add control group boxes side-by-side
-        layout.addWidget(widgets.CameraPathGroup())
-        layout.addWidget(widgets.PMTControlGroup())
-        layout.addWidget(widgets.ImageDisplayControlGroup())
-        layout.addWidget(widgets.OptotuneGroup())
+        self.camera_group = widgets.CameraPathGroup()
+        self.pmt_group = widgets.PMTControlGroup()
+        self.image_display_group = widgets.ImageDisplayControlGroup()
+        self.optotune_group = widgets.OptotuneGroup()
+
+        layout.addWidget(self.camera_group)
+        layout.addWidget(self.pmt_group)
+        layout.addWidget(self.image_display_group)
+        layout.addWidget(self.optotune_group)
         
         panel.setLayout(layout)
         return panel

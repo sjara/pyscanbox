@@ -10,5 +10,6 @@ Main components:
 """
 
 from pyscanbox.gui.main_window import MainWindow
+from pyscanbox.gui.app_controller import AppController
 
-__all__ = ['MainWindow']
+__all__ = ['MainWindow', 'AppController']

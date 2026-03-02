@@ -16,9 +16,10 @@ Example:
     >>> scanner.run()
 """
 
+import sys
 import time
 import numpy as np
-from typing import Optional
+from typing import Callable, Optional
 from pyscanbox.hardware import alazar
 from pyscanbox.hardware import controller
 from pyscanbox.hardware import motor
@@ -43,7 +44,9 @@ class Scanner:
         frames_acquired: Counter for acquired frames
     """
 
-    def __init__(self, config: dict, output_path: Optional[str] = None):
+    def __init__(self, config: dict, output_path: Optional[str] = None,
+                 focus_mode: bool = False,
+                 on_frame: Optional[Callable[[int], None]] = None):
         """Initialize scanner with configuration.
 
         Args:
@@ -51,6 +54,12 @@ class Scanner:
             output_path: Optional output file path (excluding extension).
                 If None, uses config['io']['output_directory'] and
                 config['io']['file_prefix'].
+            focus_mode: If True, run indefinitely without writing to disk.
+                Used for live-preview (Focus button). Sets frames_to_acquire
+                to sys.maxsize and skips file-writer initialisation.
+            on_frame: Optional callback invoked after each acquired frame
+                with the cumulative frame count as the sole argument.
+                Used by ScannerThread to emit Qt signals from the loop.
         """
         self.config = config
         self.output_path = output_path
@@ -64,7 +73,13 @@ class Scanner:
         self.lines_per_frame = config['acquisition']['lines_per_frame']
         self.pixels_per_line = config['acquisition']['pixels_per_line']
         self.frames_to_acquire = config['acquisition']['frames']
-        
+
+        # Acquisition mode flags.
+        self.focus_mode = focus_mode
+        self.on_frame = on_frame
+        if focus_mode:
+            self.frames_to_acquire = sys.maxsize
+
         # File writers
         self.sbx_writer: Optional[sbx_writer.SbxWriter] = None
         self.mat_writer: Optional[mat_writer.MatWriter] = None
@@ -140,10 +155,11 @@ class Scanner:
             # Setup
             print("Initializing hardware...")
             self.initialize_hardware()
-            
-            print("Initializing file writers...")
-            self.initialize_writers()
-            
+
+            if not self.focus_mode:
+                print("Initializing file writers...")
+                self.initialize_writers()
+
             print("Configuring Pockels and shutter...")
             self.setup_pockels_and_shutter()
             
@@ -197,7 +213,10 @@ class Scanner:
             
             # Update counters
             self.frames_acquired += 1
-            
+
+            if self.on_frame is not None:
+                self.on_frame(self.frames_acquired)
+
             # Progress update
             if self.frames_acquired % 100 == 0:
                 elapsed = time.time() - self.start_time

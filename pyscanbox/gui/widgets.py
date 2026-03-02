@@ -295,6 +295,13 @@ class AcquisitionControlGroup(QtWidgets.QGroupBox):
             self.grab_button.setText("Grab")
 
 
+# Fallback values used when file-storage fields are left empty.
+# Defined once here so widgets.py and any caller share the same defaults.
+DEFAULT_SUBJECT = "_"
+DEFAULT_DATE = "_"
+DEFAULT_SESSION = "_"
+
+
 class FileStorageGroup(QtWidgets.QGroupBox):
     """File storage group box.
     
@@ -304,9 +311,16 @@ class FileStorageGroup(QtWidgets.QGroupBox):
     - Save channels selector
     """
     
-    def __init__(self):
-        """Initialize the file storage group."""
+    def __init__(self, config=None):
+        """Initialize the file storage group.
+
+        Args:
+            config: Optional configuration dict or ScanboxConfig.  When
+                provided, the directory field is seeded from
+                config['io']['output_directory'].
+        """
         super().__init__("File Storage")
+        self.config = config
         self._init_ui()
         
     def _init_ui(self):
@@ -321,7 +335,12 @@ class FileStorageGroup(QtWidgets.QGroupBox):
         
         self.directory_edit = QtWidgets.QLineEdit()
         self.directory_edit.setReadOnly(True)
-        self.directory_edit.setText("/data/")
+        default_dir = (
+            self.config.get('io', {}).get('output_directory', '/data/')
+            if self.config is not None
+            else '/data/'
+        )
+        self.directory_edit.setText(default_dir)
         layout.addWidget(self.directory_edit, dir_row, 1)
         
         # Filename preview label
@@ -364,12 +383,27 @@ class FileStorageGroup(QtWidgets.QGroupBox):
         
     def _update_filename(self):
         """Update the filename preview based on metadata fields."""
-        subject = self.subject_edit.text() or "_"
-        date = self.date_edit.text() or "_"
-        session = self.session_edit.text() or "_"
+        subject = self.subject_edit.text() or DEFAULT_SUBJECT
+        date = self.date_edit.text() or DEFAULT_DATE
+        session = self.session_edit.text() or DEFAULT_SESSION
         filename = f"{subject}_{date}_{session}.sbx"
         self.filename_label.setText(f"Filename: {filename}")
-        
+
+    def get_output_basename(self):
+        """Return the output file base name with fallbacks applied.
+
+        Combines subject, date, and session fields using the same fallback
+        constants as the filename preview label.  Callers (e.g. MainWindow)
+        should use this rather than reading individual fields directly.
+
+        Returns:
+            Base name string without extension, e.g. 'mouse01_20260301_001'.
+        """
+        subject = self.subject_edit.text() or DEFAULT_SUBJECT
+        date = self.date_edit.text() or DEFAULT_DATE
+        session = self.session_edit.text() or DEFAULT_SESSION
+        return f"{subject}_{date}_{session}"
+
     def _select_directory(self):
         """Open directory selection dialog."""
         directory = QtWidgets.QFileDialog.getExistingDirectory(
