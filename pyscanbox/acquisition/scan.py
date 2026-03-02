@@ -46,7 +46,8 @@ class Scanner:
 
     def __init__(self, config: dict, output_path: Optional[str] = None,
                  focus_mode: bool = False,
-                 on_frame: Optional[Callable[[int], None]] = None):
+                 on_frame: Optional[Callable[[int], None]] = None,
+                 on_frame_data=None):
         """Initialize scanner with configuration.
 
         Args:
@@ -60,6 +61,10 @@ class Scanner:
             on_frame: Optional callback invoked after each acquired frame
                 with the cumulative frame count as the sole argument.
                 Used by ScannerThread to emit Qt signals from the loop.
+            on_frame_data: Optional callback invoked after each acquired
+                frame with the reshaped frame array as the sole argument
+                (shape ``(channels, lines, pixels)``, dtype uint16).
+                Used by ScannerThread to feed the live-preview display.
         """
         self.config = config
         self.output_path = output_path
@@ -77,6 +82,7 @@ class Scanner:
         # Acquisition mode flags.
         self.focus_mode = focus_mode
         self.on_frame = on_frame
+        self.on_frame_data = on_frame_data
         if focus_mode:
             self.frames_to_acquire = sys.maxsize
 
@@ -216,6 +222,9 @@ class Scanner:
 
             if self.on_frame is not None:
                 self.on_frame(self.frames_acquired)
+
+            if self.on_frame_data is not None:
+                self.on_frame_data(reshaped)
 
             # Progress update
             if self.frames_acquired % 100 == 0:

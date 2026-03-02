@@ -231,6 +231,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # AppController -> GUI
         self._ctrl.position_updated.connect(self._on_position_updated)
         self._ctrl.frame_acquired.connect(self._on_frame_acquired)
+        self._ctrl.frame_data_ready.connect(
+            self._right_panel.image_display.update_frame
+        )
         self._ctrl.acquisition_finished.connect(self._on_acquisition_finished)
         self._ctrl.hardware_error.connect(self._on_hardware_error)
 

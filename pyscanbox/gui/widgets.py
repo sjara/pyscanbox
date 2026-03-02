@@ -13,6 +13,7 @@ This module defines individual control groups and display widgets:
 - OptotuneGroup: ETL control
 """
 
+import numpy as np
 import PyQt6.QtWidgets as QtWidgets
 import PyQt6.QtCore as QtCore
 import PyQt6.QtGui as QtGui
@@ -414,45 +415,80 @@ class FileStorageGroup(QtWidgets.QGroupBox):
 
 
 class ImageDisplayWidget(QtWidgets.QWidget):
-    """Main image display widget.
-    
-    Uses a QGraphicsView for high-performance image rendering.
-    This is a placeholder that will be expanded for real-time display.
+    """Main image display widget for real-time frame visualization.
+
+    Displays the most recently acquired frame as a grayscale image.  The
+    frame data (numpy array) is delivered by calling ``update_frame()``
+    which is connected to ``AppController.frame_data_ready`` in
+    ``MainWindow._connect_hardware()``.
+
+    Channel selection and other display controls (colormap, histogram, …)
+    are deferred to Milestone 2.3.2 (Advanced Visualization).  Currently
+    channel 0 (PMT0) is always displayed.
     """
-    
+
     def __init__(self):
         """Initialize the image display widget."""
         super().__init__()
+        # Holds the current uint8 frame buffer so that the QImage's memory
+        # reference stays valid until the next frame arrives.
+        self._display_buffer: np.ndarray | None = None
         self._init_ui()
-        
+
     def _init_ui(self):
         """Initialize the UI components."""
         layout = QtWidgets.QVBoxLayout()
-        
-        # Create graphics view for image display
-        self.graphics_view = QtWidgets.QGraphicsView()
-        self.graphics_scene = QtWidgets.QGraphicsScene()
-        self.graphics_view.setScene(self.graphics_scene)
-        
-        # Set background and basic properties
-        self.graphics_view.setBackgroundBrush(QtGui.QBrush(QtGui.QColor(30, 30, 30)))
-        self.graphics_view.setHorizontalScrollBarPolicy(
-            QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded
-        )
-        self.graphics_view.setVerticalScrollBarPolicy(
-            QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded
-        )
-        
-        # Add placeholder text
-        text_item = self.graphics_scene.addText(
-            "Image Display\n(Live preview will appear here)",
-            QtGui.QFont("Arial", 16)
-        )
-        text_item.setDefaultTextColor(QtGui.QColor(150, 150, 150))
-        
-        layout.addWidget(self.graphics_view)
+
+        self.image_label = QtWidgets.QLabel()
+        self.image_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.image_label.setMinimumSize(1, 1)
+        self.image_label.setStyleSheet("background-color: #1e1e1e; color: #969696;")
+        self.image_label.setText("Image Display\n(Live preview will appear here)")
+        self.image_label.setFont(QtGui.QFont("Arial", 14))
+
+        layout.addWidget(self.image_label)
         layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)
+
+    def update_frame(self, frame_data: np.ndarray) -> None:
+        """Update the display with a newly acquired frame.
+
+        Converts channel 0 (PMT0) of the 14-bit frame array to an 8-bit
+        grayscale QPixmap and scales it to fill the label while preserving
+        the aspect ratio.
+
+        This slot is called from the GUI thread via a queued signal
+        connection; the numpy array is passed by reference and is safe to
+        read because the Scanner creates a fresh array for every frame.
+
+        Args:
+            frame_data: Shape ``(channels, lines_per_frame, pixels_per_line)``,
+                dtype ``uint16``, values 0-16383 (14-bit).  Only channel 0
+                is displayed; channel selection will be added in 2.3.2.
+        """
+        # Extract channel 0 and shift the 14-bit values down to 8-bit.
+        ch0 = frame_data[0]  # shape: (lines, pixels)
+        self._display_buffer = np.ascontiguousarray(ch0 >> 6, dtype=np.uint8)
+        height, width = self._display_buffer.shape
+
+        # Wrap the numpy buffer in a QImage without copying.
+        # _display_buffer keeps the memory alive until the next call.
+        img = QtGui.QImage(
+            self._display_buffer.data,
+            width,
+            height,
+            width,  # bytes per line (1 byte per pixel, no padding)
+            QtGui.QImage.Format.Format_Grayscale8,
+        )
+
+        pixmap = QtGui.QPixmap.fromImage(img)
+        self.image_label.setPixmap(
+            pixmap.scaled(
+                self.image_label.size(),
+                QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                QtCore.Qt.TransformationMode.FastTransformation,
+            )
+        )
 
 
 class CameraPathGroup(QtWidgets.QGroupBox):
