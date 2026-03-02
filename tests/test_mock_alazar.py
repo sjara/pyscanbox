@@ -264,17 +264,18 @@ class TestDataGeneration:
         """Test frame sync markers in LSB."""
         board = mock_alazar._BoardClass()
         board.frame_sync_enabled = True
-        board.buffer_size_samples = 512 * 796 * 2  # 2 frames
-        
+        # set_frame_shape is required for structured (non-noise) data generation.
+        # One interleaved frame = lines * pixels * 2 (channels) samples.
+        board.set_frame_shape(512, 796)
+        frame_size = 512 * 796 * 2          # samples in one full interleaved frame
+        board.buffer_size_samples = frame_size * 2  # request two back-to-back frames
+
         data = board._generate_synthetic_frame()
-        
-        # Check for frame markers at expected positions
-        frame_size = 512 * 796
-        # First sample should have frame marker in LSB
-        assert (data[0] & 0b01) == 0b01
-        # Next frame start should also have marker
+
+        # First sample of each frame must carry the frame-sync marker in bit 0.
+        assert (data[0] & 0b01) == 0b01, "Frame 1 marker missing"
         if len(data) > frame_size:
-            assert (data[frame_size] & 0b01) == 0b01
+            assert (data[frame_size] & 0b01) == 0b01, "Frame 2 marker missing"
 
     def test_synthetic_data_variability(self):
         """Test that synthetic data has variability (noise)."""

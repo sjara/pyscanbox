@@ -436,6 +436,10 @@ class Board:
             packed = np.empty(lines * pixels * 2, dtype=np.uint16)
             packed[0::2] = ch0
             packed[1::2] = ch1
+            # Embed frame-sync marker in the two LSBs of the first sample,
+            # matching the Alazar LSB output behaviour (configureLSB).
+            if self.frame_sync_enabled:
+                packed[0] |= np.uint16(0x0001)
             frames.append(packed)
 
         self._test_frames = frames
@@ -521,6 +525,8 @@ class Board:
             packed = np.empty(lines * n_samp * 2, dtype=np.uint16)
             packed[0::2] = raw_ch0.ravel().astype(np.uint16) << 2
             packed[1::2] = raw_ch1.ravel().astype(np.uint16) << 2
+            if self.frame_sync_enabled:
+                packed[0] |= np.uint16(0x0001)
             frames.append(packed)
 
         self._test_frames = frames
