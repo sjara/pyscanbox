@@ -79,6 +79,24 @@ class Scanner:
         self.pixels_per_line = config['acquisition']['pixels_per_line']
         self.frames_to_acquire = config['acquisition']['frames']
 
+        # Raw-mode acquisition: use arccosine pixel LUT instead of pre-shaped data.
+        # When True, each Alazar buffer contains `lines × samples_per_line × 2`
+        # interleaved raw ADC samples and reshape_pmt_data_raw() is called.
+        self.raw_mode: bool = config.get('alazar', {}).get('raw_mode', False)
+        self._pixel_lut: Optional[np.ndarray] = None
+        if self.raw_mode:
+            laser_freq = config['laser']['frequency']
+            res_freq   = config['scanner']['resonant_freq']
+            self._pixel_lut = data_reshape.compute_pixel_lut(
+                self.pixels_per_line, laser_freq, res_freq
+            )
+            # Trigger Numba JIT compilation now with a tiny dummy call so the
+            # first real acquisition frame doesn't stall.  With cache=True this
+            # is a one-time cost (a few seconds on first run, ~0 ms thereafter).
+            _dummy_buf = np.zeros(4 * 2, dtype=np.uint16)   # 1 line, 4 samples
+            _dummy_lut = np.zeros(1, dtype=np.int32)
+            data_reshape.reshape_pmt_data_raw(_dummy_buf, 1, 1, _dummy_lut)
+
         # Acquisition mode flags.
         self.focus_mode = focus_mode
         self.on_frame = on_frame
@@ -206,12 +224,21 @@ class Scanner:
                 continue
             
             # Reshape data (performance-critical!)
-            # TODO: Use numba-optimized reshape function
-            reshaped = data_reshape.reshape_pmt_data(
-                buffer,
-                self.lines_per_frame,
-                self.pixels_per_line,
-            )
+            if self.raw_mode and self._pixel_lut is not None:
+                # Raw hardware mode: apply arccosine pixel LUT.
+                reshaped = data_reshape.reshape_pmt_data_raw(
+                    buffer,
+                    self.lines_per_frame,
+                    self.pixels_per_line,
+                    self._pixel_lut,
+                )
+            else:
+                # Emulation / pre-shaped mode.
+                reshaped = data_reshape.reshape_pmt_data(
+                    buffer,
+                    self.lines_per_frame,
+                    self.pixels_per_line,
+                )
             
             # Write to disk
             if self.sbx_writer is not None:

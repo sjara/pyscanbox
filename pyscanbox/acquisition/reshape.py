@@ -7,16 +7,44 @@ throughput, so performance is critical.
 The data from Alazar is interleaved 14-bit samples packed into 16-bit words.
 The LSB bits contain frame/line sync information that must be extracted.
 
+Two acquisition modes are supported:
+
+**Emulation mode (raw_mode=False, default):**
+  The mock Alazar pre-delivers already-shaped data at
+  ``samples_per_buffer = lines × pixels × 2``.  ``reshape_pmt_data()`` simply
+  de-interleaves the two channels and strips the 2 LSB bits.
+
+**Raw hardware mode (raw_mode=True):**
+  The real Alazar (and raw-mode mock) delivers ``samples_per_line`` raw ADC
+  samples per channel per line (e.g. 5000 for unidirectional scanning at
+  80.18 MHz laser / 7930 Hz resonant mirror).  Each raw sample corresponds to
+  a non-uniform position along the scan line due to the resonant mirror's
+  sinusoidal velocity.
+
+  ``compute_pixel_lut()`` computes the arccosine pixel LUT that maps each of
+  the ``pixels_per_line`` (796) output pixels to a base raw-sample index.
+  ``reshape_pmt_data_raw()`` then averages 4 consecutive raw samples per
+  output pixel for both PMT channels.
+
+  This matches the MATLAB pipeline in ``pixel_lut_2.m`` +
+  ``alazarReshapeCData2.c``.
+
 Uses Numba JIT compilation for performance matching MATLAB MEX files.
 
 Reference:
-    Original MATLAB implementation: core/alazarReshapeCData2.c
+    Original MATLAB implementation: core/alazarReshapeCData2.c,
+    core/pixel_lut_2.m
 
 Example:
     >>> import numpy as np
     >>> from pyscanbox.acquisition import reshape
-    >>> raw_buffer = np.zeros(1024, dtype=np.uint16)
-    >>> reshaped = reshape.reshape_pmt_data(raw_buffer, 512, 796)
+    >>> # Emulation mode (pre-shaped buffer):
+    >>> buf = np.zeros(512 * 796 * 2, dtype=np.uint16)
+    >>> frame = reshape.reshape_pmt_data(buf, 512, 796)
+    >>> # Raw hardware mode:
+    >>> lut = reshape.compute_pixel_lut(796, laser_freq=80180000, res_freq=7930)
+    >>> buf_raw = np.zeros(512 * 5000 * 2, dtype=np.uint16)
+    >>> frame = reshape.reshape_pmt_data_raw(buf_raw, 512, 796, lut)
 """
 
 import numpy as np
@@ -159,3 +187,104 @@ def validate_buffer_size(buffer: np.ndarray, lines_per_frame: int,
     """
     expected_samples = lines_per_frame * pixels_per_line * channels
     return len(buffer) == expected_samples
+
+
+def compute_pixel_lut(n_pixels: int, laser_freq: float,
+                      res_freq: float) -> np.ndarray:
+    """Compute the arccosine pixel LUT for resonant-scanner raw data.
+
+    The resonant mirror scans sinusoidally, so raw ADC samples are not
+    uniformly spaced in image space.  This function computes, for each of the
+    ``n_pixels`` output pixels, the 0-indexed position of the first of four
+    consecutive raw ADC samples that are averaged to produce that pixel.
+
+    Translation of ``pixel_lut_2.m``:
+
+    .. code-block:: matlab
+
+        ncol  = 796;
+        nsamp = round(sbconfig.lasfreq / sbconfig.resfreq);  % ≈ 10112
+        M     = ncol + 2;
+        n     = acos(linspace(1, -1, M)) * nsamp / (2*pi);
+        n     = n(2:end-1);           % remove endpoints
+        S     = floor(n) - 1;         % MATLAB 1-indexed base sample
+
+    The ``-1`` in MATLAB (which is 1-indexed) translates to ``-2`` in Python
+    (0-indexed), giving the same 0-indexed position.
+
+    Args:
+        n_pixels: Number of output pixels per line (e.g. 796).
+        laser_freq: Laser repetition frequency in Hz (e.g. 80_180_000).
+        res_freq: Resonant mirror frequency in Hz (e.g. 7930).
+
+    Returns:
+        Integer array of shape ``(n_pixels,)`` giving the 0-indexed base raw
+        sample index for each output pixel.  Each pixel averages samples
+        ``[lut[i], lut[i]+1, lut[i]+2, lut[i]+3]``.
+    """
+    nsamp = round(laser_freq / res_freq)     # samples per half-period ≈ 10112
+    angles = np.arccos(np.linspace(1.0, -1.0, n_pixels + 2))[1:-1]  # (n_pixels,)
+    n = angles * nsamp / (2.0 * np.pi)
+    # MATLAB: S = floor(n) - 1  (1-indexed).  Python 0-indexed: floor(n) - 2.
+    lut_base = np.floor(n).astype(np.int32) - 2
+    return lut_base
+
+
+@numba.njit(nogil=True, cache=True)
+def reshape_pmt_data_raw(buffer: np.ndarray, lines_per_frame: int,
+                         pixels_per_line: int,
+                         lut_base: np.ndarray) -> np.ndarray:
+    """Reshape raw Alazar buffer using the arccosine pixel LUT.
+
+    For each output pixel, averages 4 consecutive raw ADC samples from both
+    PMT channels.  This corrects the sinusoidal scan-velocity distortion of
+    the resonant mirror, matching ``alazarReshapeCData2.c``.
+
+    Buffer layout (from Alazar NPT streaming mode):
+        Interleaved channels, line-major order::
+
+            [chA_s0_l0, chB_s0_l0, chA_s1_l0, chB_s1_l0, ...,
+             chA_s(N-1)_l(L-1), chB_s(N-1)_l(L-1)]
+
+        where N = ``samples_per_line`` and L = ``lines_per_frame``.
+
+    Args:
+        buffer: 1-D uint16 array of length
+            ``lines_per_frame × samples_per_line × 2`` (channels interleaved).
+        lines_per_frame: Number of scan lines per frame (e.g. 512).
+        pixels_per_line: Number of output pixels per line (e.g. 796).
+        lut_base: 0-indexed base raw-sample index for each pixel, shape
+            ``(pixels_per_line,)`` int32.  Computed by ``compute_pixel_lut()``.
+
+    Returns:
+        uint16 array of shape ``(2, lines_per_frame, pixels_per_line)``.
+        Values are 14-bit (0–16383) averages of 4 raw samples per pixel.
+
+    Note:
+        This function is JIT-compiled with Numba.  Pass ``lut_base`` as a
+        contiguous ``np.int32`` array for best performance.
+
+    Reference:
+        See ``core/alazarReshapeCData2.c`` (inner loop) and
+        ``core/pixel_lut_2.m`` (LUT construction).
+    """
+    samples_per_line = len(buffer) // (lines_per_frame * 2)
+    output = np.zeros((2, lines_per_frame, pixels_per_line), dtype=np.uint16)
+
+    for line in range(lines_per_frame):
+        line_start = line * samples_per_line * 2   # byte offset into buffer
+        for px in range(pixels_per_line):
+            s = lut_base[px]                       # base raw sample (0-indexed)
+            # Interleaved layout: chA at 2*s, chB at 2*s+1
+            sum_a = (np.uint32(buffer[line_start + 2 * s])
+                     + np.uint32(buffer[line_start + 2 * (s + 1)])
+                     + np.uint32(buffer[line_start + 2 * (s + 2)])
+                     + np.uint32(buffer[line_start + 2 * (s + 3)]))
+            sum_b = (np.uint32(buffer[line_start + 2 * s + 1])
+                     + np.uint32(buffer[line_start + 2 * (s + 1) + 1])
+                     + np.uint32(buffer[line_start + 2 * (s + 2) + 1])
+                     + np.uint32(buffer[line_start + 2 * (s + 3) + 1]))
+            output[0, line, px] = np.uint16(sum_a >> 2)
+            output[1, line, px] = np.uint16(sum_b >> 2)
+
+    return output

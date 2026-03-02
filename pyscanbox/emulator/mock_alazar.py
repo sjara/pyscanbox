@@ -74,6 +74,12 @@ class Board:
         self._sample_pos: int = 0  # current position within the current test frame
         self._n_test_frames: int = 4
 
+        # Raw hardware mode: generate pre-warped data at real buffer sizes.
+        # Set via set_raw_mode() after set_frame_shape().
+        self.raw_mode: bool = False
+        self.samples_per_line: int = 5000   # postTriggerSamples (real hardware)
+        self._pixel_lut: np.ndarray | None = None  # (pixels,) int32 base indices
+
         logger.info(f"Mock Alazar board initialized: System {system_id}, Board {board_id}")
 
     def setCaptureClock(self, source: int, rate: int,
@@ -160,6 +166,57 @@ class Board:
         self._frame_idx = 0
         self._sample_pos = 0
         logger.info("Mock Alazar frame shape set to %d x %d", lines_per_frame, pixels_per_line)
+
+    def set_raw_mode(self, raw_mode: bool, samples_per_line: int,
+                     laser_freq: float, res_freq: float) -> None:
+        """Configure raw acquisition mode to match real hardware buffer layout.
+
+        When ``raw_mode=True``, each buffer contains
+        ``lines_per_frame × samples_per_line × 2`` interleaved uint16 raw ADC
+        samples (channels A and B interleaved per sample, lines sequential).
+        Spot images are pre-warped using the inverse of the arccosine pixel LUT
+        so that after ``reshape_pmt_data_raw()`` the spots appear at the correct
+        display positions.
+
+        Must be called **after** ``set_frame_shape()`` and **before**
+        ``startCapture()``.
+
+        Args:
+            raw_mode: ``True`` to generate raw-format buffers.
+            samples_per_line: Raw ADC samples per scan line (e.g. 5000).
+            laser_freq: Laser repetition frequency in Hz (e.g. 80_180_000).
+            res_freq: Resonant mirror frequency in Hz (e.g. 7930).
+        """
+        self.raw_mode = raw_mode
+        self.samples_per_line = samples_per_line
+        self._test_frames = None   # force regeneration on next call
+
+        if raw_mode and self.frame_shape is not None:
+            from pyscanbox.acquisition.reshape import compute_pixel_lut
+            pixels = self.frame_shape[1]
+            self._pixel_lut = compute_pixel_lut(pixels, laser_freq, res_freq)
+            # Adjust buffer size to raw mode: lines × samples_per_line × channels
+            lines = self.frame_shape[0]
+            self.buffer_size_samples = lines * samples_per_line * 2
+            # Pre-compute test frames now so the generation thread doesn't stall
+            # on the first buffer request.
+            self._prepare_test_frames_raw()
+            logger.info(
+                "Mock Alazar raw mode enabled: buffer_size_samples=%d",
+                self.buffer_size_samples,
+            )
+        else:
+            self._pixel_lut = None
+            # Re-compute shaped test frames if frame_shape is already known,
+            # so a switch back to non-raw mode is reflected immediately.
+            if not raw_mode and self.frame_shape is not None:
+                self._prepare_test_frames()
+
+        logger.info(
+            "Mock Alazar raw mode %s (samples_per_line=%d)",
+            "enabled" if raw_mode else "disabled",
+            samples_per_line,
+        )
 
     def beforeAsyncRead(self, channels: int, transferOffset: int,
                        samplesPerRecord: int, recordsPerBuffer: int,
@@ -284,7 +341,10 @@ class Board:
         """
         if self.frame_shape is not None:
             if self._test_frames is None:
-                self._prepare_test_frames()
+                if self.raw_mode:
+                    self._prepare_test_frames_raw()
+                else:
+                    self._prepare_test_frames()
 
             n = self.buffer_size_samples
             frame = self._test_frames[self._frame_idx % self._n_test_frames]
@@ -338,8 +398,8 @@ class Board:
 
         # --- Fixed neuron positions and baseline intensities ---
         n_neurons = 15
-        ny = rng.integers(10, lines  - 10, n_neurons).astype(np.float32)
-        nx = rng.integers(10, pixels - 10, n_neurons).astype(np.float32)
+        ny = rng.integers(2, max(3, lines  - 2), n_neurons).astype(np.float32)
+        nx = rng.integers(2, max(3, pixels - 2), n_neurons).astype(np.float32)
         peak = rng.uniform(4000, 12000, n_neurons).astype(np.float32)  # 14-bit
         sigma = rng.uniform(4, 10, n_neurons).astype(np.float32)       # px
 
@@ -382,6 +442,91 @@ class Board:
         logger.info(
             "Mock Alazar: prepared %d test frames (%d x %d, %d neurons)",
             n, lines, pixels, n_neurons
+        )
+
+    def _prepare_test_frames_raw(self) -> None:
+        """Pre-compute a bank of raw-mode test frames.
+
+        Generates the same 15-neuron Gaussian-spot layout as
+        ``_prepare_test_frames()``, but maps each display-space pixel value
+        back to raw ADC sample space using the inverse of the arccosine pixel
+        LUT.  After passing through ``reshape_pmt_data_raw()`` the spots will
+        appear at the correct display positions.
+
+        Buffer layout: interleaved channels (chA, chB per sample), line-major,
+        with each sample left-shifted by 2 (14-bit value in bits 15:2).
+        Shape: ``(lines * samples_per_line * 2,)`` uint16.
+        """
+        lines, pixels = self.frame_shape
+        n_samp = self.samples_per_line
+        n = self._n_test_frames
+        rng = np.random.default_rng(42)   # same seed as _prepare_test_frames
+
+        n_neurons = 15
+        ny = rng.integers(2, max(3, lines  - 2), n_neurons).astype(np.float32)
+        nx = rng.integers(2, max(3, pixels - 2), n_neurons).astype(np.float32)
+        peak = rng.uniform(4000, 12000, n_neurons).astype(np.float32)
+        sigma = rng.uniform(4, 10, n_neurons).astype(np.float32)
+
+        yy = np.arange(lines,  dtype=np.float32)
+        xx = np.arange(pixels, dtype=np.float32)
+
+        # Build a vectorised reverse map: raw_sample_index → display_pixel_index.
+        # Each pixel occupies 4 consecutive raw samples starting at lut_base[px].
+        sample_to_pixel = np.full(n_samp, -1, dtype=np.int32)
+        if self._pixel_lut is not None:
+            lut = self._pixel_lut.astype(np.int64)   # safe arithmetic
+            for px in range(pixels):
+                for offset in range(4):
+                    s = int(lut[px]) + offset
+                    if 0 <= s < n_samp:
+                        sample_to_pixel[s] = px
+
+        valid_mask    = sample_to_pixel >= 0
+        valid_samples = np.where(valid_mask)[0]          # raw sample indices
+        mapped_pixels = sample_to_pixel[valid_mask]      # corresponding pixel
+
+        frames = []
+        for f in range(n):
+            imgs = np.zeros((2, lines, pixels), dtype=np.float32)
+
+            for i in range(n_neurons):
+                dy2 = (yy - ny[i]) ** 2
+                dx2 = (xx - nx[i]) ** 2
+                gauss = np.outer(np.exp(-dy2 / (2 * sigma[i] ** 2)),
+                                 np.exp(-dx2 / (2 * sigma[i] ** 2)))
+                phase = 2 * np.pi * f / n + i * 0.7
+                activity = 0.7 + 0.3 * np.sin(phase)
+                imgs[0] += peak[i] * activity * gauss
+                imgs[1] += peak[i] * activity * 0.4 * gauss
+
+            imgs += rng.normal(300, 150, imgs.shape).astype(np.float32)
+            imgs = np.clip(imgs, 0, 16383)
+
+            # Map display pixels → raw sample positions (vectorised).
+            # Uninitialised raw samples get a background level of 300.
+            bg = 300.0
+            raw_ch0 = np.full((lines, n_samp), bg, dtype=np.float32)
+            raw_ch1 = np.full((lines, n_samp), bg, dtype=np.float32)
+            raw_ch0[:, valid_samples] = imgs[0][:, mapped_pixels]
+            raw_ch1[:, valid_samples] = imgs[1][:, mapped_pixels]
+
+            # Add noise to fill sparse gaps between LUT samples.
+            raw_ch0 += rng.normal(0, 150, raw_ch0.shape).astype(np.float32)
+            raw_ch1 += rng.normal(0, 150, raw_ch1.shape).astype(np.float32)
+            raw_ch0 = np.clip(raw_ch0, 0, 16383)
+            raw_ch1 = np.clip(raw_ch1, 0, 16383)
+
+            # Pack into Alazar wire format: interleaved channels, line-major.
+            packed = np.empty(lines * n_samp * 2, dtype=np.uint16)
+            packed[0::2] = raw_ch0.ravel().astype(np.uint16) << 2
+            packed[1::2] = raw_ch1.ravel().astype(np.uint16) << 2
+            frames.append(packed)
+
+        self._test_frames = frames
+        logger.info(
+            "Mock Alazar: prepared %d raw test frames (%d lines × %d samples, %d neurons)",
+            n, lines, n_samp, n_neurons,
         )
 
     def getChannelInfo(self) -> dict:

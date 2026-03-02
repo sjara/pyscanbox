@@ -151,10 +151,21 @@ class AlazarDigitizer:
         self.buffer_count = config['alazar']['buffer_count']
         
         # AlazarTech digitizers require samplesPerRecord to be aligned
-        # Typically to 64-sample boundaries for optimal DMA performance
-        raw_samples = config['alazar']['samples_per_buffer']
+        # Typically to 64-sample boundaries for optimal DMA performance.
+        #
+        # In raw_mode the buffer holds one full frame of uncompressed ADC data:
+        #   samples_per_buffer (per channel) = lines_per_frame × samples_per_line
+        # In emulation / pre-shaped mode the buffer holds one reshaped frame:
+        #   samples_per_buffer (per channel) = lines_per_frame × pixels_per_line
+        # The interleaved numpy array therefore has samples_per_buffer × channels elements.
+        if config.get('alazar', {}).get('raw_mode', False):
+            lines = config['acquisition']['lines_per_frame']
+            spl   = config.get('acquisition', {}).get('samples_per_line', 5000)
+            raw_samples = lines * spl   # per-channel count
+        else:
+            raw_samples = config['alazar']['samples_per_buffer']
         self.samples_per_buffer = self._align_sample_count(raw_samples)
-        
+
         if self.samples_per_buffer != raw_samples:
             print(f"Note: Aligned buffer size from {raw_samples} to {self.samples_per_buffer} samples")
         
@@ -222,6 +233,17 @@ class AlazarDigitizer:
             pixels = self.config.get('acquisition', {}).get('pixels_per_line')
             if lines and pixels:
                 self.board_handle.set_frame_shape(lines, pixels)
+
+        # Configure raw acquisition mode on the mock board (no-op when
+        # raw_mode=False, but always call so the mock knows samples_per_line
+        # and laser parameters even in emulation mode).
+        if self.use_emulation and hasattr(self.board_handle, 'set_raw_mode'):
+            raw_mode       = self.config.get('alazar', {}).get('raw_mode', False)
+            samples_per_line = self.config.get('acquisition', {}).get('samples_per_line', 5000)
+            laser_freq     = self.config.get('laser', {}).get('frequency', 80_180_000)
+            res_freq       = self.config.get('scanner', {}).get('resonant_freq', 7930)
+            self.board_handle.set_raw_mode(raw_mode, samples_per_line,
+                                           laser_freq, res_freq)
 
     def configure(self) -> None:
         """Configure Alazar board for PMT acquisition.
