@@ -466,6 +466,8 @@ class ImageDisplayWidget(QtWidgets.QWidget):
                 dtype ``uint16``, values 0-16383 (14-bit).  Only channel 0
                 is displayed; channel selection will be added in 2.3.2.
         """
+        if frame_data is None:
+            return  # stale queued signal delivered after scanner cleanup
         # Extract channel 0 and shift the 14-bit values down to 8-bit.
         ch0 = frame_data[0]  # shape: (lines, pixels)
         self._display_buffer = np.ascontiguousarray(ch0 >> 6, dtype=np.uint8)

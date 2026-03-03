@@ -70,7 +70,9 @@ class ScannerThread(QtCore.QThread):
     command_logged = QtCore.pyqtSignal(str)       # carries HTML-formatted entry
 
     def __init__(self, config: dict, output_path=None,
-                 focus_mode: bool = False, parent=None):
+                 focus_mode: bool = False,
+                 frames_override: int = None,
+                 parent=None):
         """Initialize the scanner thread.
 
         Args:
@@ -80,12 +82,15 @@ class ScannerThread(QtCore.QThread):
                 directly to Scanner.  Ignored in focus mode.
             focus_mode: If True, run indefinitely without writing to disk
                 (used for the Focus button / live preview).
+            frames_override: If given, overrides config frames setting.
+                0 means "run forever" (MATLAB convention).
             parent: Optional Qt parent object.
         """
         super().__init__(parent)
         self._config = config
         self._output_path = output_path
         self._focus_mode = focus_mode
+        self._frames_override = frames_override
         self._scanner = None
 
     def run(self) -> None:
@@ -95,6 +100,7 @@ class ScannerThread(QtCore.QThread):
                 self._config,
                 output_path=self._output_path,
                 focus_mode=self._focus_mode,
+                frames_override=self._frames_override,
                 on_frame=self.frame_acquired.emit,
                 on_frame_data=self.frame_data_ready.emit,
                 on_command=self._emit_command,
@@ -430,16 +436,20 @@ class AppController(QtCore.QObject):
         logger.info("AppController: focus mode started.")
         self._log_event('Focus mode started')
 
-    def start_grab(self, output_path: str = None) -> None:
+    def start_grab(self, output_path: str = None,
+                   frames: int = None) -> None:
         """Start a timed grab acquisition and save data to disk.
 
-        Acquires the number of frames specified in
-        config['acquisition']['frames'], writes .sbx/.mat files, and
-        emits acquisition_finished when done.
+        Acquires the number of frames specified by ``frames`` (or
+        config['acquisition']['frames'] when ``frames`` is None), writes
+        .sbx/.mat files, and emits acquisition_finished when done.
+        Pass ``frames=0`` to run forever (MATLAB convention).
 
         Args:
             output_path: File path prefix for output files (no extension).
                 If None, Scanner auto-generates a path from the io config.
+            frames: Frame count override.  0 = run until Stop is pressed.
+                If None, the value from config is used.
 
         Raises:
             RuntimeError: If hardware is not open or acquisition is already
@@ -451,7 +461,8 @@ class AppController(QtCore.QObject):
             raise RuntimeError(
                 "Acquisition already running. Call stop_acquisition() first."
             )
-        self._start_scanner(focus_mode=False, output_path=output_path)
+        self._start_scanner(focus_mode=False, output_path=output_path,
+                            frames_override=frames)
         logger.info("AppController: grab started, output_path=%s", output_path)
         self._log_event(f'Grab started  →  {output_path}')
 
@@ -474,17 +485,20 @@ class AppController(QtCore.QObject):
             and self._scanner_thread.isRunning()
         )
 
-    def _start_scanner(self, focus_mode: bool, output_path) -> None:
+    def _start_scanner(self, focus_mode: bool, output_path,
+                        frames_override: int = None) -> None:
         """Create and start a ScannerThread (internal helper).
 
         Args:
             focus_mode: Passed to ScannerThread.
             output_path: Passed to ScannerThread.
+            frames_override: Optional frame count override (0 = forever).
         """
         self._scanner_thread = ScannerThread(
             self.config,
             output_path=output_path,
             focus_mode=focus_mode,
+            frames_override=frames_override,
             parent=self,
         )
         self._scanner_thread.frame_acquired.connect(self.frame_acquired)

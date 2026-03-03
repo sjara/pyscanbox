@@ -425,8 +425,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 file_grp.directory_edit.text(),
                 file_grp.get_output_basename()
             )
+            # 0 = run forever, matching MATLAB convention.
+            frames = self._left_panel.scanner_group.total_frames_spinbox.value()
             try:
-                self._ctrl.start_grab(output_path=output_path)
+                self._ctrl.start_grab(output_path=output_path, frames=frames)
             except RuntimeError as exc:
                 acq.grab_button.setChecked(False)
                 acq.grab_button.setText("Grab")

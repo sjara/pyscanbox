@@ -46,6 +46,7 @@ class Scanner:
 
     def __init__(self, config: dict, output_path: Optional[str] = None,
                  focus_mode: bool = False,
+                 frames_override: Optional[int] = None,
                  on_frame: Optional[Callable[[int], None]] = None,
                  on_frame_data=None,
                  on_command=None):
@@ -59,6 +60,10 @@ class Scanner:
             focus_mode: If True, run indefinitely without writing to disk.
                 Used for live-preview (Focus button). Sets frames_to_acquire
                 to sys.maxsize and skips file-writer initialisation.
+            frames_override: If given, overrides config['acquisition']['frames'].
+                0 means "run forever" (MATLAB convention), which maps to
+                sys.maxsize internally.  Ignored in focus mode (focus mode
+                always runs forever).
             on_frame: Optional callback invoked after each acquired frame
                 with the cumulative frame count as the sole argument.
                 Used by ScannerThread to emit Qt signals from the loop.
@@ -108,7 +113,10 @@ class Scanner:
         self.on_frame = on_frame
         self.on_frame_data = on_frame_data
         self.on_command = on_command
-        if focus_mode:
+        # Apply GUI override first (0 means "forever", matching MATLAB convention).
+        if frames_override is not None:
+            self.frames_to_acquire = frames_override
+        if focus_mode or self.frames_to_acquire == 0:
             self.frames_to_acquire = sys.maxsize
 
         # File writers
