@@ -291,8 +291,10 @@ class AlazarDigitizer:
             raise RuntimeError("Board not opened. Call open() first.")
         
         # Configure clock source and sample rate
-        # Note: Scanbox uses EXTERNAL clock (from resonant scanner)
-        # Sample rate is determined by external clock frequency, not this parameter
+        # Note: Scanbox uses EXTERNAL clock sourced from the laser sync-out
+        # (~80 MHz from the Chameleon, filtered by a BBP-70+ bandpass filter).
+        # Each ADC sample is thereby synchronised to one laser pulse.
+        # The sample rate constant here is ignored when using external clock.
         if hasattr(self.board_handle, 'setCaptureClock'):
             self.board_handle.setCaptureClock(
                 2,    # FAST_EXTERNAL_CLOCK (0x2)
@@ -557,9 +559,23 @@ class AlazarDigitizer:
             return data
             
         except Exception as e:
-            # Handle timeout or other errors
-            # In production, might want to be more specific about exception types
+            # Per AlazarTech API: after any waitAsyncBufferComplete failure
+            # (timeout, buffer-not-ready, etc.) ALL pending DMA buffers are
+            # still owned by the board.  The only way to reclaim them is
+            # abortAsyncRead().  Do that here so the board is left in a clean
+            # state and callers cannot accidentally loop on a broken session.
             print(f"Error reading buffer: {e}")
+            try:
+                if hasattr(self.board_handle, 'abortAsyncRead'):
+                    self.board_handle.abortAsyncRead()
+            except Exception:
+                pass
+            # Mirror what stop_acquisition() does so a subsequent call to it
+            # (or close()) is safely a no-op.
+            self.buffers.clear()
+            self.buffer_pointers.clear()
+            self.current_buffer_index = 0
+            self.is_acquiring = False
             return None
 
     def stop_acquisition(self) -> None:
