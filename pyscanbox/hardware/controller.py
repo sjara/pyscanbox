@@ -22,12 +22,15 @@ Protocol:
                               LASER SHUTTER output), this command has no
                               effect; the shutter opens with Scan Control
                               (ID 4) instead.
+        ETL Current (ID 48):  [48, b1, b2] (Optotune ETL current 0-1760;
+                              b1/b2 encode a 16-bit word with 0b0111 prefix
+                              in the upper nibble, see sb/sb_current.m)
 
 Reference:
     Original MATLAB implementation: sb/sb_open.m, sb/sb_setframe.m,
     sb/sb_setline.m, sb/sb_setmag.m, sb/sb_pockels.m, sb/sb_deadband.m,
     sb/sb_shutter.m, sb/sb_mirror.m, sb/sb_scan.m, sb/sb_abort.m,
-    sb/sb_gain0.m, sb/sb_gain1.m
+    sb/sb_gain0.m, sb/sb_gain1.m, sb/sb_current.m
 
 Example:
     >>> import pyscanbox.hardware.controller
@@ -82,6 +85,7 @@ class ScanboxController:
     CMD_POCKELS = 8
     CMD_DEADBAND = 9
     CMD_SHUTTER = 16
+    CMD_ETL = 48  # Electrically tunable lens (Optotune) current
 
     # Human-readable names for each command ID, used by log callbacks.
     CMD_NAMES = {
@@ -95,6 +99,7 @@ class ScanboxController:
         CMD_POCKELS: 'set_pockels',
         CMD_DEADBAND: 'set_pockels_deadband',
         CMD_SHUTTER: 'set_shutter',
+        CMD_ETL: 'set_etl_current',
     }
 
     @staticmethod
@@ -140,6 +145,10 @@ class ScanboxController:
         if cmd_id == ScanboxController.CMD_SHUTTER:
             open_val = 'True' if param2 else 'False'
             return f'set_shutter(open={open_val})'
+        if cmd_id == ScanboxController.CMD_ETL:
+            # Decode 16-bit encoded value: bits 15-12 are always 0b0111
+            current = ((param1 & 0x0F) << 8) | param2
+            return f'set_etl_current(current={current})'
         name = ScanboxController.CMD_NAMES.get(cmd_id, f'cmd_{cmd_id}')
         return f'{name}(param1={param1}, param2={param2})'
 
@@ -176,6 +185,7 @@ class ScanboxController:
         self.mirror_mode = '2p'  # '2p' or 'epi'
         self.scan_running = False
         self.pmt_gains = [0, 0]  # hardware gain values (0-255) for PMT0 and PMT1
+        self.etl_current = 0  # ETL current (0-1760)
 
     def open(self) -> None:
         """Open serial connection to controller.
@@ -459,3 +469,36 @@ class ScanboxController:
             True if scanning is running, False if stopped.
         """
         return self.scan_running
+
+    def set_etl_current(self, current: int) -> None:
+        """Set the electrically tunable lens (Optotune ETL) current.
+
+        The ETL current controls axial focus position without mechanical
+        objective movement.  The value is encoded as a 16-bit word with
+        a fixed ``0b0111`` prefix in the upper nibble, matching the
+        hardware convention used by the PSoC5 DAC for the ETL driver.
+
+        Encoding (from ``sb/sb_current.m``)::
+
+            encoded = 0x7000 | (current & 0x0FFF)
+            b1 = (encoded >> 8) & 0xFF   # upper byte
+            b2 =  encoded       & 0xFF   # lower byte
+            send [48, b1, b2]
+
+        Args:
+            current: ETL current level (0–1760 arbitrary units, ~61.5 µA
+                per count).
+
+        Reference:
+            See sb/sb_current.m
+
+        Raises:
+            ValueError: If current is outside 0–1760.
+        """
+        if not (0 <= current <= 1760):
+            raise ValueError(f'ETL current must be 0-1760, got {current}')
+        encoded = 0x7000 | (current & 0x0FFF)
+        b1 = (encoded >> 8) & 0xFF
+        b2 = encoded & 0xFF
+        self._send_command(self.CMD_ETL, b1, b2)
+        self.etl_current = current

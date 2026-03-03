@@ -319,6 +319,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self._on_magnification_changed
         )
 
+        # ETL slider -> hardware (spinbox is bidirectionally linked to slider
+        # inside OptotuneGroup, so wiring the slider covers both widgets)
+        optotune = self._right_panel.optotune_group
+        optotune.etl_slider.valueChanged.connect(self._on_etl_current_changed)
+
         # Acquisition buttons -> AppController
         acq.focus_button.clicked.connect(self._on_focus_clicked)
         acq.grab_button.clicked.connect(self._on_grab_clicked)
@@ -377,6 +382,18 @@ class MainWindow(QtWidgets.QMainWindow):
             self._ctrl.set_magnification(index)
         except RuntimeError:
             pass  # hardware not open yet; silently ignore
+
+    def _on_etl_current_changed(self, current: int):
+        """Forward ETL slider / spinbox value to the hardware.
+
+        Args:
+            current: ETL current level (0–1760 hardware units).
+        """
+        if self._ctrl is not None:
+            try:
+                self._ctrl.set_etl_current(current)
+            except RuntimeError:
+                pass  # hardware not open yet; silently ignore
 
     def _on_pmt_gain_changed(self, pmt_id: int, percent: int):
         """Forward a PMT gain slider value to the hardware.

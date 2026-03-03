@@ -681,33 +681,37 @@ class OptotuneGroup(QtWidgets.QGroupBox):
     def _init_ui(self):
         """Initialize the UI components."""
         layout = QtWidgets.QVBoxLayout()
-        
-        # ETL control label
-        layout.addWidget(QtWidgets.QLabel("ETL"))
-        
-        # Vertical slider
+
+        # ETL current — slider (coarse) + spinbox (fine), bidirectionally
+        # linked.  Range 0–1760 matches the hardware range sent via
+        # CMD_ETL (ID 48) in controller.py and the MATLAB optoslider.
+        layout.addWidget(QtWidgets.QLabel("ETL current"))
+
+        # Vertical slider (0 at bottom = no displacement, 1760 at top)
         slider_layout = QtWidgets.QHBoxLayout()
         slider_layout.addStretch()
-        
+
         self.etl_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Vertical)
-        self.etl_slider.setRange(-100, 100)
+        self.etl_slider.setRange(0, 1760)
         self.etl_slider.setValue(0)
         self.etl_slider.setTickPosition(QtWidgets.QSlider.TickPosition.TicksRight)
-        self.etl_slider.setTickInterval(20)
+        self.etl_slider.setTickInterval(176)  # 10 ticks across range
+        self.etl_slider.setMinimumHeight(120)
         slider_layout.addWidget(self.etl_slider)
-        
         slider_layout.addStretch()
         layout.addLayout(slider_layout)
-        
-        # Value label
-        self.etl_label = QtWidgets.QLabel("0")
-        self.etl_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.etl_label)
-        
-        self.etl_slider.valueChanged.connect(
-            lambda v: self.etl_label.setText(str(v))
-        )
-        
+
+        # Spinbox for precise current entry
+        self.etl_spinbox = QtWidgets.QSpinBox()
+        self.etl_spinbox.setRange(0, 1760)
+        self.etl_spinbox.setValue(0)
+        self.etl_spinbox.setSuffix('')
+        layout.addWidget(self.etl_spinbox)
+
+        # Bidirectional link: slider ↔ spinbox
+        self.etl_slider.valueChanged.connect(self.etl_spinbox.setValue)
+        self.etl_spinbox.valueChanged.connect(self.etl_slider.setValue)
+
         self.setLayout(layout)
 
 

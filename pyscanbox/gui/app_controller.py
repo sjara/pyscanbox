@@ -390,6 +390,35 @@ class AppController(QtCore.QObject):
             self.hardware_error.emit(msg)
 
     # ------------------------------------------------------------------
+    # ETL / Optotune
+    # ------------------------------------------------------------------
+
+    def set_etl_current(self, current: int) -> None:
+        """Set the Optotune ETL current level.
+
+        The value is forwarded directly to the ScanboxController which
+        encodes it using the 16-bit wire format expected by CMD_ETL (ID 48)
+        and sends three bytes over the serial link.
+
+        Args:
+            current: ETL current in hardware units (0–1760,
+                approximately 61.5 µA per count).
+
+        Raises:
+            RuntimeError: If hardware is not open.
+        """
+        if not self.is_open:
+            raise RuntimeError("AppController is not open. Call open() first.")
+
+        try:
+            self._hw_controller.set_etl_current(current)
+            logger.debug("ETL current set to %d", current)
+        except Exception as exc:
+            msg = f"set_etl_current failed: {exc}"
+            logger.error(msg)
+            self.hardware_error.emit(msg)
+
+    # ------------------------------------------------------------------
     # Position polling (internal)
     # ------------------------------------------------------------------
 
