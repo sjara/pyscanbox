@@ -207,5 +207,154 @@ class TestScanControl(unittest.TestCase):
         self.assertFalse(ctrl.get_scan_state())
 
 
+class TestConfigurationCommands(unittest.TestCase):
+    """Tests for set_frame_count, set_lines, set_magnification, set_pockels_deadband."""
+
+    def setUp(self):
+        self.config = {
+            'controller': {
+                'com_port': 'COM3',
+                'baud_rate': 1_000_000,
+                'timeout': 1.0,
+            }
+        }
+
+    # -- set_frame_count --------------------------------------------------------
+
+    @mock.patch('serial.Serial')
+    def test_set_frame_count_sends_correct_packet(self, mock_serial):
+        """set_frame_count encodes frames as big-endian 16-bit [1, high, low]."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        ctrl.set_frame_count(1000)  # 1000 = 0x03E8 → high=3, low=232
+        mock_port.write.assert_called_with(bytes([1, 3, 232]))
+
+    @mock.patch('serial.Serial')
+    def test_set_frame_count_tracks_state(self, mock_serial):
+        """set_frame_count updates frame_count attribute."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        ctrl.set_frame_count(500)
+        self.assertEqual(ctrl.frame_count, 500)
+
+    @mock.patch('serial.Serial')
+    def test_set_frame_count_validation(self, mock_serial):
+        """set_frame_count raises ValueError for out-of-range values."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        with self.assertRaises(ValueError):
+            ctrl.set_frame_count(-1)
+        with self.assertRaises(ValueError):
+            ctrl.set_frame_count(65536)
+
+    # -- set_lines --------------------------------------------------------------
+
+    @mock.patch('serial.Serial')
+    def test_set_lines_sends_correct_packet(self, mock_serial):
+        """set_lines encodes line count as big-endian 16-bit [2, high, low]."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        ctrl.set_lines(512)  # 512 = 0x0200 → high=2, low=0
+        mock_port.write.assert_called_with(bytes([2, 2, 0]))
+
+    @mock.patch('serial.Serial')
+    def test_set_lines_tracks_state(self, mock_serial):
+        """set_lines updates lines_per_frame attribute."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        ctrl.set_lines(256)
+        self.assertEqual(ctrl.lines_per_frame, 256)
+
+    @mock.patch('serial.Serial')
+    def test_set_lines_validation(self, mock_serial):
+        """set_lines raises ValueError for out-of-range values."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        with self.assertRaises(ValueError):
+            ctrl.set_lines(-1)
+        with self.assertRaises(ValueError):
+            ctrl.set_lines(65536)
+
+    # -- set_magnification ------------------------------------------------------
+
+    @mock.patch('serial.Serial')
+    def test_set_magnification_sends_correct_packet(self, mock_serial):
+        """set_magnification sends [3, 0, mag]."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        ctrl.set_magnification(4)
+        mock_port.write.assert_called_with(bytes([3, 0, 4]))
+
+    @mock.patch('serial.Serial')
+    def test_set_magnification_tracks_state(self, mock_serial):
+        """set_magnification updates magnification attribute."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        ctrl.set_magnification(7)
+        self.assertEqual(ctrl.magnification, 7)
+
+    @mock.patch('serial.Serial')
+    def test_set_magnification_validation(self, mock_serial):
+        """set_magnification raises ValueError for out-of-range values."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        with self.assertRaises(ValueError):
+            ctrl.set_magnification(0)
+        with self.assertRaises(ValueError):
+            ctrl.set_magnification(256)
+
+    # -- set_pockels_deadband ---------------------------------------------------
+
+    @mock.patch('serial.Serial')
+    def test_set_pockels_deadband_sends_correct_packet(self, mock_serial):
+        """set_pockels_deadband sends [9, left, right]."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        ctrl.set_pockels_deadband(left=120, right=150)
+        mock_port.write.assert_called_with(bytes([9, 120, 150]))
+
+    @mock.patch('serial.Serial')
+    def test_set_pockels_deadband_tracks_state(self, mock_serial):
+        """set_pockels_deadband updates pockels_deadband attribute."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        ctrl.set_pockels_deadband(left=30, right=40)
+        self.assertEqual(ctrl.pockels_deadband, {'left': 30, 'right': 40})
+
+    @mock.patch('serial.Serial')
+    def test_set_pockels_deadband_validation(self, mock_serial):
+        """set_pockels_deadband raises ValueError for out-of-range values."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        with self.assertRaises(ValueError):
+            ctrl.set_pockels_deadband(left=-1, right=0)
+        with self.assertRaises(ValueError):
+            ctrl.set_pockels_deadband(left=0, right=256)
+
+
 if __name__ == '__main__':
     unittest.main()

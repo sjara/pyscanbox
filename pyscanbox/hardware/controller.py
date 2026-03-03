@@ -5,11 +5,17 @@ This module provides serial communication with the main Scanbox controller
 
 Protocol:
     All commands are 3-byte packets: [Command_ID, Param1, Param2]
-    
+
     Commands:
+        Frame Count (ID 1):   [1, high_byte, low_byte] (16-bit frame count)
+        Lines (ID 2):         [2, high_byte, low_byte] (16-bit line count)
+        Magnification (ID 3): [3, 0, mag] (1-13 typical)
         Scan (ID 4):          [4, 0, 1] (start) or [4, 0, 0] (stop)
         Epi/2P Mirror (ID 5): [5, 0, 0] (2P) or [5, 0, 1] (Epi)
+        PMT0 Gain (ID 6):     [6, 0, gain] (0-255)
+        PMT1 Gain (ID 7):     [7, 0, gain] (0-255)
         Pockels Cell (ID 8):  [8, base_power, active_power]
+        Pockels Deadband (ID 9): [9, left, right] (pixels blanked at line margins)
         Shutter (ID 16):      [16, 0, 1] (Open) or [16, 0, 0] (Close)
                               Original system: controls a Uniblitz shutter.
                               On some rigs (e.g., shutter wired to
@@ -18,8 +24,10 @@ Protocol:
                               (ID 4) instead.
 
 Reference:
-    Original MATLAB implementation: sb/sb_open.m, sb/sb_pockels.m,
-    sb/sb_shutter.m, sb/sb_mirror.m, sb/sb_scan.m, sb/sb_abort.m
+    Original MATLAB implementation: sb/sb_open.m, sb/sb_setframe.m,
+    sb/sb_setline.m, sb/sb_setmag.m, sb/sb_pockels.m, sb/sb_deadband.m,
+    sb/sb_shutter.m, sb/sb_mirror.m, sb/sb_scan.m, sb/sb_abort.m,
+    sb/sb_gain0.m, sb/sb_gain1.m
 
 Example:
     >>> import pyscanbox.hardware.controller
@@ -64,20 +72,28 @@ class ScanboxController:
     """
 
     # Command IDs
+    CMD_FRAME_COUNT = 1
+    CMD_LINES = 2
+    CMD_MAGNIFICATION = 3
     CMD_SCAN = 4
     CMD_MIRROR = 5
     CMD_GAIN0 = 6
     CMD_GAIN1 = 7
     CMD_POCKELS = 8
+    CMD_DEADBAND = 9
     CMD_SHUTTER = 16
 
     # Human-readable names for each command ID, used by log callbacks.
     CMD_NAMES = {
+        CMD_FRAME_COUNT: 'set_frame_count',
+        CMD_LINES: 'set_lines',
+        CMD_MAGNIFICATION: 'set_magnification',
         CMD_SCAN: 'scan',
         CMD_MIRROR: 'set_mirror',
         CMD_GAIN0: 'set_pmt_gain',
         CMD_GAIN1: 'set_pmt_gain',
         CMD_POCKELS: 'set_pockels',
+        CMD_DEADBAND: 'set_pockels_deadband',
         CMD_SHUTTER: 'set_shutter',
     }
 
@@ -99,21 +115,31 @@ class ScanboxController:
             Human-readable call string, e.g.
             ``'set_pockels(base=0, active=100)'``.
         """
+        if cmd_id == ScanboxController.CMD_FRAME_COUNT:
+            frames = (param1 << 8) | param2
+            return f'set_frame_count(frames={frames})'
+        if cmd_id == ScanboxController.CMD_LINES:
+            lines = (param1 << 8) | param2
+            return f'set_lines(lines={lines})'
+        if cmd_id == ScanboxController.CMD_MAGNIFICATION:
+            return f'set_magnification(magnification={param2})'
+        if cmd_id == ScanboxController.CMD_SCAN:
+            func = 'start_scan' if param2 else 'stop_scan'
+            return f'{func}()'
+        if cmd_id == ScanboxController.CMD_MIRROR:
+            mode = 'epi' if param2 else '2p'
+            return f"set_mirror(mode='{mode}')"
         if cmd_id == ScanboxController.CMD_GAIN0:
             return f'set_pmt_gain(pmt_id=0, value={param2})'
         if cmd_id == ScanboxController.CMD_GAIN1:
             return f'set_pmt_gain(pmt_id=1, value={param2})'
         if cmd_id == ScanboxController.CMD_POCKELS:
             return f'set_pockels(base={param1}, active={param2})'
+        if cmd_id == ScanboxController.CMD_DEADBAND:
+            return f'set_pockels_deadband(left={param1}, right={param2})'
         if cmd_id == ScanboxController.CMD_SHUTTER:
             open_val = 'True' if param2 else 'False'
             return f'set_shutter(open={open_val})'
-        if cmd_id == ScanboxController.CMD_MIRROR:
-            mode = 'epi' if param2 else '2p'
-            return f"set_mirror(mode='{mode}')"
-        if cmd_id == ScanboxController.CMD_SCAN:
-            func = 'start_scan' if param2 else 'stop_scan'
-            return f'{func}()'
         name = ScanboxController.CMD_NAMES.get(cmd_id, f'cmd_{cmd_id}')
         return f'{name}(param1={param1}, param2={param2})'
 
@@ -141,7 +167,11 @@ class ScanboxController:
         self.is_open = False
         
         # State tracking
+        self.frame_count = 0
+        self.lines_per_frame = 0
+        self.magnification = 1
         self.current_pockels = {'base': 0, 'active': 0}
+        self.pockels_deadband = {'left': 0, 'right': 0}
         self.shutter_open = False
         self.mirror_mode = '2p'  # '2p' or 'epi'
         self.scan_running = False
@@ -221,6 +251,63 @@ class ScanboxController:
         if self.on_command is not None:
             self.on_command(self.com_port, cmd_id, param1, param2)
 
+    def set_frame_count(self, frames: int) -> None:
+        """Set the number of frames to acquire.
+
+        Args:
+            frames: Number of frames (0-65535, 16-bit).
+
+        Reference:
+            See sb/sb_setframe.m
+
+        Raises:
+            ValueError: If frames is outside 0-65535.
+        """
+        if not (0 <= frames <= 65535):
+            raise ValueError(f"Frame count must be 0-65535, got {frames}")
+        high = (frames >> 8) & 0xFF
+        low = frames & 0xFF
+        self._send_command(self.CMD_FRAME_COUNT, high, low)
+        self.frame_count = frames
+
+    def set_lines(self, lines: int) -> None:
+        """Set the number of scan lines per frame.
+
+        Args:
+            lines: Lines per frame (0-65535, 16-bit).
+
+        Reference:
+            See sb/sb_setline.m
+
+        Raises:
+            ValueError: If lines is outside 0-65535.
+        """
+        if not (0 <= lines <= 65535):
+            raise ValueError(f"Lines per frame must be 0-65535, got {lines}")
+        high = (lines >> 8) & 0xFF
+        low = lines & 0xFF
+        self._send_command(self.CMD_LINES, high, low)
+        self.lines_per_frame = lines
+
+    def set_magnification(self, magnification: int) -> None:
+        """Set the magnification (zoom) level.
+
+        Args:
+            magnification: Magnification value (1-255; typical range 1-13).
+
+        Reference:
+            See sb/sb_setmag.m
+
+        Raises:
+            ValueError: If magnification is outside 1-255.
+        """
+        if not (1 <= magnification <= 255):
+            raise ValueError(
+                f"Magnification must be 1-255, got {magnification}"
+            )
+        self._send_command(self.CMD_MAGNIFICATION, 0, magnification)
+        self.magnification = magnification
+
     def set_pockels(self, base: int, active: int) -> None:
         """Set Pockels cell power levels.
 
@@ -233,6 +320,29 @@ class ScanboxController:
         """
         self._send_command(self.CMD_POCKELS, base, active)
         self.current_pockels = {'base': base, 'active': active}
+
+    def set_pockels_deadband(self, left: int, right: int) -> None:
+        """Set the Pockels cell deadband (blanking) regions.
+
+        Defines the number of pixels at the left and right margins of each
+        scan line where the laser is blanked to avoid edge artifacts.
+
+        Args:
+            left: Left deadband width in pixels (0-255).
+            right: Right deadband width in pixels (0-255).
+
+        Reference:
+            See sb/sb_deadband.m
+
+        Raises:
+            ValueError: If either value is outside 0-255.
+        """
+        if not (0 <= left <= 255):
+            raise ValueError(f"Left deadband must be 0-255, got {left}")
+        if not (0 <= right <= 255):
+            raise ValueError(f"Right deadband must be 0-255, got {right}")
+        self._send_command(self.CMD_DEADBAND, left, right)
+        self.pockels_deadband = {'left': left, 'right': right}
 
     def set_shutter(self, open: bool) -> None:
         """Set laser shutter state.
