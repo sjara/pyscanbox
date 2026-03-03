@@ -97,7 +97,10 @@ The Scanbox controller box has multiple front panel connectors that interface wi
    for details.)*
 
 **⚠️ UNCONFIRMED - Typical connections (to be verified):**
-- **POCKELS CELL** → Pockels cell driver
+- **POCKELS CELL** → **Conoptics 302RM** Pockels cell driver — confirmed connected
+  - Input signal: **0–2 V, unipolar positive** (set the driver to "unipolar positive input signal" mode)
+  - Software bytes 0–255 map to this voltage range via the PSoC5 controller
+  - ⚠️ Output not yet measured; plan: use power meter to measure laser power after Pockels cell at several command values to calibrate the byte→power relationship
 - **FIRGELLI MIRROR** → Mirror actuator
 - **PHOTOMULTIPLIER TUBES** → PMT amplifier outputs or power supply (signal path unknown)
 - **TTL1** → External stimulus/trigger systems
