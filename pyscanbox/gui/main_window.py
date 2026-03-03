@@ -113,6 +113,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.addDockWidget(
             QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self._log_dock
         )
+        # Keep the rest of the window at its current size when the log dock
+        # is detached.  topLevelChanged fires before Qt reflows the layout,
+        # so we use a zero-delay timer to resize after the layout settles.
+        self._log_dock.topLevelChanged.connect(self._on_log_dock_floating)
         
     def _create_menu_bar(self):
         """Create the application menu bar."""
@@ -194,6 +198,24 @@ class MainWindow(QtWidgets.QMainWindow):
             checked: True to show the dock, False to hide it.
         """
         self._log_dock.setVisible(checked)
+
+    def _on_log_dock_floating(self, floating: bool) -> None:
+        """Resize the main window when the log dock is detached or re-docked.
+
+        When the dock becomes a floating window Qt expands the remaining
+        content to fill the freed space.  We compensate by shrinking the
+        main window back to its pre-float height.  The QTimer delay lets
+        the layout reflow complete before we apply the resize.
+
+        Args:
+            floating: True when the dock is being detached (made floating).
+        """
+        if floating:
+            dock_h = self._log_dock.height()
+            target_h = max(400, self.height() - dock_h)
+            QtCore.QTimer.singleShot(
+                0, lambda: self.resize(self.width(), target_h)
+            )
             
     def _show_about(self):
         """Show the about dialog."""

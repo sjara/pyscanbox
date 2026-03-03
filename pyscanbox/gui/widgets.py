@@ -702,11 +702,12 @@ class OptotuneGroup(QtWidgets.QGroupBox):
         self.setLayout(layout)
 
 
-class CommandLogPanel(QtWidgets.QGroupBox):
+class CommandLogPanel(QtWidgets.QWidget):
     """Scrollable log panel showing commands sent to and received from hardware.
 
     Displays HTML-formatted log entries with timestamps, direction labels,
-    and color-coded text.  Designed for the qdarktheme dark background.
+    and color-coded text.  Designed to be embedded in a QDockWidget which
+    already provides the panel title.
 
     Usage::
 
@@ -723,7 +724,7 @@ class CommandLogPanel(QtWidgets.QGroupBox):
         Args:
             parent: Optional Qt parent widget.
         """
-        super().__init__('Command Log', parent)
+        super().__init__(parent)
         self._init_ui()
 
     def _init_ui(self):
@@ -736,9 +737,7 @@ class CommandLogPanel(QtWidgets.QGroupBox):
         self._text.setReadOnly(True)
         self._text.document().setDefaultFont(QtGui.QFont('Monospace', 9))
         self._text.setMinimumHeight(100)
-        self._text.setStyleSheet(
-            'background:#1a1a2e; color:#ddd; border:1px solid #444;'
-        )
+        self._text.setStyleSheet('border:1px solid #444;')
         layout.addWidget(self._text)
 
         bar = QtWidgets.QHBoxLayout()

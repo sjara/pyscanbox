@@ -47,7 +47,8 @@ class Scanner:
     def __init__(self, config: dict, output_path: Optional[str] = None,
                  focus_mode: bool = False,
                  on_frame: Optional[Callable[[int], None]] = None,
-                 on_frame_data=None):
+                 on_frame_data=None,
+                 on_command=None):
         """Initialize scanner with configuration.
 
         Args:
@@ -101,6 +102,7 @@ class Scanner:
         self.focus_mode = focus_mode
         self.on_frame = on_frame
         self.on_frame_data = on_frame_data
+        self.on_command = on_command
         if focus_mode:
             self.frames_to_acquire = sys.maxsize
 
@@ -149,7 +151,7 @@ class Scanner:
         self.sbx_writer = sbx_writer.SbxWriter(self.output_path)
         self.mat_writer = mat_writer.MatWriter(self.output_path)
 
-    def setup_pockels_and_shutter(self, base_power: int = 0, 
+    def setup_pockels_and_shutter(self, base_power: int = 0,
                                   active_power: int = 100) -> None:
         """Configure Pockels cell and open shutter.
 
@@ -158,7 +160,10 @@ class Scanner:
             active_power: Active Pockels power (0-255) during scan
         """
         self.controller.set_pockels(base=base_power, active=active_power)
+        self._notify_cmd('PC → Controller',
+                         f'set_pockels(base={base_power}, active={active_power})')
         self.controller.set_shutter(open=True)
+        self._notify_cmd('PC → Controller', 'set_shutter(open=True)')
 
     def run(self) -> None:
         """Run main acquisition loop.
@@ -190,6 +195,7 @@ class Scanner:
             # Start acquisition
             print("Starting acquisition...")
             self.alazar.start_acquisition()
+            self._notify_cmd('PC → Alazar', 'start_acquisition()')
             self.is_running = True
             self.start_time = time.time()
             
@@ -268,6 +274,20 @@ class Scanner:
         """
         self.is_running = False
 
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _notify_cmd(self, direction: str, detail: str) -> None:
+        """Fire the on_command callback if one was provided.
+
+        Args:
+            direction: Short label, e.g. ``'PC \u2192 Controller'``.
+            detail: Human-readable description of the hardware call.
+        """
+        if self.on_command is not None:
+            self.on_command(direction, detail)
+
     def cleanup(self) -> None:
         """Cleanup and shutdown all hardware and files.
 
@@ -279,11 +299,13 @@ class Scanner:
         # Stop acquisition
         if self.alazar is not None:
             self.alazar.stop_acquisition()
+            self._notify_cmd('PC → Alazar', 'stop_acquisition()')
             self.alazar.close()
         
         # Close controller
         if self.controller is not None:
             self.controller.set_shutter(open=False)
+            self._notify_cmd('PC → Controller', 'set_shutter(open=False)')
             self.controller.close()
         
         # Close motor

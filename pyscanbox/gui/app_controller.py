@@ -64,6 +64,7 @@ class ScannerThread(QtCore.QThread):
     acquisition_finished = QtCore.pyqtSignal()
     acquisition_error = QtCore.pyqtSignal(str)
     frame_data_ready = QtCore.pyqtSignal(object)  # carries np.ndarray
+    command_logged = QtCore.pyqtSignal(str)       # carries HTML-formatted entry
 
     def __init__(self, config: dict, output_path=None,
                  focus_mode: bool = False, parent=None):
@@ -93,12 +94,31 @@ class ScannerThread(QtCore.QThread):
                 focus_mode=self._focus_mode,
                 on_frame=self.frame_acquired.emit,
                 on_frame_data=self.frame_data_ready.emit,
+                on_command=self._emit_command,
             )
             self._scanner.run()
         except Exception as exc:
             self.acquisition_error.emit(str(exc))
         finally:
             self.acquisition_finished.emit()
+
+    def _emit_command(self, direction: str, detail: str) -> None:
+        """Format (direction, detail) as HTML and emit command_logged.
+
+        Called from the Scanner background thread; PyQt6 signal emission
+        is thread-safe so no explicit locking is needed.
+
+        Args:
+            direction: Short label, e.g. ``'PC \u2192 Controller'``.
+            detail: Human-readable command description.
+        """
+        ts = datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]
+        html = (
+            f'<span style="color:#888">[{ts}]</span>&nbsp;'
+            f'<b><span style="color:#fa8">{direction}</span></b>&nbsp;'
+            f'<span style="color:#fd8;font-family:monospace">{detail}</span>'
+        )
+        self.command_logged.emit(html)
 
     def request_stop(self) -> None:
         """Thread-safe stop request; safe to call from the main thread.
@@ -401,6 +421,7 @@ class AppController(QtCore.QObject):
         )
         self._scanner_thread.frame_acquired.connect(self.frame_acquired)
         self._scanner_thread.frame_data_ready.connect(self.frame_data_ready)
+        self._scanner_thread.command_logged.connect(self.command_logged)
         self._scanner_thread.acquisition_finished.connect(
             self._on_acquisition_finished
         )
