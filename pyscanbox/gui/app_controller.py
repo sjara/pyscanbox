@@ -282,7 +282,7 @@ class AppController(QtCore.QObject):
             self._hw_controller.set_pockels(base=0, active=hw_value)
             logger.debug("Pockels set to %d%% (hw=%d)", percent, hw_value)
             self._log_cmd('PC → Controller',
-                          f'set_pockels({percent}%  →  hw={hw_value})')
+                          f'set_pockels({percent}%)  →  [08 00 {hw_value:02X}]')
         except Exception as exc:
             msg = f"set_pockels failed: {exc}"
             logger.error(msg)

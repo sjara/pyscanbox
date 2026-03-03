@@ -194,10 +194,27 @@ class MainWindow(QtWidgets.QMainWindow):
     def _toggle_log_dock(self, checked):
         """Show or hide the Command Log dock widget.
 
+        Resizes the main window to compensate for the space the dock
+        occupies so the rest of the UI keeps its current size.
+
         Args:
             checked: True to show the dock, False to hide it.
         """
-        self._log_dock.setVisible(checked)
+        if not checked:
+            # Capture height *before* hiding so we know how much to shrink.
+            self._log_dock_height = self._log_dock.height()
+            self._log_dock.setVisible(False)
+            target_h = max(400, self.height() - self._log_dock_height)
+            QtCore.QTimer.singleShot(
+                0, lambda: self.resize(self.width(), target_h)
+            )
+        else:
+            self._log_dock.setVisible(True)
+            restore_h = getattr(self, '_log_dock_height', 0)
+            target_h = self.height() + restore_h
+            QtCore.QTimer.singleShot(
+                0, lambda: self.resize(self.width(), target_h)
+            )
 
     def _on_log_dock_floating(self, floating: bool) -> None:
         """Resize the main window when the log dock is detached or re-docked.
