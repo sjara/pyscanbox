@@ -182,7 +182,7 @@ class AppController(QtCore.QObject):
         self._hw_controller = hw_controller.ScanboxController(
             config, on_command=self._on_controller_cmd
         )
-        self._knobby = hw_knobby.Knobby(config)
+        self._knobby = hw_knobby.Knobby(config, on_command=self._on_knobby_cmd)
 
         # Cached motor positions: motor_id (int) → position in physical units (float).
         self._positions = {i: 0.0 for i in range(4)}
@@ -487,6 +487,21 @@ class AppController(QtCore.QObject):
             cmd_id, param1, param2
         )
         packet_str = f'[{cmd_id:02X} {param1:02X} {param2:02X}]'
+        self._log_cmd(direction, func_call, packet_str)
+
+    def _on_knobby_cmd(self, com_port: str, command_id: int, value: int) -> None:
+        """Adapter: translate a Knobby serial-write event to _log_cmd.
+
+        Fired by Knobby.send_command() after every port.write().
+
+        Args:
+            com_port: Serial port name, e.g. ``'COM5'``.
+            command_id: Command ID byte sent.
+            value: 16-bit value parameter.
+        """
+        direction = f'PC \u2192 Knobby ({com_port})'
+        func_call = hw_knobby.Knobby.format_command(command_id, value)
+        packet_str = f'[{command_id:02X} val={value}]'
         self._log_cmd(direction, func_call, packet_str)
 
     def _log_event(self, text: str) -> None:

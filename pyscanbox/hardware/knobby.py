@@ -175,14 +175,19 @@ class Knobby:
         version: Knobby version (1 or 2)
     """
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, on_command=None):
         """Initialize Knobby controller.
 
         Args:
             config: Configuration dictionary with knobby settings.
                 Must contain 'knobby' key with COM port and parameters.
+            on_command: Optional callback fired after each 9-byte packet is
+                written.  Signature::
+
+                    on_command(com_port: str, command_id: int, value: int)
         """
         self.config = config
+        self.on_command = on_command
         
         # Get knobby configuration
         knobby_config = config.get('knobby', {})
@@ -269,11 +274,50 @@ class Knobby:
         
         try:
             self.port.write(packet)
+            if self.on_command is not None:
+                self.on_command(self.com_port, command_id, value)
             return True
         except Exception as e:
             if self.emulation_verbose:
                 print(f"Knobby: Error sending command {command_id}: {e}")
             return False
+
+    CMD_NAMES = {
+        10: 'set_velocity_coarse',
+        11: 'set_velocity_fine',
+        12: 'set_velocity_superfine',
+        20: 'set_mode_normal',
+        21: 'set_mode_rotate',
+        30: 'zero_xyz',
+        31: 'zero_xyza',
+        40: 'store_position_A',
+        41: 'store_position_B',
+        42: 'store_position_C',
+        50: 'recall_position_A',
+        51: 'recall_position_B',
+        52: 'recall_position_C',
+        60: 'lock',
+        61: 'unlock',
+    }
+
+    @staticmethod
+    def format_command(command_id: int, value: int) -> str:
+        """Decode a Knobby command into a human-readable call string.
+
+        Args:
+            command_id: Command ID sent to the Knobby.
+            value: 16-bit value parameter.
+
+        Returns:
+            Human-readable string, e.g. ``'move_motor(motor=0, dist=100 um)'``.
+        """
+        if 0 <= command_id <= 2:
+            axis = ['Z', 'Y', 'X'][command_id]
+            return f'move_motor(motor={command_id} [{axis}], dist={value} um)'
+        name = Knobby.CMD_NAMES.get(command_id)
+        if name:
+            return f'{name}()'
+        return f'cmd({command_id}, value={value})'
 
     def move_motor(self, motor_id: int, distance_um: float) -> bool:
         """Command Knobby to move a motor by a relative distance.

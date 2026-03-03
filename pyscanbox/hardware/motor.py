@@ -61,17 +61,23 @@ class TrinamicMotor:
         polling_interval: Polling interval in seconds
     """
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, on_command=None):
         """Initialize Trinamic motor controller.
 
         Args:
             config: Configuration dictionary with motor settings.
                 Must contain 'motor' key with COM port and parameters.
+            on_command: Optional callback fired after each TMCL packet is
+                written.  Signature::
+
+                    on_command(com_port: str, cmd: str, cmd_type: int,
+                               motor: int, value: int)
         """
         self.config = config
         self.com_port = config['motor']['com_port']
         self.baud_rate = config['motor']['baud_rate']
         self.timeout = config['motor']['timeout']
+        self.on_command = on_command
         
         # Check if emulation is enabled
         self.use_emulation = config.get('emulation', {}).get('enabled', False)
@@ -157,6 +163,8 @@ class TrinamicMotor:
         
         # Send packet
         self.port.write(packet)
+        if self.on_command is not None:
+            self.on_command(self.com_port, cmd, cmd_type, motor, value)
         
         # Wait for response (9 bytes)
         response = self.port.read(9)
@@ -165,6 +173,37 @@ class TrinamicMotor:
             return None
         
         return response
+
+    @staticmethod
+    def format_command(cmd: str, cmd_type: int, motor: int, value: int) -> str:
+        """Decode a TMCL command into a human-readable call string.
+
+        Args:
+            cmd: TMCL command string ('MVP', 'GAP', 'SAP', 'ROR', 'ROL', 'MST').
+            cmd_type: Command type parameter.
+            motor: Motor number (0-3).
+            value: 32-bit value parameter.
+
+        Returns:
+            Human-readable string, e.g. ``'move_absolute(motor=0, pos=1000)'``.
+        """
+        if cmd == 'MVP':
+            if cmd_type == 0:
+                return f'move_absolute(motor={motor}, pos={value})'
+            else:
+                return f'move_relative(motor={motor}, dist={value})'
+        elif cmd == 'GAP':
+            return f'get_axis_parameter(motor={motor}, param={cmd_type})'
+        elif cmd == 'SAP':
+            return f'set_axis_parameter(motor={motor}, param={cmd_type}, value={value})'
+        elif cmd == 'ROR':
+            return f'rotate_right(motor={motor}, vel={value})'
+        elif cmd == 'ROL':
+            return f'rotate_left(motor={motor}, vel={value})'
+        elif cmd == 'MST':
+            return f'stop(motor={motor})'
+        else:
+            return f'{cmd}(type={cmd_type}, motor={motor}, value={value})'
 
     def get_axis_parameter(self, motor: int, param_type: int) -> Optional[int]:
         """Get axis parameter (GAP command).

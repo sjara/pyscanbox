@@ -137,14 +137,23 @@ class AlazarDigitizer:
         samples_per_buffer: Samples per DMA buffer
     """
 
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, on_command=None):
         """Initialize Alazar digitizer.
 
         Args:
             config: Configuration dictionary with Alazar settings.
                 Must contain 'alazar' key with sampling parameters.
+            on_command: Optional callback fired when a key API call is made.
+                Signature::
+
+                    on_command(event: str, detail: str)
+
+                ``event`` is a short name such as ``'configure'``,
+                ``'start_acquisition'``, or ``'stop_acquisition'``.
+                ``detail`` carries relevant parameter info.
         """
         self.config = config
+        self.on_command = on_command
         self.sample_rate = config['alazar']['sample_rate']
         self.bits_per_sample = config['alazar']['bits_per_sample']
         self.channels = config['alazar']['channels']
@@ -370,6 +379,10 @@ class AlazarDigitizer:
         self.configure_lsb_outputs(lsb0_source=2, lsb1_source=3)
         
         self.is_configured = True
+        if self.on_command is not None:
+            detail = (f'sample_rate={self.sample_rate}, bits={self.bits_per_sample}, '
+                      f'channels={self.channels}')
+            self.on_command('configure', detail)
 
     def configure_lsb_outputs(self, lsb0_source: int, lsb1_source: int) -> None:
         """Configure LSB output bits for frame/line synchronization.
@@ -517,6 +530,13 @@ class AlazarDigitizer:
         self._samples_per_record = samples_per_record
         self._records_per_buffer = records_per_buffer
         self.is_acquiring = True
+        if self.on_command is not None:
+            detail = (
+                f'samples_per_record={self._samples_per_record}, '
+                f'records_per_buffer={self._records_per_buffer}, '
+                f'buffers={self.buffer_count}'
+            )
+            self.on_command('start_acquisition', detail)
 
 
     def read_buffer(self, timeout_ms: int = 5000) -> Optional[np.ndarray]:
@@ -600,6 +620,8 @@ class AlazarDigitizer:
         self.current_buffer_index = 0
         
         self.is_acquiring = False
+        if self.on_command is not None:
+            self.on_command('stop_acquisition', '')
 
     def close(self) -> None:
         """Close connection to Alazar board and cleanup resources."""

@@ -71,7 +71,9 @@ class Scanner:
         self.output_path = output_path
         
         # Initialize hardware
-        self.alazar = alazar.AlazarDigitizer(config)
+        self.alazar = alazar.AlazarDigitizer(
+            config, on_command=self._on_alazar_cmd
+        )
         self.controller = controller.ScanboxController(
             config, on_command=self._on_controller_cmd
         )
@@ -136,7 +138,9 @@ class Scanner:
         
         # Initialize motor if configured
         if 'motor' in self.config:
-            self.motor = motor.TrinamicMotor(self.config)
+            self.motor = motor.TrinamicMotor(
+                self.config, on_command=self._on_motor_cmd
+            )
             self.motor.open()
 
     def initialize_writers(self) -> None:
@@ -194,11 +198,6 @@ class Scanner:
             # Start acquisition
             print("Starting acquisition...")
             self.alazar.start_acquisition()
-            self._notify_cmd(
-                'PC → Alazar',
-                'start_acquisition',
-                'BeforeAsyncRead + PostBuffers',
-            )
             self.is_running = True
             self.start_time = time.time()
             
@@ -315,6 +314,37 @@ class Scanner:
         packet_str = f'[{cmd_id:02X} {param1:02X} {param2:02X}]'
         self.on_command(direction, func_call, packet_str)
 
+    def _on_alazar_cmd(self, event: str, detail: str) -> None:
+        """Adapter: translate an AlazarDigitizer event to on_command.
+
+        Fired by AlazarDigitizer after configure(), start_acquisition(),
+        and stop_acquisition().
+
+        Args:
+            event: Short event name (e.g. ``'start_acquisition'``).
+            detail: Human-readable parameter string.
+        """
+        self._notify_cmd('PC \u2192 Alazar', event, detail)
+
+    def _on_motor_cmd(self, com_port: str, cmd: str, cmd_type: int,
+                      motor_num: int, value: int) -> None:
+        """Adapter: translate a TrinamicMotor serial-write event to on_command.
+
+        Fired by TrinamicMotor.send_command() after every port.write().
+
+        Args:
+            com_port: Serial port name.
+            cmd: TMCL command string (e.g. ``'MVP'``, ``'SAP'``).
+            cmd_type: TMCL command type parameter.
+            motor_num: Motor number (0-3).
+            value: 32-bit value parameter.
+        """
+        if self.on_command is None:
+            return
+        direction = f'PC \u2192 Motor ({com_port})'
+        func_call = motor.TrinamicMotor.format_command(cmd, cmd_type, motor_num, value)
+        self.on_command(direction, func_call, '')
+
     def cleanup(self) -> None:
         """Cleanup and shutdown all hardware and files.
 
@@ -326,11 +356,6 @@ class Scanner:
         # Stop acquisition
         if self.alazar is not None:
             self.alazar.stop_acquisition()
-            self._notify_cmd(
-                'PC → Alazar',
-                'stop_acquisition',
-                'AbortAsyncRead',
-            )
             self.alazar.close()
         
         # Close controller
