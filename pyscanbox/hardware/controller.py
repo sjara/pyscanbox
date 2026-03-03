@@ -66,6 +66,8 @@ class ScanboxController:
     # Command IDs
     CMD_SCAN = 4
     CMD_MIRROR = 5
+    CMD_GAIN0 = 6
+    CMD_GAIN1 = 7
     CMD_POCKELS = 8
     CMD_SHUTTER = 16
 
@@ -73,6 +75,8 @@ class ScanboxController:
     CMD_NAMES = {
         CMD_SCAN: 'scan',
         CMD_MIRROR: 'set_mirror',
+        CMD_GAIN0: 'set_pmt_gain',
+        CMD_GAIN1: 'set_pmt_gain',
         CMD_POCKELS: 'set_pockels',
         CMD_SHUTTER: 'set_shutter',
     }
@@ -95,6 +99,10 @@ class ScanboxController:
             Human-readable call string, e.g.
             ``'set_pockels(base=0, active=100)'``.
         """
+        if cmd_id == ScanboxController.CMD_GAIN0:
+            return f'set_pmt_gain(pmt_id=0, value={param2})'
+        if cmd_id == ScanboxController.CMD_GAIN1:
+            return f'set_pmt_gain(pmt_id=1, value={param2})'
         if cmd_id == ScanboxController.CMD_POCKELS:
             return f'set_pockels(base={param1}, active={param2})'
         if cmd_id == ScanboxController.CMD_SHUTTER:
@@ -137,6 +145,7 @@ class ScanboxController:
         self.shutter_open = False
         self.mirror_mode = '2p'  # '2p' or 'epi'
         self.scan_running = False
+        self.pmt_gains = [0, 0]  # hardware gain values (0-255) for PMT0 and PMT1
 
     def open(self) -> None:
         """Open serial connection to controller.
@@ -237,6 +246,27 @@ class ScanboxController:
         param2 = 1 if open else 0
         self._send_command(self.CMD_SHUTTER, 0, param2)
         self.shutter_open = open
+
+    def set_pmt_gain(self, pmt_id: int, value: int) -> None:
+        """Set the gain for a PMT channel.
+
+        Args:
+            pmt_id: PMT channel index (0 or 1).
+            value: Gain level (0-255).
+
+        Reference:
+            See sb/sb_gain0.m and sb/sb_gain1.m
+
+        Raises:
+            ValueError: If pmt_id is not 0 or 1, or value is out of range.
+        """
+        if pmt_id not in (0, 1):
+            raise ValueError(f"pmt_id must be 0 or 1, got {pmt_id}")
+        if not (0 <= value <= 255):
+            raise ValueError(f"PMT gain value must be 0-255, got {value}")
+        cmd_id = self.CMD_GAIN0 if pmt_id == 0 else self.CMD_GAIN1
+        self._send_command(cmd_id, 0, value)
+        self.pmt_gains[pmt_id] = value
 
     def set_mirror(self, mode: str) -> None:
         """Set epi/2P mirror position using Firgelli actuator.

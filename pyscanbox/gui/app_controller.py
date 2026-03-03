@@ -36,6 +36,9 @@ POSITION_POLL_INTERVAL_MS = 100
 # Scale factor for mapping 0-100% GUI slider to 0-255 hardware range.
 POCKELS_PERCENT_TO_HW = 255.0 / 100.0
 
+# Scale factor for PMT gain sliders (0-100 % -> 0-255 hardware range).
+PMT_PERCENT_TO_HW = 255.0 / 100.0
+
 
 class ScannerThread(QtCore.QThread):
     """Runs Scanner in a background QThread.
@@ -288,6 +291,68 @@ class AppController(QtCore.QObject):
             logger.debug("Pockels set to %d%% (hw=%d)", percent, hw_value)
         except Exception as exc:
             msg = f"set_pockels failed: {exc}"
+            logger.error(msg)
+            self.hardware_error.emit(msg)
+
+    # ------------------------------------------------------------------
+    # Mirror control
+    # ------------------------------------------------------------------
+
+    def set_mirror(self, mode: str) -> None:
+        """Set the epi/2P mirror position.
+
+        Args:
+            mode: ``'epi'`` to enable epifluorescence path,
+                ``'2p'`` for two-photon path.
+
+        Raises:
+            RuntimeError: If hardware is not open.
+            ValueError: If mode is not ``'epi'`` or ``'2p'``.
+        """
+        if not self.is_open:
+            raise RuntimeError("AppController is not open. Call open() first.")
+
+        try:
+            self._hw_controller.set_mirror(mode)
+            logger.debug("Mirror set to '%s'", mode)
+        except Exception as exc:
+            msg = f"set_mirror failed: {exc}"
+            logger.error(msg)
+            self.hardware_error.emit(msg)
+
+    # ------------------------------------------------------------------
+    # PMT gain
+    # ------------------------------------------------------------------
+
+    def set_pmt_gain(self, pmt_id: int, percent: int) -> None:
+        """Set the gain for a PMT channel.
+
+        Translates the GUI slider value (0–100 %) to the hardware's 0–255
+        range and sends the gain command for the specified channel.
+
+        Args:
+            pmt_id: PMT channel index (0 or 1).
+            percent: Gain as a percentage (0–100).
+
+        Raises:
+            RuntimeError: If hardware is not open.
+            ValueError: If pmt_id or percent are out of range.
+        """
+        if not self.is_open:
+            raise RuntimeError("AppController is not open. Call open() first.")
+
+        if pmt_id not in (0, 1):
+            raise ValueError(f"pmt_id must be 0 or 1, got {pmt_id}")
+        if not (0 <= percent <= 100):
+            raise ValueError(f"PMT gain percent must be 0-100, got {percent}")
+
+        hw_value = round(percent * PMT_PERCENT_TO_HW)
+
+        try:
+            self._hw_controller.set_pmt_gain(pmt_id, hw_value)
+            logger.debug("PMT%d gain set to %d%% (hw=%d)", pmt_id, percent, hw_value)
+        except Exception as exc:
+            msg = f"set_pmt_gain(pmt_id={pmt_id}) failed: {exc}"
             logger.error(msg)
             self.hardware_error.emit(msg)
 

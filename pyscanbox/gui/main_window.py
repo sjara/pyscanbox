@@ -300,6 +300,19 @@ class MainWindow(QtWidgets.QMainWindow):
         # Laser power slider -> Pockels cell
         laser.power_slider.valueChanged.connect(self._on_pockels_changed)
 
+        # CameraPath Enable checkbox -> mirror control
+        camera = self._right_panel.camera_group
+        camera.enable_checkbox.stateChanged.connect(self._on_camera_enable_changed)
+
+        # PMT gain sliders -> hardware
+        pmt = self._right_panel.pmt_group
+        pmt.pmt0_slider.valueChanged.connect(
+            lambda v: self._on_pmt_gain_changed(0, v)
+        )
+        pmt.pmt1_slider.valueChanged.connect(
+            lambda v: self._on_pmt_gain_changed(1, v)
+        )
+
         # Acquisition buttons -> AppController
         acq.focus_button.clicked.connect(self._on_focus_clicked)
         acq.grab_button.clicked.connect(self._on_grab_clicked)
@@ -326,6 +339,35 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._ctrl is not None and self._ctrl.is_open:
             self._ctrl.close()
         super().closeEvent(event)
+
+    # ------------------------------------------------------------------
+    # Camera path / mirror
+    # ------------------------------------------------------------------
+
+    def _on_camera_enable_changed(self, state):
+        """Toggle epi/2P mirror when the CameraPath Enable checkbox changes.
+
+        Sets the mirror to ``'epi'`` when the checkbox is checked, and to
+        ``'2p'`` when it is unchecked.
+
+        Args:
+            state: Qt.CheckState value emitted by stateChanged.
+        """
+        if self._ctrl is None:
+            return
+        checked = state == QtCore.Qt.CheckState.Checked.value
+        mode = 'epi' if checked else '2p'
+        self._ctrl.set_mirror(mode)
+
+    def _on_pmt_gain_changed(self, pmt_id: int, percent: int):
+        """Forward a PMT gain slider value to the hardware.
+
+        Args:
+            pmt_id: PMT channel index (0 or 1).
+            percent: Slider value 0-100.
+        """
+        if self._ctrl is not None:
+            self._ctrl.set_pmt_gain(pmt_id, percent)
 
     # ------------------------------------------------------------------
     # Laser / Pockels
