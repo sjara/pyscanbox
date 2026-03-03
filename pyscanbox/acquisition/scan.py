@@ -159,16 +159,17 @@ class Scanner:
             base_power: Base Pockels power (0-255) during flyback
             active_power: Active Pockels power (0-255) during scan
         """
+        ctrl_port = self.controller.com_port
         self.controller.set_pockels(base=base_power, active=active_power)
         self._notify_cmd(
-            'PC → Controller',
-            f'set_pockels(base={base_power}, active={active_power})'  # noqa
-            f'  →  [08 {base_power:02X} {active_power:02X}]',
+            f'PC → Controller ({ctrl_port})',
+            f'set_pockels(base={base_power}, active={active_power})'
+            f': [08 {base_power:02X} {active_power:02X}]',
         )
         self.controller.set_shutter(open=True)
         self._notify_cmd(
-            'PC → Controller',
-            'set_shutter(open=True)  →  [10 00 01]',
+            f'PC → Controller ({ctrl_port})',
+            'set_shutter(open=True): [10 00 01]',
         )
 
     def run(self) -> None:
@@ -201,7 +202,7 @@ class Scanner:
             # Start acquisition
             print("Starting acquisition...")
             self.alazar.start_acquisition()
-            self._notify_cmd('PC → Alazar', 'start_acquisition()  →  BeforeAsyncRead + PostBuffers')
+            self._notify_cmd('PC → Alazar', 'start_acquisition(): BeforeAsyncRead + PostBuffers')
             self.is_running = True
             self.start_time = time.time()
             
@@ -305,13 +306,17 @@ class Scanner:
         # Stop acquisition
         if self.alazar is not None:
             self.alazar.stop_acquisition()
-            self._notify_cmd('PC → Alazar', 'stop_acquisition()  →  AbortAsyncRead')
+            self._notify_cmd('PC → Alazar', 'stop_acquisition(): AbortAsyncRead')
             self.alazar.close()
         
         # Close controller
         if self.controller is not None:
+            ctrl_port = self.controller.com_port
             self.controller.set_shutter(open=False)
-            self._notify_cmd('PC → Controller', 'set_shutter(open=False)  →  [10 00 00]')
+            self._notify_cmd(
+                f'PC → Controller ({ctrl_port})',
+                'set_shutter(open=False): [10 00 00]',
+            )
             self.controller.close()
         
         # Close motor

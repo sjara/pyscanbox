@@ -201,19 +201,21 @@ class MainWindow(QtWidgets.QMainWindow):
             checked: True to show the dock, False to hide it.
         """
         if not checked:
-            # Capture height *before* hiding so we know how much to shrink.
-            self._log_dock_height = self._log_dock.height()
+            # Snapshot the full window height (dock included) and the dock
+            # height *before* anything is hidden, so we have exact numbers.
+            self._win_height_with_log = self.height()
+            self._log_dock_saved_h = self._log_dock.height()
             self._log_dock.setVisible(False)
-            target_h = max(400, self.height() - self._log_dock_height)
+            target_h = self._win_height_with_log - self._log_dock_saved_h
             QtCore.QTimer.singleShot(
                 0, lambda: self.resize(self.width(), target_h)
             )
         else:
             self._log_dock.setVisible(True)
-            restore_h = getattr(self, '_log_dock_height', 0)
-            target_h = self.height() + restore_h
+            # Restore the exact window height that included the log dock.
+            restore_h = getattr(self, '_win_height_with_log', self.height())
             QtCore.QTimer.singleShot(
-                0, lambda: self.resize(self.width(), target_h)
+                0, lambda: self.resize(self.width(), restore_h)
             )
 
     def _on_log_dock_floating(self, floating: bool) -> None:
@@ -229,7 +231,8 @@ class MainWindow(QtWidgets.QMainWindow):
         """
         if floating:
             dock_h = self._log_dock.height()
-            target_h = max(400, self.height() - dock_h)
+            self._win_height_with_log = self.height()
+            target_h = self._win_height_with_log - dock_h
             QtCore.QTimer.singleShot(
                 0, lambda: self.resize(self.width(), target_h)
             )
