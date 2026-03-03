@@ -6,6 +6,7 @@ pyserial>=3.5
 h5py>=3.0.0
 pyyaml>=5.4.0
 PyQt6>=6.0.0
+pyqtdarktheme>=0.1.7
 
 # Development extras (pip install -e .[dev])
 # pytest>=7.0.0
