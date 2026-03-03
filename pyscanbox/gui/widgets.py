@@ -700,3 +700,133 @@ class OptotuneGroup(QtWidgets.QGroupBox):
         )
         
         self.setLayout(layout)
+
+
+class CommandLogPanel(QtWidgets.QGroupBox):
+    """Scrollable log panel showing commands sent to and received from hardware.
+
+    Displays HTML-formatted log entries with timestamps, direction labels,
+    and color-coded text.  Designed for the qdarktheme dark background.
+
+    Usage::
+
+        log_panel = CommandLogPanel()
+        log_panel.append('<b>hello</b>')  # add an HTML line
+        log_panel.append_command('PC → Controller', 'set_pockels(50)')
+        log_panel.append_event('Acquisition started')
+        log_panel.append_error('Connection lost')
+    """
+
+    def __init__(self, parent=None):
+        """Initialize the command log panel.
+
+        Args:
+            parent: Optional Qt parent widget.
+        """
+        super().__init__('Command Log', parent)
+        self._init_ui()
+
+    def _init_ui(self):
+        """Build the panel layout."""
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
+
+        self._text = QtWidgets.QTextEdit()
+        self._text.setReadOnly(True)
+        self._text.document().setDefaultFont(QtGui.QFont('Monospace', 9))
+        self._text.setMinimumHeight(100)
+        self._text.setStyleSheet(
+            'background:#1a1a2e; color:#ddd; border:1px solid #444;'
+        )
+        layout.addWidget(self._text)
+
+        bar = QtWidgets.QHBoxLayout()
+        self._hint_label = QtWidgets.QLabel(
+            '<small>Hardware commands and events will appear here.</small>'
+        )
+        bar.addWidget(self._hint_label)
+        bar.addStretch()
+        btn_clear = QtWidgets.QPushButton('Clear')
+        btn_clear.setMaximumWidth(60)
+        btn_clear.clicked.connect(self._text.clear)
+        bar.addWidget(btn_clear)
+        layout.addLayout(bar)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def append(self, html: str) -> None:
+        """Append a pre-formatted HTML line and scroll to the bottom.
+
+        Args:
+            html: HTML-formatted string to append.
+        """
+        self._text.append(html)
+        sb = self._text.verticalScrollBar()
+        sb.setValue(sb.maximum())
+
+    def append_command(self, direction: str, detail: str) -> None:
+        """Append a hardware command entry.
+
+        Args:
+            direction: Short direction label, e.g. ``'PC → Controller'``.
+            detail: Human-readable description of the command.
+        """
+        ts = self._timestamp()
+        # Orange for outgoing commands (PC → hardware)
+        self.append(
+            f'<span style="color:#888">[{ts}]</span>&nbsp;'
+            f'<b><span style="color:#fa8">{direction}</span></b>&nbsp;'
+            f'<span style="color:#fd8;font-family:monospace">{detail}</span>'
+        )
+
+    def append_event(self, text: str) -> None:
+        """Append an acquisition / lifecycle event entry.
+
+        Args:
+            text: Plain-text event description.
+        """
+        ts = self._timestamp()
+        self.append(
+            f'<span style="color:#888">[{ts}]</span>&nbsp;'
+            f'<span style="color:#e8a;font-weight:bold">─── {text} ───</span>'
+        )
+
+    def append_error(self, text: str) -> None:
+        """Append a hardware error entry.
+
+        Args:
+            text: Error message.
+        """
+        ts = self._timestamp()
+        self.append(
+            f'<span style="color:#888">[{ts}]</span>&nbsp;'
+            f'<span style="color:#f66"><b>ERROR:</b> {text}</span>'
+        )
+
+    def append_receive(self, direction: str, detail: str) -> None:
+        """Append a data-received entry (e.g. position update from hardware).
+
+        Args:
+            direction: Short direction label, e.g. ``'Controller → PC'``.
+            detail: Human-readable description of the received data.
+        """
+        ts = self._timestamp()
+        # Blue for incoming data (hardware → PC)
+        self.append(
+            f'<span style="color:#888">[{ts}]</span>&nbsp;'
+            f'<b><span style="color:#7bf">{direction}</span></b>&nbsp;'
+            f'<span style="color:#bbb">{detail}</span>'
+        )
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _timestamp() -> str:
+        """Return a ``HH:MM:SS.mmm`` timestamp string."""
+        import datetime
+        return datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]

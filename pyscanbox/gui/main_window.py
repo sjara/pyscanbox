@@ -15,6 +15,7 @@ import PyQt6.QtGui as QtGui
 import pyscanbox
 from pyscanbox.gui import app_controller
 from pyscanbox.gui import panels
+from pyscanbox.gui import widgets
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -31,7 +32,7 @@ class MainWindow(QtWidgets.QMainWindow):
     DEFAULT_WINDOW_HEIGHT = 900
     
     # Default panel widths (for splitter)
-    DEFAULT_LEFT_PANEL_WIDTH = 250
+    DEFAULT_LEFT_PANEL_WIDTH = 300
     DEFAULT_RIGHT_PANEL_WIDTH = DEFAULT_WINDOW_WIDTH - DEFAULT_LEFT_PANEL_WIDTH
     
     def __init__(self, config=None):
@@ -97,6 +98,21 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusBar = QtWidgets.QStatusBar()
         self.setStatusBar(self.statusBar)
         self.statusBar.showMessage("Ready")
+
+        # Create the command log dock at the bottom of the window.
+        self._log_panel = widgets.CommandLogPanel()
+        self._log_dock = QtWidgets.QDockWidget('Command Log', self)
+        self._log_dock.setObjectName('CommandLogDock')
+        self._log_dock.setAllowedAreas(
+            QtCore.Qt.DockWidgetArea.BottomDockWidgetArea
+            | QtCore.Qt.DockWidgetArea.TopDockWidgetArea
+        )
+        self._log_dock.setWidget(self._log_panel)
+        # Give the dock a reasonable default height.
+        self._log_panel.setMinimumHeight(120)
+        self.addDockWidget(
+            QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self._log_dock
+        )
         
     def _create_menu_bar(self):
         """Create the application menu bar."""
@@ -142,6 +158,16 @@ class MainWindow(QtWidgets.QMainWindow):
         fullscreen_action.setCheckable(True)
         fullscreen_action.triggered.connect(self._toggle_fullscreen)
         view_menu.addAction(fullscreen_action)
+
+        view_menu.addSeparator()
+
+        log_action = QtGui.QAction("Show &Command Log", self)
+        log_action.setShortcut("Ctrl+L")
+        log_action.setCheckable(True)
+        log_action.setChecked(True)
+        log_action.triggered.connect(self._toggle_log_dock)
+        view_menu.addAction(log_action)
+        self._log_dock_action = log_action
         
         # Help menu
         help_menu = menubar.addMenu("&Help")
@@ -160,6 +186,14 @@ class MainWindow(QtWidgets.QMainWindow):
             self.showFullScreen()
         else:
             self.showNormal()
+
+    def _toggle_log_dock(self, checked):
+        """Show or hide the Command Log dock widget.
+
+        Args:
+            checked: True to show the dock, False to hide it.
+        """
+        self._log_dock.setVisible(checked)
             
     def _show_about(self):
         """Show the about dialog."""
@@ -236,6 +270,10 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self._ctrl.acquisition_finished.connect(self._on_acquisition_finished)
         self._ctrl.hardware_error.connect(self._on_hardware_error)
+
+        # Command log: wire both the typed command signal and hardware errors.
+        self._ctrl.command_logged.connect(self._log_panel.append)
+        self._ctrl.hardware_error.connect(self._log_panel.append_error)
 
     def closeEvent(self, event):
         """Stop acquisition and close hardware before the window is destroyed.

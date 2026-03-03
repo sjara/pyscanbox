@@ -18,6 +18,7 @@ Example:
     >>> ctrl.close()
 """
 
+import datetime
 import logging
 
 import PyQt6.QtCore as QtCore
@@ -138,6 +139,7 @@ class AppController(QtCore.QObject):
     frame_acquired = QtCore.pyqtSignal(int)
     acquisition_finished = QtCore.pyqtSignal()
     frame_data_ready = QtCore.pyqtSignal(object)  # carries np.ndarray
+    command_logged = QtCore.pyqtSignal(str)  # carries HTML-formatted log entry
 
     def __init__(self, config: dict, parent=None):
         """Initialize the application controller.
@@ -205,6 +207,9 @@ class AppController(QtCore.QObject):
         self.is_open = True
         self._poll_timer.start()
         logger.info("AppController: hardware open, position polling started.")
+        emulation = self.config.get('emulation', {}).get('enabled', False)
+        suffix = ' (emulation)' if emulation else ''
+        self._log_event(f'Hardware connected{suffix}')
 
     def close(self) -> None:
         """Stop polling, stop any running acquisition, and close all hardware."""
@@ -225,6 +230,7 @@ class AppController(QtCore.QObject):
 
         self.is_open = False
         logger.info("AppController: hardware closed.")
+        self._log_event('Hardware disconnected')
 
     # ------------------------------------------------------------------
     # Laser / Pockels cell
@@ -255,6 +261,8 @@ class AppController(QtCore.QObject):
         try:
             self._hw_controller.set_pockels(base=0, active=hw_value)
             logger.debug("Pockels set to %d%% (hw=%d)", percent, hw_value)
+            self._log_cmd('PC → Controller',
+                          f'set_pockels({percent}%  →  hw={hw_value})')
         except Exception as exc:
             msg = f"set_pockels failed: {exc}"
             logger.error(msg)
@@ -300,6 +308,13 @@ class AppController(QtCore.QObject):
             for i in range(4)
         }
         self.position_updated.emit(pos)
+        units = hw_knobby.AXIS_UNITS
+        detail = '  '.join(
+            f'{hw_knobby.AXIS_NAMES[i]}={self._positions[i]:.2f}'  # NOQA
+            f'\u202f{units[i]}'
+            for i in range(4)
+        )
+        self._log_receive('Knobby → PC', detail)
 
     # ------------------------------------------------------------------
     # Acquisition control
@@ -325,6 +340,7 @@ class AppController(QtCore.QObject):
             )
         self._start_scanner(focus_mode=True, output_path=None)
         logger.info("AppController: focus mode started.")
+        self._log_event('Focus mode started')
 
     def start_grab(self, output_path: str = None) -> None:
         """Start a timed grab acquisition and save data to disk.
@@ -349,6 +365,7 @@ class AppController(QtCore.QObject):
             )
         self._start_scanner(focus_mode=False, output_path=output_path)
         logger.info("AppController: grab started, output_path=%s", output_path)
+        self._log_event(f'Grab started  →  {output_path}')
 
     def stop_acquisition(self) -> None:
         """Request the running acquisition to stop gracefully.
@@ -359,6 +376,7 @@ class AppController(QtCore.QObject):
         if self._scanner_thread is not None and self._scanner_thread.isRunning():
             self._scanner_thread.request_stop()
             logger.info("AppController: stop requested.")
+            self._log_event('Stop requested')
 
     @property
     def is_acquiring(self) -> bool:
@@ -398,7 +416,60 @@ class AppController(QtCore.QObject):
         ):
             frames = self._scanner_thread._scanner.frames_acquired
         logger.info("AppController: acquisition finished (frames=%s)", frames)
+        self._log_event(f'Acquisition finished  ({frames} frames)')
         self.acquisition_finished.emit()
+
+    # ------------------------------------------------------------------
+    # Context manager support
+    # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Logging helpers
+    # ------------------------------------------------------------------
+
+    def _log_cmd(self, direction: str, detail: str) -> None:
+        """Emit command_logged with an outgoing-command HTML entry.
+
+        Args:
+            direction: Short label, e.g. ``'PC → Controller'``.
+            detail: Human-readable command description.
+        """
+        ts = datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]
+        html = (
+            f'<span style="color:#888">[{ts}]</span>&nbsp;'
+            f'<b><span style="color:#fa8">{direction}</span></b>&nbsp;'
+            f'<span style="color:#fd8;font-family:monospace">{detail}</span>'
+        )
+        self.command_logged.emit(html)
+
+    def _log_event(self, text: str) -> None:
+        """Emit command_logged with a lifecycle-event HTML entry.
+
+        Args:
+            text: Plain-text event description.
+        """
+        ts = datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]
+        html = (
+            f'<span style="color:#888">[{ts}]</span>&nbsp;'
+            f'<span style="color:#e8a;font-weight:bold">\u2500\u2500\u2500 '
+            f'{text} \u2500\u2500\u2500</span>'
+        )
+        self.command_logged.emit(html)
+
+    def _log_receive(self, direction: str, detail: str) -> None:
+        """Emit command_logged with an incoming-data HTML entry.
+
+        Args:
+            direction: Short label, e.g. ``'Knobby → PC'``.
+            detail: Human-readable description of the received data.
+        """
+        ts = datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]
+        html = (
+            f'<span style="color:#888">[{ts}]</span>&nbsp;'
+            f'<b><span style="color:#7bf">{direction}</span></b>&nbsp;'
+            f'<span style="color:#bbb">{detail}</span>'
+        )
+        self.command_logged.emit(html)
 
     # ------------------------------------------------------------------
     # Context manager support
