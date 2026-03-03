@@ -83,6 +83,7 @@ class Scanner:
         self.lines_per_frame = config['acquisition']['lines_per_frame']
         self.pixels_per_line = config['acquisition']['pixels_per_line']
         self.frames_to_acquire = config['acquisition']['frames']
+        self.magnification = config['acquisition'].get('magnification', 1)
 
         # Raw-mode acquisition: use arccosine pixel LUT instead of pre-shaped data.
         # When True, each Alazar buffer contains `lines × samples_per_line × 2`
@@ -157,6 +158,30 @@ class Scanner:
         self.sbx_writer = sbx_writer.SbxWriter(self.output_path)
         self.mat_writer = mat_writer.MatWriter(self.output_path)
 
+    def configure_scan_params(self) -> None:
+        """Send scan parameters to the controller before starting acquisition.
+
+        Sends lines-per-frame, frame count, and magnification to the PSoC
+        controller, matching the MATLAB ``sb_setparam`` / ``sb_setframe``
+        sequence.
+
+        Frame-count behaviour (mirrors MATLAB ``frames_Callback``):
+            * Focus mode or ``frames_to_acquire`` > 65535 → sends 0 (run
+              forever; controller stops only when ``stop_scan()`` is called).
+            * Grab mode with ``frames_to_acquire`` ≤ 65535 → sends the exact
+              count; the controller hardware stops the scanner automatically
+              after that many frames.
+        """
+        self.controller.set_lines(self.lines_per_frame)
+
+        if self.focus_mode or self.frames_to_acquire > 65535:
+            hw_frame_count = 0          # 0 = run until explicit stop
+        else:
+            hw_frame_count = self.frames_to_acquire
+        self.controller.set_frame_count(hw_frame_count)
+
+        self.controller.set_magnification(self.magnification)
+
     def setup_pockels_and_shutter(self, base_power: int = 0,
                                   active_power: int = 100) -> None:
         """Configure Pockels cell and open shutter.
@@ -194,10 +219,14 @@ class Scanner:
 
             print("Configuring Pockels and shutter...")
             self.setup_pockels_and_shutter()
-            
+
+            print("Configuring scan parameters...")
+            self.configure_scan_params()
+
             # Start acquisition
             print("Starting acquisition...")
             self.alazar.start_acquisition()
+            self.controller.start_scan()
             self.is_running = True
             self.start_time = time.time()
             
@@ -357,9 +386,10 @@ class Scanner:
         if self.alazar is not None:
             self.alazar.stop_acquisition()
             self.alazar.close()
-        
-        # Close controller
+
+        # Stop scanner and close controller
         if self.controller is not None:
+            self.controller.stop_scan()
             self.controller.set_shutter(open=False)
             self.controller.close()
         
