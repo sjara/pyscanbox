@@ -108,13 +108,17 @@ class ScannerControlGroup(QtWidgets.QGroupBox):
         self.lines_per_frame_spinbox.setSingleStep(16)
         layout.addRow("Lines/frame:", self.lines_per_frame_spinbox)
         
-        # Magnification — 13 discrete zoom levels matching the MATLAB popup
-        # (items 1–13 in MATLAB; index 0–12 sent to the PSoC5 controller).
+        # Magnification — 13 discrete zoom levels matching the MATLAB popup.
+        # Labels are logspace(log10(1), log10(8), 13) formatted as "%.1fx",
+        # matching exactly what MATLAB builds via sprintf('%.1f\n', gain_galvo).
+        # Index 0–12 is sent directly to the PSoC5 controller (CMD_MAGNIFICATION).
+        _mag_labels = [
+            '1.0x', '1.2x', '1.4x', '1.7x', '2.0x', '2.4x', '2.8x',
+            '3.4x', '4.0x', '4.8x', '5.7x', '6.7x', '8.0x',
+        ]
         self.magnification_combobox = QtWidgets.QComboBox()
-        self.magnification_combobox.addItems(
-            [str(i) for i in range(1, 14)]  # "1" … "13"
-        )
-        self.magnification_combobox.setCurrentIndex(0)  # index 0 = largest FOV
+        self.magnification_combobox.addItems(_mag_labels)
+        self.magnification_combobox.setCurrentIndex(0)  # index 0 = minimum zoom (1.0x)
         layout.addRow("Magnification:", self.magnification_combobox)
         
         # Frame rate
