@@ -182,16 +182,44 @@ class Scanner:
 
         self.controller.set_magnification(self.magnification)
 
-    def setup_pockels_and_shutter(self, base_power: int = 0,
-                                  active_power: int = 100) -> None:
-        """Configure Pockels cell and open shutter.
+    def initialize_pockels(self) -> None:
+        """Set Pockels cell to zero power as a safe starting state.
 
-        Args:
-            base_power: Base Pockels power (0-255) during flyback
-            active_power: Active Pockels power (0-255) during scan
+        This is called at the start of every scan session, before the
+        scanner begins moving.  Setting power to (0, 0) ensures no laser
+        energy reaches the sample until the user explicitly moves the
+        Pockels slider.
+
+        Note on shutter handling:
+            On this rig the external shutter is wired to the controller's
+            LASER SHUTTER output and opens/closes automatically when
+            ``start_scan()`` / ``stop_scan()`` (CMD_SCAN, ID 4) are sent —
+            no explicit ``set_shutter()`` call is needed.
+
+            In the original Scanbox MATLAB code the laser shutter is also
+            user-controlled via the laser head's own serial interface
+            (Chameleon/Discovery/MaiTai ``SHUTTER=1``).  The controller's
+            ``CMD_SHUTTER`` (ID 16) is a separate signal that on this rig
+            produces no effect.
+
+            On rigs where the Uniblitz shutter is driven by CMD_SHUTTER, the
+            commented-out ``set_shutter()`` calls below in ``run()`` and
+            ``cleanup()`` should be uncommented instead.
         """
-        self.controller.set_pockels(base=base_power, active=active_power)
-        self.controller.set_shutter(open=True)
+        self.controller.set_pockels(base=0, active=0)
+
+    def zero_pockels(self) -> None:
+        """Cut laser power immediately by setting Pockels to zero.
+
+        Called during cleanup before the scanner is stopped so that the
+        laser is blanked as soon as possible.  Equivalent to the original
+        MATLAB behaviour of leaving pockels at a user-defined level during
+        the acquisition and returning it to zero on shutdown.
+        """
+        try:
+            self.controller.set_pockels(base=0, active=0)
+        except Exception:  # noqa: BLE001 — best-effort safety call
+            pass
 
     def run(self) -> None:
         """Run main acquisition loop.
@@ -217,16 +245,21 @@ class Scanner:
                 print("Initializing file writers...")
                 self.initialize_writers()
 
-            print("Configuring Pockels and shutter...")
-            self.setup_pockels_and_shutter()
+            print("Configuring Pockels to zero (safe start)...")
+            self.initialize_pockels()
 
             print("Configuring scan parameters...")
             self.configure_scan_params()
 
-            # Start acquisition
+            # Start acquisition — Pockels is at zero so no laser energy
+            # reaches the sample yet; the user raises power via the GUI slider.
+            # On this rig start_scan() (CMD_SCAN, ID 4) also opens the external
+            # shutter automatically via the controller's LASER SHUTTER output.
+            # On rigs with a Uniblitz driven by CMD_SHUTTER (ID 16), uncomment:
+            #   self.controller.set_shutter(open=True)
             print("Starting acquisition...")
-            self.alazar.start_acquisition()
             self.controller.start_scan()
+            self.alazar.start_acquisition()
             self.is_running = True
             self.start_time = time.time()
             
@@ -389,8 +422,11 @@ class Scanner:
 
         # Stop scanner and close controller
         if self.controller is not None:
+            self.zero_pockels()          # blank laser before stopping scanner
+            # On rigs with a Uniblitz driven by CMD_SHUTTER (ID 16), uncomment:
+            #   self.controller.set_shutter(open=False)
+            # On this rig stop_scan() (CMD_SCAN, ID 4) closes the shutter automatically.
             self.controller.stop_scan()
-            self.controller.set_shutter(open=False)
             self.controller.close()
         
         # Close motor
