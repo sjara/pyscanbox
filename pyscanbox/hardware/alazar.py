@@ -150,6 +150,10 @@ class AlazarDigitizer:
         self.channels = config['alazar']['channels']
         self.buffer_count = config['alazar']['buffer_count']
         
+        # Raw ADC parameters (always needed for real hardware)
+        self.samples_per_line = config.get('acquisition', {}).get('samples_per_line', 5000)
+        self.lines_per_frame = config.get('acquisition', {}).get('lines_per_frame', 512)
+        
         # AlazarTech digitizers require samplesPerRecord to be aligned
         # Typically to 64-sample boundaries for optimal DMA performance.
         #
@@ -183,6 +187,10 @@ class AlazarDigitizer:
         self.buffer_pointers: List[ctypes.c_void_p] = []
         self.current_buffer_index = 0
         
+        # Per-record DMA parameters (set in start_acquisition)
+        self._samples_per_record: int = 0
+        self._records_per_buffer: int = 0
+        
         # Acquisition state
         self.is_configured = False
         self.is_acquiring = False
@@ -208,6 +216,28 @@ class AlazarDigitizer:
             
         # Align to boundary
         return ((samples + alignment - 1) // alignment) * alignment
+
+    @property
+    def _use_raw_mode(self) -> bool:
+        """True when real hardware is in use, or emulation is set to raw_mode=True.
+
+        Real hardware always operates in raw ADC mode: each DMA record holds
+        ``samples_per_line`` ADC samples for one resonant scan line, and
+        ``lines_per_frame`` records fill one frame buffer.
+
+        Pre-shaped emulation mode (raw_mode=False) packs a full processed
+        frame into a single record for convenience, and is only used when
+        ``emulation.enabled=True`` and ``alazar.raw_mode=False``.
+        """
+        return not self.use_emulation or self.config.get('alazar', {}).get('raw_mode', False)
+
+    @property
+    def _bytes_per_buffer(self) -> int:
+        """Correct DMA buffer size in bytes based on current mode."""
+        if self._use_raw_mode:
+            return self.samples_per_line * self.lines_per_frame * self.channels * 2
+        else:
+            return self.samples_per_buffer * self.channels * 2
 
     def open(self) -> None:
         """Open connection to Alazar board.
@@ -380,8 +410,12 @@ class AlazarDigitizer:
         self.buffers.clear()
         self.buffer_pointers.clear()
         
-        # Calculate buffer size in bytes (16-bit samples, 2 channels interleaved)
-        bytes_per_buffer = self.samples_per_buffer * self.channels * 2
+        # Calculate buffer size in bytes.
+        # Real hardware always uses raw ADC layout:
+        #   samples_per_line (per channel) × lines_per_frame × channels × 2 bytes
+        # Pre-shaped emulation uses a single record per frame:
+        #   samples_per_buffer (per channel) × channels × 2 bytes
+        bytes_per_buffer = self._bytes_per_buffer
         
         # Allocate specified number of DMA buffers
         for i in range(self.buffer_count):
@@ -398,11 +432,15 @@ class AlazarDigitizer:
                 # For emulation, store the buffer itself (mock expects numpy array)
                 self.buffer_pointers.append(buffer)
 
-    def start_acquisition(self) -> None:
+    def start_acquisition(self, num_frames: Optional[int] = None) -> None:
         """Start continuous acquisition mode.
 
         Starts asynchronous DMA acquisition with circular buffering.
         Data must be read using read_buffer() before buffers overflow.
+
+        Args:
+            num_frames: Number of frames to acquire.  Pass ``None`` (default)
+                for near-infinite acquisition (e.g. focus/live mode).
 
         Raises:
             RuntimeError: If board is not configured or acquisition fails.
@@ -413,38 +451,71 @@ class AlazarDigitizer:
         if not self.buffers:
             raise RuntimeError("Buffers not allocated. Call allocate_buffers() first.")
         
-        # Configure acquisition mode for NPT (No Pre-Trigger) streaming
-        # Reference: AlazarTech SDK documentation for NPT mode
-        # 
-        # channels: bitmask for channels to acquire (CHANNEL_A=1, CHANNEL_B=2)
-        # transferOffset: 0 (no pretrigger samples in NPT mode)
-        # samplesPerRecord: number of samples per record (must be aligned)
-        # recordsPerBuffer: 1 for NPT mode (continuous streaming)
-        # recordsPerAcquisition: 0x7FFFFFFF for infinite acquisition
-        # flags: ADMA_NPT | ADMA_CONTINUOUS_MODE for streaming mode
-        channels_mask = 1 | 2  # CHANNEL_A | CHANNEL_B (bitmask: 3)
+        # ------------------------------------------------------------------
+        # Determine per-record (per-scan-line) and per-buffer parameters.
+        #
+        # Real hardware always delivers raw ADC samples; each DMA record
+        # corresponds to one resonant scan line:
+        #   samplesPerRecord = samples_per_line      (e.g. 5000)
+        #   recordsPerBuffer = lines_per_frame       (e.g. 512)
+        #
+        # Pre-shaped emulation packs one processed frame into a single record:
+        #   samplesPerRecord = samples_per_buffer    (e.g. 407552)
+        #   recordsPerBuffer = 1
+        # ------------------------------------------------------------------
+        if self._use_raw_mode:
+            samples_per_record = self.samples_per_line
+            records_per_buffer = self.lines_per_frame
+        else:
+            samples_per_record = self.samples_per_buffer
+            records_per_buffer = 1
+
+        if num_frames is not None:
+            records_per_acquisition = records_per_buffer * num_frames
+        else:
+            records_per_acquisition = 0x7FFFFFFF  # near-infinite (focus / live mode)
+
+        # Set record size (pre-trigger = 0, post-trigger = samples_per_record)
+        # Reference: scanbox.m AlazarSetRecordSize call before AlazarBeforeAsyncRead
+        if hasattr(self.board_handle, 'setRecordSize'):
+            self.board_handle.setRecordSize(0, samples_per_record)
+
+        # Configure acquisition mode for NPT streaming with interleaved samples.
+        # Flags must match MATLAB scanbox.m line 2223:
+        #   admaFlags = ADMA_EXTERNAL_STARTCAPTURE + ADMA_NPT + ADMA_INTERLEAVE_SAMPLES
+        # NOTE: ADMA_CONTINUOUS_MODE (0x100) and ADMA_NPT (0x200) are mutually
+        # exclusive acquisition modes — combining them causes ApiInvalidData.
+        channels_mask = 1 | 2   # CHANNEL_A | CHANNEL_B
+        adma_flags = (
+            0x0001 |   # ADMA_EXTERNAL_STARTCAPTURE
+            0x0200 |   # ADMA_NPT
+            0x1000     # ADMA_INTERLEAVE_SAMPLES
+        )
         if hasattr(self.board_handle, 'beforeAsyncRead'):
             self.board_handle.beforeAsyncRead(
-                channels_mask,              # U32: channels to acquire
-                0,                          # c_long: transferOffset (pretrigger samples)
-                self.samples_per_buffer,    # U32: samplesPerRecord (aligned)
-                1,                          # U32: recordsPerBuffer (1 for NPT)
-                0x7FFFFFFF,                 # U32: recordsPerAcquisition (infinite)
-                0x200 | 0x100               # U32: ADMA_NPT | ADMA_CONTINUOUS_MODE
+                channels_mask,          # U32: channels to acquire
+                0,                      # c_long: transferOffset (no pre-trigger in NPT)
+                samples_per_record,     # U32: samplesPerRecord (per channel, per line)
+                records_per_buffer,     # U32: recordsPerBuffer (lines per frame)
+                records_per_acquisition, # U32: recordsPerAcquisition
+                adma_flags              # U32: ADMA flags
             )
         
         # Post all buffers to the board for DMA
+        bytes_per_buffer = samples_per_record * records_per_buffer * self.channels * 2
         for buffer_ptr in self.buffer_pointers:
             if hasattr(self.board_handle, 'postAsyncBuffer'):
-                # Calculate buffer size in bytes
-                bytes_per_buffer = self.samples_per_buffer * self.channels * 2
                 self.board_handle.postAsyncBuffer(buffer_ptr, bytes_per_buffer)
         
         # Start the acquisition
         if hasattr(self.board_handle, 'startCapture'):
             self.board_handle.startCapture()
         
+        # Persist for use by read_buffer / stop_acquisition
+        self._samples_per_record = samples_per_record
+        self._records_per_buffer = records_per_buffer
         self.is_acquiring = True
+
 
     def read_buffer(self, timeout_ms: int = 5000) -> Optional[np.ndarray]:
         """Read one buffer of acquired data.
@@ -478,7 +549,9 @@ class AlazarDigitizer:
             
             # Repost buffer for continuous acquisition
             if hasattr(self.board_handle, 'postAsyncBuffer'):
-                bytes_per_buffer = self.samples_per_buffer * self.channels * 2
+                bytes_per_buffer = (
+                    self._samples_per_record * self._records_per_buffer * self.channels * 2
+                )
                 self.board_handle.postAsyncBuffer(buffer_ptr, bytes_per_buffer)
             
             return data

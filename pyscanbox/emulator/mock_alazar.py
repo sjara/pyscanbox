@@ -88,15 +88,26 @@ class Board:
 
         Args:
             source: Clock source
-            rate: Sample rate code or value
+            rate: Sample rate code (API constant) or actual frequency in Hz.
+                When source indicates an external clock (FAST_EXTERNAL_CLOCK=2
+                etc.) the rate may be the placeholder SAMPLE_RATE_USER_DEF
+                constant (0x40 = 64), which is NOT a real frequency.
+                In that case we keep the internal simulation rate unchanged.
             edge: Clock edge (0 = rising)
             decimation: Decimation factor
 
         Returns:
             Status code (512 = success)
         """
-        self.sample_rate = rate
-        logger.debug(f"Clock configured: {rate} S/s")
+        # Only treat 'rate' as an actual sample frequency when it looks like
+        # one (> 1 kHz).  API placeholder constants (e.g. SAMPLE_RATE_USER_DEF
+        # = 0x40 = 64) are tiny integers and would cause the generation thread
+        # to sleep for hours if used for timing.
+        if rate > 1000:
+            self.sample_rate = rate
+        # else: external-clock mode — keep the default 125 MS/s for timing
+        logger.debug(f"Clock configured: source={source}, rate={rate}, "
+                     f"effective_sample_rate={self.sample_rate}")
         return 512  # ApiSuccess
 
     def inputControl(self, channel: int, coupling: int, inputRange: int,
