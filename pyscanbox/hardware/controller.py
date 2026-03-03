@@ -77,6 +77,38 @@ class ScanboxController:
         CMD_SHUTTER: 'set_shutter',
     }
 
+    @staticmethod
+    def format_command(cmd_id: int, param1: int, param2: int) -> str:
+        """Decode a 3-byte packet as a human-readable function call string.
+
+        This is the single authoritative decoder for the Scanbox serial
+        protocol.  It is used by logging adapters so the displayed call
+        (including argument names and values) always matches the actual
+        bytes on the wire.
+
+        Args:
+            cmd_id: Command ID byte.
+            param1: First parameter byte.
+            param2: Second parameter byte.
+
+        Returns:
+            Human-readable call string, e.g.
+            ``'set_pockels(base=0, active=100)'``.
+        """
+        if cmd_id == ScanboxController.CMD_POCKELS:
+            return f'set_pockels(base={param1}, active={param2})'
+        if cmd_id == ScanboxController.CMD_SHUTTER:
+            open_val = 'True' if param2 else 'False'
+            return f'set_shutter(open={open_val})'
+        if cmd_id == ScanboxController.CMD_MIRROR:
+            mode = 'epi' if param2 else '2p'
+            return f"set_mirror(mode='{mode}')"
+        if cmd_id == ScanboxController.CMD_SCAN:
+            func = 'start_scan' if param2 else 'stop_scan'
+            return f'{func}()'
+        name = ScanboxController.CMD_NAMES.get(cmd_id, f'cmd_{cmd_id}')
+        return f'{name}(param1={param1}, param2={param2})'
+
     def __init__(self, config: dict, on_command=None):
         """Initialize Scanbox controller.
 

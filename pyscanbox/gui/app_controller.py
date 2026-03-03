@@ -483,11 +483,11 @@ class AppController(QtCore.QObject):
             param2: Second parameter byte sent.
         """
         direction = f'PC \u2192 Controller ({com_port})'
-        func_name = hw_controller.ScanboxController.CMD_NAMES.get(
-            cmd_id, f'cmd_{cmd_id}'
+        func_call = hw_controller.ScanboxController.format_command(
+            cmd_id, param1, param2
         )
         packet_str = f'[{cmd_id:02X} {param1:02X} {param2:02X}]'
-        self._log_cmd(direction, func_name, packet_str)
+        self._log_cmd(direction, func_call, packet_str)
 
     def _log_event(self, text: str) -> None:
         """Emit command_logged with a lifecycle-event HTML entry.

@@ -309,11 +309,11 @@ class Scanner:
         if self.on_command is None:
             return
         direction = f'PC \u2192 Controller ({com_port})'
-        func_name = controller.ScanboxController.CMD_NAMES.get(
-            cmd_id, f'cmd_{cmd_id}'
+        func_call = controller.ScanboxController.format_command(
+            cmd_id, param1, param2
         )
         packet_str = f'[{cmd_id:02X} {param1:02X} {param2:02X}]'
-        self.on_command(direction, func_name, packet_str)
+        self.on_command(direction, func_call, packet_str)
 
     def cleanup(self) -> None:
         """Cleanup and shutdown all hardware and files.
