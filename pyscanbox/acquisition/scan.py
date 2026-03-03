@@ -88,7 +88,7 @@ class Scanner:
         self.lines_per_frame = config['acquisition']['lines_per_frame']
         self.pixels_per_line = config['acquisition']['pixels_per_line']
         self.frames_to_acquire = config['acquisition']['frames']
-        self.magnification = config['acquisition'].get('magnification', 1)
+        self.magnification = config['acquisition'].get('magnification', 0)
 
         # Raw-mode acquisition: use arccosine pixel LUT instead of pre-shaped data.
         # When True, each Alazar buffer contains `lines × samples_per_line × 2`

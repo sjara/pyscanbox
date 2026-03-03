@@ -313,6 +313,12 @@ class MainWindow(QtWidgets.QMainWindow):
             lambda v: self._on_pmt_gain_changed(1, v)
         )
 
+        # Magnification combobox -> hardware
+        scanner = self._left_panel.scanner_group
+        scanner.magnification_combobox.currentIndexChanged.connect(
+            self._on_magnification_changed
+        )
+
         # Acquisition buttons -> AppController
         acq.focus_button.clicked.connect(self._on_focus_clicked)
         acq.grab_button.clicked.connect(self._on_grab_clicked)
@@ -358,6 +364,19 @@ class MainWindow(QtWidgets.QMainWindow):
         checked = state == QtCore.Qt.CheckState.Checked.value
         mode = 'epi' if checked else '2p'
         self._ctrl.set_mirror(mode)
+
+    def _on_magnification_changed(self, index: int):
+        """Handle magnification combobox selection change.
+
+        Args:
+            index: 0-based combobox index (0 = largest FOV, 12 = highest zoom).
+        """
+        if self._ctrl is None:
+            return
+        try:
+            self._ctrl.set_magnification(index)
+        except RuntimeError:
+            pass  # hardware not open yet; silently ignore
 
     def _on_pmt_gain_changed(self, pmt_id: int, percent: int):
         """Forward a PMT gain slider value to the hardware.

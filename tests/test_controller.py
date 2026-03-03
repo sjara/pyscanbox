@@ -311,15 +311,22 @@ class TestConfigurationCommands(unittest.TestCase):
 
     @mock.patch('serial.Serial')
     def test_set_magnification_validation(self, mock_serial):
-        """set_magnification raises ValueError for out-of-range values."""
+        """set_magnification raises ValueError for out-of-range values.
+
+        Valid range is 0-12 (MATLAB popup.Value - 1 for a 13-item popup).
+        """
         mock_port = mock.Mock()
         mock_serial.return_value = mock_port
         ctrl = controller.ScanboxController(self.config)
         ctrl.open()
+        # 0 and 12 are valid endpoints — must not raise.
+        ctrl.set_magnification(0)
+        ctrl.set_magnification(12)
+        # 13 and above are out of range.
         with self.assertRaises(ValueError):
-            ctrl.set_magnification(0)
+            ctrl.set_magnification(13)
         with self.assertRaises(ValueError):
-            ctrl.set_magnification(256)
+            ctrl.set_magnification(255)
 
     # -- set_pockels_deadband ---------------------------------------------------
 

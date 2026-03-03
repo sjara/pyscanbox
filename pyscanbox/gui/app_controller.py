@@ -362,6 +362,33 @@ class AppController(QtCore.QObject):
             logger.error(msg)
             self.hardware_error.emit(msg)
 
+    def set_magnification(self, index: int) -> None:
+        """Set the zoom level from the magnification combobox selection.
+
+        Sends the 0-based combobox index directly to the controller
+        (valid range 0-12, matching MATLAB's ``popup.Value - 1``).
+        Also updates ``config['acquisition']['magnification']`` so the
+        Scanner picks up the current value when a new scan starts.
+
+        Args:
+            index: Combobox currentIndex() value (0 = largest FOV,
+                12 = smallest FOV / highest zoom).
+
+        Raises:
+            RuntimeError: If hardware is not open.
+        """
+        if not self.is_open:
+            raise RuntimeError("AppController is not open. Call open() first.")
+
+        try:
+            self._hw_controller.set_magnification(index)
+            self.config['acquisition']['magnification'] = index
+            logger.debug("Magnification set to index %d", index)
+        except Exception as exc:
+            msg = f"set_magnification failed: {exc}"
+            logger.error(msg)
+            self.hardware_error.emit(msg)
+
     # ------------------------------------------------------------------
     # Position polling (internal)
     # ------------------------------------------------------------------

@@ -9,7 +9,7 @@ Protocol:
     Commands:
         Frame Count (ID 1):   [1, high_byte, low_byte] (16-bit frame count)
         Lines (ID 2):         [2, high_byte, low_byte] (16-bit line count)
-        Magnification (ID 3): [3, 0, mag] (1-13 typical)
+        Magnification (ID 3): [3, 0, mag] (0-12; MATLAB popup index minus 1)
         Scan (ID 4):          [4, 0, 1] (start) or [4, 0, 0] (stop)
         Epi/2P Mirror (ID 5): [5, 0, 0] (2P) or [5, 0, 1] (Epi)
         PMT0 Gain (ID 6):     [6, 0, gain] (0-255)
@@ -169,7 +169,7 @@ class ScanboxController:
         # State tracking
         self.frame_count = 0
         self.lines_per_frame = 0
-        self.magnification = 1
+        self.magnification = 0  # Index 0 = minimum zoom (MATLAB popup item 1)
         self.current_pockels = {'base': 0, 'active': 0}
         self.pockels_deadband = {'left': 0, 'right': 0}
         self.shutter_open = False
@@ -292,18 +292,25 @@ class ScanboxController:
     def set_magnification(self, magnification: int) -> None:
         """Set the magnification (zoom) level.
 
+        The value is a 0-based index into 13 discrete zoom levels that
+        map to fixed scan-mirror amplitudes inside the PSoC5 firmware.
+        It corresponds to the MATLAB popup ``Value - 1`` (popup is
+        1-indexed, 13 items).  Index 0 is the largest field-of-view
+        (lowest zoom); index 12 is the smallest FOV (highest zoom).
+
         Args:
-            magnification: Magnification value (1-255; typical range 1-13).
+            magnification: Zoom-level index (0-12).
 
         Reference:
-            See sb/sb_setmag.m
+            See sb/sb_setmag.m; MATLAB sends
+            ``sb_setmag(popup.Value - 1)``.
 
         Raises:
-            ValueError: If magnification is outside 1-255.
+            ValueError: If magnification is outside 0-12.
         """
-        if not (1 <= magnification <= 255):
+        if not (0 <= magnification <= 12):
             raise ValueError(
-                f"Magnification must be 1-255, got {magnification}"
+                f"Magnification must be 0-12, got {magnification}"
             )
         self._send_command(self.CMD_MAGNIFICATION, 0, magnification)
         self.magnification = magnification
