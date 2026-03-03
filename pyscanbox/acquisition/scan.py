@@ -447,8 +447,11 @@ class Scanner:
         
         # Write metadata
         if self.mat_writer is not None:
-            metadata = self._create_metadata()
-            self.mat_writer.write(metadata)
+            try:
+                metadata = self._create_metadata()
+                self.mat_writer.write(metadata)
+            except Exception as exc:  # noqa: BLE001
+                print(f"Warning: could not write metadata .mat file: {exc}")
         
         print("Acquisition complete.")
         print(f"Total frames acquired: {self.frames_acquired}")
@@ -456,16 +459,23 @@ class Scanner:
     def _create_metadata(self) -> dict:
         """Create metadata dictionary for .mat file.
 
+        Only scalar / simple values are included because
+        ``scipy.io.savemat`` cannot serialize nested Python dicts that
+        contain ``None`` (which YAML ``null`` values become).  If the
+        full config is needed it should be serialised separately (e.g.
+        as JSON or YAML alongside the .mat file).
+
         Returns:
             Dictionary with acquisition metadata for Suite2p compatibility.
         """
+        pockels = self.controller.get_current_pockels()
         return {
-            'config': self.config,
             'frames': self.frames_acquired,
             'lines_per_frame': self.lines_per_frame,
             'pixels_per_line': self.pixels_per_line,
             'sample_rate': self.config['alazar']['sample_rate'],
             'channels': self.config['alazar']['channels'],
             'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'pockels': self.controller.get_current_pockels(),
+            'pockels_base': pockels.get('base', 0),
+            'pockels_active': pockels.get('active', 0),
         }
