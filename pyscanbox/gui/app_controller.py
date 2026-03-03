@@ -102,17 +102,20 @@ class ScannerThread(QtCore.QThread):
         finally:
             self.acquisition_finished.emit()
 
-    def _emit_command(self, direction: str, detail: str) -> None:
-        """Format (direction, detail) as HTML and emit command_logged.
+    def _emit_command(self, direction: str, func_name: str,
+                      packet_str: str = '') -> None:
+        """Format a hardware command as HTML and emit command_logged.
 
         Called from the Scanner background thread; PyQt6 signal emission
         is thread-safe so no explicit locking is needed.
 
         Args:
-            direction: Short label, e.g. ``'PC \u2192 Controller'``.
-            detail: Human-readable command description.
+            direction: Short label, e.g. ``'PC \u2192 Controller (COM3)'``.
+            func_name: Name of the function/operation called.
+            packet_str: Optional packet or parameter description.
         """
         ts = datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]
+        detail = f'{func_name} : {packet_str}' if packet_str else func_name
         html = (
             f'<span style="color:#888">[{ts}]</span>&nbsp;'
             f'<b><span style="color:#fa8">{direction}</span></b>&nbsp;'
@@ -176,7 +179,9 @@ class AppController(QtCore.QObject):
         self.is_open = False
 
         # Hardware objects (not yet connected).
-        self._hw_controller = hw_controller.ScanboxController(config)
+        self._hw_controller = hw_controller.ScanboxController(
+            config, on_command=self._on_controller_cmd
+        )
         self._knobby = hw_knobby.Knobby(config)
 
         # Cached motor positions: motor_id (int) → position in physical units (float).
@@ -281,11 +286,6 @@ class AppController(QtCore.QObject):
         try:
             self._hw_controller.set_pockels(base=0, active=hw_value)
             logger.debug("Pockels set to %d%% (hw=%d)", percent, hw_value)
-            ctrl_port = self._hw_controller.com_port
-            self._log_cmd(
-                f'PC → Controller ({ctrl_port})',
-                f'set_pockels({percent}%): [08 00 {hw_value:02X}]',
-            )
         except Exception as exc:
             msg = f"set_pockels failed: {exc}"
             logger.error(msg)
@@ -451,20 +451,43 @@ class AppController(QtCore.QObject):
     # Logging helpers
     # ------------------------------------------------------------------
 
-    def _log_cmd(self, direction: str, detail: str) -> None:
+    def _log_cmd(self, direction: str, func_name: str,
+                 packet_str: str = '') -> None:
         """Emit command_logged with an outgoing-command HTML entry.
 
         Args:
-            direction: Short label, e.g. ``'PC → Controller'``.
-            detail: Human-readable command description.
+            direction: Short label, e.g. ``'PC \u2192 Controller (COM3)'``.
+            func_name: Name of the function/operation called.
+            packet_str: Optional packet or parameter description.
         """
         ts = datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]
+        detail = f'{func_name}: {packet_str}' if packet_str else func_name
         html = (
             f'<span style="color:#888">[{ts}]</span>&nbsp;'
             f'<b><span style="color:#fa8">{direction}</span></b>&nbsp;'
             f'<span style="color:#fd8;font-family:monospace">{detail}</span>'
         )
         self.command_logged.emit(html)
+
+    def _on_controller_cmd(self, com_port: str, cmd_id: int,
+                           param1: int, param2: int) -> None:
+        """Adapter: translate a ScanboxController serial-write event to _log_cmd.
+
+        Fired by ScanboxController._send_command immediately after every
+        port.write(), so the logged bytes always match what was transmitted.
+
+        Args:
+            com_port: Serial port name, e.g. ``'COM3'``.
+            cmd_id: Command ID byte sent.
+            param1: First parameter byte sent.
+            param2: Second parameter byte sent.
+        """
+        direction = f'PC \u2192 Controller ({com_port})'
+        func_name = hw_controller.ScanboxController.CMD_NAMES.get(
+            cmd_id, f'cmd_{cmd_id}'
+        )
+        packet_str = f'[{cmd_id:02X} {param1:02X} {param2:02X}]'
+        self._log_cmd(direction, func_name, packet_str)
 
     def _log_event(self, text: str) -> None:
         """Emit command_logged with a lifecycle-event HTML entry.

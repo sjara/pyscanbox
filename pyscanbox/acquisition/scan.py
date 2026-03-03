@@ -72,7 +72,9 @@ class Scanner:
         
         # Initialize hardware
         self.alazar = alazar.AlazarDigitizer(config)
-        self.controller = controller.ScanboxController(config)
+        self.controller = controller.ScanboxController(
+            config, on_command=self._on_controller_cmd
+        )
         self.motor: Optional[motor.TrinamicMotor] = None
         
         # Acquisition parameters
@@ -159,18 +161,8 @@ class Scanner:
             base_power: Base Pockels power (0-255) during flyback
             active_power: Active Pockels power (0-255) during scan
         """
-        ctrl_port = self.controller.com_port
         self.controller.set_pockels(base=base_power, active=active_power)
-        self._notify_cmd(
-            f'PC → Controller ({ctrl_port})',
-            f'set_pockels(base={base_power}, active={active_power})'
-            f': [08 {base_power:02X} {active_power:02X}]',
-        )
         self.controller.set_shutter(open=True)
-        self._notify_cmd(
-            f'PC → Controller ({ctrl_port})',
-            'set_shutter(open=True): [10 00 01]',
-        )
 
     def run(self) -> None:
         """Run main acquisition loop.
@@ -202,7 +194,11 @@ class Scanner:
             # Start acquisition
             print("Starting acquisition...")
             self.alazar.start_acquisition()
-            self._notify_cmd('PC → Alazar', 'start_acquisition(): BeforeAsyncRead + PostBuffers')
+            self._notify_cmd(
+                'PC → Alazar',
+                'start_acquisition',
+                'BeforeAsyncRead + PostBuffers',
+            )
             self.is_running = True
             self.start_time = time.time()
             
@@ -285,15 +281,39 @@ class Scanner:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _notify_cmd(self, direction: str, detail: str) -> None:
+    def _notify_cmd(self, direction: str, func_name: str,
+                    packet_str: str = '') -> None:
         """Fire the on_command callback if one was provided.
 
         Args:
-            direction: Short label, e.g. ``'PC \u2192 Controller'``.
-            detail: Human-readable description of the hardware call.
+            direction: Short label, e.g. ``'PC \u2192 Alazar'``.
+            func_name: Name of the function/operation called.
+            packet_str: Optional packet or parameter description.
         """
         if self.on_command is not None:
-            self.on_command(direction, detail)
+            self.on_command(direction, func_name, packet_str)
+
+    def _on_controller_cmd(self, com_port: str, cmd_id: int,
+                           param1: int, param2: int) -> None:
+        """Adapter: translate a ScanboxController serial-write event to on_command.
+
+        Fired by ScanboxController._send_command immediately after every
+        port.write(), so the logged bytes always match what was transmitted.
+
+        Args:
+            com_port: Serial port name, e.g. ``'COM3'``.
+            cmd_id: Command ID byte sent.
+            param1: First parameter byte sent.
+            param2: Second parameter byte sent.
+        """
+        if self.on_command is None:
+            return
+        direction = f'PC \u2192 Controller ({com_port})'
+        func_name = controller.ScanboxController.CMD_NAMES.get(
+            cmd_id, f'cmd_{cmd_id}'
+        )
+        packet_str = f'[{cmd_id:02X} {param1:02X} {param2:02X}]'
+        self.on_command(direction, func_name, packet_str)
 
     def cleanup(self) -> None:
         """Cleanup and shutdown all hardware and files.
@@ -306,17 +326,16 @@ class Scanner:
         # Stop acquisition
         if self.alazar is not None:
             self.alazar.stop_acquisition()
-            self._notify_cmd('PC → Alazar', 'stop_acquisition(): AbortAsyncRead')
+            self._notify_cmd(
+                'PC → Alazar',
+                'stop_acquisition',
+                'AbortAsyncRead',
+            )
             self.alazar.close()
         
         # Close controller
         if self.controller is not None:
-            ctrl_port = self.controller.com_port
             self.controller.set_shutter(open=False)
-            self._notify_cmd(
-                f'PC → Controller ({ctrl_port})',
-                'set_shutter(open=False): [10 00 00]',
-            )
             self.controller.close()
         
         # Close motor

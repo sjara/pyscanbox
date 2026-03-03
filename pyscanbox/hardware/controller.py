@@ -69,17 +69,29 @@ class ScanboxController:
     CMD_POCKELS = 8
     CMD_SHUTTER = 16
 
-    def __init__(self, config: dict):
+    # Human-readable names for each command ID, used by log callbacks.
+    CMD_NAMES = {
+        CMD_SCAN: 'scan',
+        CMD_MIRROR: 'set_mirror',
+        CMD_POCKELS: 'set_pockels',
+        CMD_SHUTTER: 'set_shutter',
+    }
+
+    def __init__(self, config: dict, on_command=None):
         """Initialize Scanbox controller.
 
         Args:
             config: Configuration dictionary with controller settings.
                 Must contain 'controller' key with COM port and parameters.
+            on_command: Optional callback fired after every serial write.
+                Signature: ``on_command(com_port, cmd_id, param1, param2)``.
+                Useful for logging and testing without subclassing.
         """
         self.config = config
         self.com_port = config['controller']['com_port']
         self.baud_rate = config['controller']['baud_rate']
         self.timeout = config['controller']['timeout']
+        self.on_command = on_command
         
         # Check if emulation is enabled
         self.use_emulation = config.get('emulation', {}).get('enabled', False)
@@ -165,6 +177,8 @@ class ScanboxController:
         # Send 3-byte packet
         packet = bytes([cmd_id, param1, param2])
         self.port.write(packet)
+        if self.on_command is not None:
+            self.on_command(self.com_port, cmd_id, param1, param2)
 
     def set_pockels(self, base: int, active: int) -> None:
         """Set Pockels cell power levels.
