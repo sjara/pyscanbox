@@ -56,11 +56,12 @@ class ScannerThread(QtCore.QThread):
             the acquisition loop, carrying a human-readable message (str).
 
     Note:
-        Scanner currently creates its own ScanboxController and
-        AlazarDigitizer instances independently of those owned by
-        AppController.  In emulation mode two mock instances coexist
-        safely.  Hardware sharing will be refactored when HIL testing
-        requires it (Phase 3).
+        Scanner creates its own AlazarDigitizer instance.  The
+        ScanboxController is shared with AppController (passed via the
+        ``controller`` constructor argument) so that the same serial port is
+        not opened twice on real hardware.  In emulation mode the
+        ``controller`` argument may be omitted and Scanner will create its
+        own mock instance (backward-compatible behaviour used in tests).
     """
 
     frame_acquired = QtCore.pyqtSignal(int)
@@ -72,6 +73,7 @@ class ScannerThread(QtCore.QThread):
     def __init__(self, config: dict, output_path=None,
                  focus_mode: bool = False,
                  frames_override: int = None,
+                 controller=None,
                  parent=None):
         """Initialize the scanner thread.
 
@@ -84,6 +86,10 @@ class ScannerThread(QtCore.QThread):
                 (used for the Focus button / live preview).
             frames_override: If given, overrides config frames setting.
                 0 means "run forever" (MATLAB convention).
+            controller: Optional pre-opened ScanboxController to share with
+                Scanner so that the same serial port is not opened twice on
+                real hardware.  When None, Scanner creates its own instance
+                (backward-compatible behaviour used in emulation and tests).
             parent: Optional Qt parent object.
         """
         super().__init__(parent)
@@ -91,6 +97,7 @@ class ScannerThread(QtCore.QThread):
         self._output_path = output_path
         self._focus_mode = focus_mode
         self._frames_override = frames_override
+        self._controller = controller
         self._scanner = None
 
     def run(self) -> None:
@@ -104,6 +111,7 @@ class ScannerThread(QtCore.QThread):
                 on_frame=self.frame_acquired.emit,
                 on_frame_data=self.frame_data_ready.emit,
                 on_command=self._emit_command,
+                hw_controller=self._controller,
             )
             self._scanner.run()
         except Exception as exc:
@@ -555,6 +563,7 @@ class AppController(QtCore.QObject):
             output_path=output_path,
             focus_mode=focus_mode,
             frames_override=frames_override,
+            controller=self._hw_controller,
             parent=self,
         )
         self._scanner_thread.frame_acquired.connect(self.frame_acquired)

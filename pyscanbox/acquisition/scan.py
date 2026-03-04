@@ -49,7 +49,8 @@ class Scanner:
                  frames_override: Optional[int] = None,
                  on_frame: Optional[Callable[[int], None]] = None,
                  on_frame_data=None,
-                 on_command=None):
+                 on_command=None,
+                 hw_controller=None):
         """Initialize scanner with configuration.
 
         Args:
@@ -71,17 +72,32 @@ class Scanner:
                 frame with the reshaped frame array as the sole argument
                 (shape ``(channels, lines, pixels)``, dtype uint16).
                 Used by ScannerThread to feed the live-preview display.
+            hw_controller: Optional pre-opened ScanboxController to reuse.
+                When provided, Scanner will not call open() or close() on it
+                (ownership stays with the caller).  Pass this when the GUI
+                already holds an open connection so that a second open() on
+                the same COM port is avoided on real hardware.
         """
         self.config = config
         self.output_path = output_path
-        
+
         # Initialize hardware
         self.alazar = alazar.AlazarDigitizer(
             config, on_command=self._on_alazar_cmd
         )
-        self.controller = controller.ScanboxController(
-            config, on_command=self._on_controller_cmd
-        )
+        if hw_controller is not None:
+            # Reuse an already-open controller (e.g. held by AppController).
+            # We temporarily redirect its on_command to our logging path in
+            # initialize_hardware() and restore it in cleanup().
+            self.controller = hw_controller
+            self._controller_owned = False
+            self._controller_orig_on_cmd = hw_controller.on_command
+        else:
+            self.controller = controller.ScanboxController(
+                config, on_command=self._on_controller_cmd
+            )
+            self._controller_owned = True
+            self._controller_orig_on_cmd = None
         self.motor: Optional[motor.TrinamicMotor] = None
         
         # Acquisition parameters
@@ -141,10 +157,16 @@ class Scanner:
         self.alazar.open()
         self.alazar.configure()
         self.alazar.allocate_buffers()
-        
-        # Open controller
-        self.controller.open()
-        
+
+        # Open controller only if we created it ourselves.  When the caller
+        # passes an already-open controller (hw_controller parameter), opening
+        # it again would fail on real hardware (port already in use).
+        if self._controller_owned:
+            self.controller.open()
+        else:
+            # Redirect command logging to Scanner's path for scan duration.
+            self.controller.on_command = self._on_controller_cmd
+
         # Initialize motor if configured
         if 'motor' in self.config:
             self.motor = motor.TrinamicMotor(
@@ -435,7 +457,12 @@ class Scanner:
             #   self.controller.set_shutter(open=False)
             # On this rig stop_scan() (CMD_SCAN, ID 4) closes the shutter automatically.
             self.controller.stop_scan()
-            self.controller.close()
+            if self._controller_owned:
+                self.controller.close()
+            else:
+                # Restore the original on_command so AppController resumes
+                # logging commands sent via the GUI after the scan ends.
+                self.controller.on_command = self._controller_orig_on_cmd
         
         # Close motor
         if self.motor is not None:
