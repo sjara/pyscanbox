@@ -162,67 +162,91 @@ class ScannerControlGroup(QtWidgets.QGroupBox):
 
 class PositionDisplayGroup(QtWidgets.QGroupBox):
     """Position display group box.
-    
-    Contains:
-    - Objective angle
-    - World coordinates (x, y, z)
-    - Rotated coordinates (x, y, z)
+
+    Contains four rows of read-only coordinate fields:
+
+    - **Angle**: A-axis (objective tilt in degrees).
+    - **World (μm)**: Knobby ``dpos`` in physical units — relative position
+      from the last zero, matching what the Knobby screen displays.
+    - **Abs (μm)**: Absolute motor hardware step counter in physical units,
+      polled from the Trinamic board every 100 ms.  Useful for debugging to
+      confirm that commanded moves reached the hardware.
+    - **Rotated (μm)**: Reserved for the future angle-compensation mode
+      (Knobby rotate mode, where Z becomes the objective axis when the
+      objective is tilted).  Currently mirrors the World row.
     """
-    
+
     def __init__(self):
         """Initialize the position display group."""
         super().__init__("Objective Position")
         self._init_ui()
-        
+
     def _init_ui(self):
         """Initialize the UI components."""
         layout = QtWidgets.QGridLayout()
-        
+
         # Objective angle
         layout.addWidget(QtWidgets.QLabel("Angle:"), 0, 0)
         self.objective_angle_edit = QtWidgets.QLineEdit("0.0°")
         self.objective_angle_edit.setReadOnly(True)
         layout.addWidget(self.objective_angle_edit, 0, 1, 1, 3)
-        
-        # X, Y, Z labels above coordinate fields
+
+        # X, Y, Z column headers
         layout.addWidget(QtWidgets.QLabel("X"), 1, 1, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(QtWidgets.QLabel("Y"), 1, 2, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(QtWidgets.QLabel("Z"), 1, 3, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
-        
-        # World coordinates
+
+        # Row 2: World coordinates (Knobby dpos — matches Knobby screen)
         layout.addWidget(QtWidgets.QLabel("World (μm):"), 2, 0)
         self.world_x_edit = QtWidgets.QLineEdit("0.00")
         self.world_x_edit.setReadOnly(True)
         self.world_x_edit.setMaximumWidth(70)
         layout.addWidget(self.world_x_edit, 2, 1)
-        
+
         self.world_y_edit = QtWidgets.QLineEdit("0.00")
         self.world_y_edit.setReadOnly(True)
         self.world_y_edit.setMaximumWidth(70)
         layout.addWidget(self.world_y_edit, 2, 2)
-        
+
         self.world_z_edit = QtWidgets.QLineEdit("0.00")
         self.world_z_edit.setReadOnly(True)
         self.world_z_edit.setMaximumWidth(70)
         layout.addWidget(self.world_z_edit, 2, 3)
-        
-        # Rotated coordinates
-        layout.addWidget(QtWidgets.QLabel("Rotated (μm):"), 3, 0)
+
+        # Row 3: Absolute motor hardware positions (polled from Trinamic board)
+        layout.addWidget(QtWidgets.QLabel("Abs (μm):"), 3, 0)
+        self.abs_x_edit = QtWidgets.QLineEdit("0.00")
+        self.abs_x_edit.setReadOnly(True)
+        self.abs_x_edit.setMaximumWidth(70)
+        layout.addWidget(self.abs_x_edit, 3, 1)
+
+        self.abs_y_edit = QtWidgets.QLineEdit("0.00")
+        self.abs_y_edit.setReadOnly(True)
+        self.abs_y_edit.setMaximumWidth(70)
+        layout.addWidget(self.abs_y_edit, 3, 2)
+
+        self.abs_z_edit = QtWidgets.QLineEdit("0.00")
+        self.abs_z_edit.setReadOnly(True)
+        self.abs_z_edit.setMaximumWidth(70)
+        layout.addWidget(self.abs_z_edit, 3, 3)
+
+        # Row 4: Rotated coordinates (reserved — angle-compensated, future)
+        layout.addWidget(QtWidgets.QLabel("Rotated (μm):"), 4, 0)
         self.rotated_x_edit = QtWidgets.QLineEdit("0.00")
         self.rotated_x_edit.setReadOnly(True)
         self.rotated_x_edit.setMaximumWidth(70)
-        layout.addWidget(self.rotated_x_edit, 3, 1)
-        
+        layout.addWidget(self.rotated_x_edit, 4, 1)
+
         self.rotated_y_edit = QtWidgets.QLineEdit("0.00")
         self.rotated_y_edit.setReadOnly(True)
         self.rotated_y_edit.setMaximumWidth(70)
-        layout.addWidget(self.rotated_y_edit, 3, 2)
-        
+        layout.addWidget(self.rotated_y_edit, 4, 2)
+
         self.rotated_z_edit = QtWidgets.QLineEdit("0.00")
         self.rotated_z_edit.setReadOnly(True)
         self.rotated_z_edit.setMaximumWidth(70)
-        layout.addWidget(self.rotated_z_edit, 3, 3)
-        
+        layout.addWidget(self.rotated_z_edit, 4, 3)
+
         self.setLayout(layout)
 
 

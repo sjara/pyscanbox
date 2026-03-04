@@ -482,18 +482,34 @@ class MainWindow(QtWidgets.QMainWindow):
     # ------------------------------------------------------------------
 
     def _on_position_updated(self, pos):
-        """Update the position display group from a Knobby position packet.
+        """Update the position display group from hardware position data.
+
+        Updates the World (Knobby relative), Abs (motor hardware absolute),
+        and Angle fields.  Rotated coordinates are left at their current
+        values — the row is reserved for the future angle-compensation mode.
 
         Args:
-            pos: Dict of axis name -> position in physical units
-                e.g. {'X': 10.5, 'Y': -3.2, 'Z': 0.0, 'A': 0.0}.
+            pos: Dict containing:
+                ``'X'``, ``'Y'``, ``'Z'``, ``'A'``: Knobby dpos in physical
+                units (relative, matches the Knobby screen display).
+                ``'abs_X'``, ``'abs_Y'``, ``'abs_Z'``, ``'abs_A'``: Absolute
+                motor hardware positions in physical units.
         """
         pos_grp = self._left_panel.position_group
+
+        # World row — Knobby relative position (matches Knobby screen)
         pos_grp.world_x_edit.setText(f"{pos.get('X', 0.0):.2f}")
         pos_grp.world_y_edit.setText(f"{pos.get('Y', 0.0):.2f}")
         pos_grp.world_z_edit.setText(f"{pos.get('Z', 0.0):.2f}")
         pos_grp.objective_angle_edit.setText(f"{pos.get('A', 0.0):.3f}°")
-        # Rotated coords mirror world until the rotation module is implemented.
+
+        # Abs row — motor hardware absolute positions
+        pos_grp.abs_x_edit.setText(f"{pos.get('abs_X', 0.0):.2f}")
+        pos_grp.abs_y_edit.setText(f"{pos.get('abs_Y', 0.0):.2f}")
+        pos_grp.abs_z_edit.setText(f"{pos.get('abs_Z', 0.0):.2f}")
+
+        # Rotated row: reserved for angle-compensation mode (future).
+        # Mirror World values until the rotation module is implemented.
         pos_grp.rotated_x_edit.setText(f"{pos.get('X', 0.0):.2f}")
         pos_grp.rotated_y_edit.setText(f"{pos.get('Y', 0.0):.2f}")
         pos_grp.rotated_z_edit.setText(f"{pos.get('Z', 0.0):.2f}")

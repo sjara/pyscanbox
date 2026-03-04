@@ -25,6 +25,7 @@ import PyQt6.QtCore as QtCore
 
 from pyscanbox.hardware import controller as hw_controller
 from pyscanbox.hardware import knobby as hw_knobby
+from pyscanbox.hardware import motor as hw_motor
 from pyscanbox.acquisition import scan as acq_scan
 
 
@@ -200,9 +201,24 @@ class AppController(QtCore.QObject):
             config, on_command=self._on_controller_cmd
         )
         self._knobby = hw_knobby.Knobby(config, on_command=self._on_knobby_cmd)
+        self._motor = hw_motor.TrinamicMotor(config, on_command=self._on_motor_cmd)
 
-        # Cached motor positions: motor_id (int) → position in physical units (float).
+        # Knobby relative positions (dpos): motor_id → position in physical
+        # units.  Matches what the Knobby screen displays.  Updated whenever
+        # a 5-byte position packet arrives from the Knobby.
         self._positions = {i: 0.0 for i in range(4)}
+
+        # Last Knobby dpos in raw steps, used to compute per-packet deltas
+        # so we can forward relative moves to the motor controller.
+        self._knobby_dpos_steps = {i: 0 for i in range(4)}
+
+        # Absolute motor positions: motor_id → position in physical units,
+        # polled from the Trinamic board every timer tick.
+        self._abs_positions = {i: 0.0 for i in range(4)}
+
+        # Absolute motor positions in raw steps at the time open() was called.
+        # Stored as the hardware origin reference (for display / debugging).
+        self._motor_origin_steps = {i: 0 for i in range(4)}
 
         # Scanner thread (created by start_focus() / start_grab()).
         self._scanner_thread = None
@@ -246,6 +262,19 @@ class AppController(QtCore.QObject):
             logger.warning(msg)
             self.hardware_error.emit(msg)
 
+        try:
+            self._motor.open()
+            # Record absolute hardware positions at startup as the origin
+            # reference (stored for display/debugging; not used in move logic).
+            for motor_id in range(4):
+                pos = self._motor.get_position(motor_id)
+                self._motor_origin_steps[motor_id] = pos if pos is not None else 0
+        except Exception as exc:
+            # Non-fatal: GUI can run without motor control.
+            msg = f"Could not open motor controller (motor control unavailable): {exc}"
+            logger.warning(msg)
+            self.hardware_error.emit(msg)
+
         self.is_open = True
         self._poll_timer.start()
         logger.info("AppController: hardware open, position polling started.")
@@ -269,6 +298,9 @@ class AppController(QtCore.QObject):
 
         if self._knobby.is_open:
             self._knobby.close()
+
+        if self._motor.is_open:
+            self._motor.close()
 
         self.is_open = False
         logger.info("AppController: hardware closed.")
@@ -431,48 +463,104 @@ class AppController(QtCore.QObject):
     # ------------------------------------------------------------------
 
     def _poll_positions(self) -> None:
-        """Read all pending Knobby packets and emit position_updated.
+        """Drain Knobby packets, forward moves to motors, poll absolute positions.
 
-        Called periodically by _poll_timer. Drains the Knobby receive
-        buffer, updates the cached position for each motor axis, and
-        emits position_updated once if any position changed.
+        Called every POSITION_POLL_INTERVAL_MS by _poll_timer.
+
+        For each Knobby packet received:
+          - Compute the delta since the last known dpos value.
+          - Forward that delta to the matching motor axis as a relative
+            (MVP Type 1) move.  Startup packets from the Knobby firmware
+            always carry dpos=0 (delta=0) so they produce no motor movement.
+          - Update the cached Knobby relative position.
+
+        After draining all pending Knobby packets, query all four motors for
+        their current absolute step positions.  At 57600 baud each TMCL
+        roundtrip (9 bytes out + 9 bytes back) takes ~3 ms, so four motors
+        take ~12 ms — well within the 100 ms timer budget.
+
+        Emits position_updated on every tick when at least one device is
+        open, so both the World (Knobby) and Abs rows in the GUI refresh at
+        10 Hz.
         """
-        if not self._knobby.is_open:
-            return
+        knobby_changed = False
 
-        changed = False
+        if self._knobby.is_open:
+            try:
+                while True:
+                    result = self._knobby.read_command()
+                    if result is None:
+                        break
+                    motor_id, new_dpos_steps = result
+                    if 0 <= motor_id <= 3:
+                        delta = new_dpos_steps - self._knobby_dpos_steps[motor_id]
+                        self._knobby_dpos_steps[motor_id] = new_dpos_steps
+                        self._positions[motor_id] = hw_knobby.steps_to_units(
+                            motor_id, new_dpos_steps
+                        )
+                        knobby_changed = True
+                        # Forward the delta as a relative move.  delta=0 for
+                        # firmware startup packets — safe no-op.
+                        if self._motor.is_open and delta != 0:
+                            try:
+                                self._motor.move_relative(motor_id, delta)
+                            except Exception as exc:
+                                logger.warning(
+                                    "move_relative(motor=%d, delta=%d) failed: %s",
+                                    motor_id, delta, exc,
+                                )
+            except Exception as exc:
+                logger.warning("Knobby poll error: %s", exc)
 
-        try:
-            while True:
-                result = self._knobby.read_command()
-                if result is None:
-                    break
-                motor_id, steps = result
-                if 0 <= motor_id <= 3:
-                    units = hw_knobby.steps_to_units(motor_id, steps)
-                    self._positions[motor_id] = units
-                    changed = True
-        except Exception as exc:
-            logger.warning("Position poll error: %s", exc)
-            return
+        # Poll all four motor absolute positions every tick.
+        abs_changed = False
+        if self._motor.is_open:
+            for motor_id in range(4):
+                try:
+                    steps = self._motor.get_position(motor_id)
+                    if steps is not None:
+                        self._abs_positions[motor_id] = hw_knobby.steps_to_units(
+                            motor_id, steps
+                        )
+                        abs_changed = True
+                except Exception as exc:
+                    logger.warning(
+                        "get_position(motor=%d) failed: %s", motor_id, exc
+                    )
 
-        if changed:
-            self._emit_positions()
+        if knobby_changed or abs_changed:
+            self._emit_positions(log_knobby=knobby_changed)
 
-    def _emit_positions(self) -> None:
-        """Emit position_updated with the current cached positions."""
-        pos = {
-            hw_knobby.AXIS_NAMES[i]: self._positions[i]
-            for i in range(4)
-        }
-        self.position_updated.emit(pos)
+    def _emit_positions(self, log_knobby: bool = False) -> None:
+        """Emit position_updated with current Knobby and absolute positions.
+
+        The emitted dict contains:
+          - ``'X'``, ``'Y'``, ``'Z'``, ``'A'``: Knobby dpos in physical
+            units (relative, matches the Knobby screen display).
+          - ``'abs_X'``, ``'abs_Y'``, ``'abs_Z'``, ``'abs_A'``: Absolute
+            motor hardware positions in physical units (polled from the
+            Trinamic board).
+
+        Args:
+            log_knobby: When True, write a 'Knobby → PC' entry to the command
+                log.  Should only be True when at least one real Knobby
+                position packet was received in the current timer tick, to
+                avoid flooding the log with repeated entries during quiet
+                periods when only abs-position polling is running.
+        """
         units = hw_knobby.AXIS_UNITS
-        detail = '  '.join(
-            f'{hw_knobby.AXIS_NAMES[i]}={self._positions[i]:.2f}'  # NOQA
-            f'\u202f{units[i]}'
-            for i in range(4)
-        )
-        self._log_receive('Knobby → PC', detail)
+        pos = {}
+        for i in range(4):
+            name = hw_knobby.AXIS_NAMES[i]
+            pos[name] = self._positions[i]
+            pos[f'abs_{name}'] = self._abs_positions[i]
+        self.position_updated.emit(pos)
+        if log_knobby:
+            detail = '  '.join(
+                f'{hw_knobby.AXIS_NAMES[i]}={self._positions[i]:.2f}\u202f{units[i]}'
+                for i in range(4)
+            )
+            self._log_receive('Knobby \u2192 PC', detail)
 
     # ------------------------------------------------------------------
     # Acquisition control
@@ -646,6 +734,28 @@ class AppController(QtCore.QObject):
         direction = f'PC \u2192 Knobby ({com_port})'
         func_call = hw_knobby.Knobby.format_command(command_id, value)
         packet_str = f'[{command_id:02X} val={value}]'
+        self._log_cmd(direction, func_call, packet_str)
+
+    def _on_motor_cmd(self, com_port: str, cmd: str, cmd_type: int,
+                      motor: int, value: int) -> None:
+        """Adapter: translate a TrinamicMotor serial-write event to _log_cmd.
+
+        Fired by TrinamicMotor.send_command() after every port.write().
+        GAP (position read) commands are silently dropped to avoid flooding
+        the log at 10 Hz during normal polling.
+
+        Args:
+            com_port: Serial port name, e.g. ``'COM4'``.
+            cmd: TMCL command string (e.g. ``'MVP'``, ``'GAP'``).
+            cmd_type: Command type parameter.
+            motor: Motor number (0-3).
+            value: 32-bit value parameter.
+        """
+        if cmd == 'GAP':
+            return  # Routine position read — do not flood the command log.
+        direction = f'PC \u2192 Motor ({com_port})'
+        func_call = hw_motor.TrinamicMotor.format_command(cmd, cmd_type, motor, value)
+        packet_str = f'[{cmd} type={cmd_type} motor={motor} val={value}]'
         self._log_cmd(direction, func_call, packet_str)
 
     def _log_event(self, text: str) -> None:
