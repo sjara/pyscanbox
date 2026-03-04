@@ -121,8 +121,12 @@ class ScannerControlGroup(QtWidgets.QGroupBox):
         self.magnification_combobox.setCurrentIndex(0)  # index 0 = minimum zoom (1.0x)
         layout.addRow("Magnification:", self.magnification_combobox)
         
-        # Frame rate
-        self.frame_rate_label = QtWidgets.QLabel("30.5 Hz")
+        # Frame rate — computed from RESONANT_FREQ / lines * (2 if bidir else 1).
+        # Matches MATLAB: frame_rate = sbconfig.resfreq/nlines*(2-scanmode)
+        initial_rate = hw_controller.ScanboxController.calculate_frame_rate(
+            self.lines_per_frame_spinbox.value(), bidirectional=False
+        )
+        self.frame_rate_label = QtWidgets.QLabel(f"{initial_rate:.2f} Hz")
         layout.addRow("Frame rate:", self.frame_rate_label)
         
         # Scan mode selector (combo box)
@@ -137,7 +141,23 @@ class ScannerControlGroup(QtWidgets.QGroupBox):
         self.bidir_alignment_spinbox.setValue(0)
         layout.addRow("Bidir alignment:", self.bidir_alignment_spinbox)
         
+        # Update frame rate whenever lines or scan mode changes.
+        self.lines_per_frame_spinbox.valueChanged.connect(self._update_frame_rate)
+        self.scan_mode_combobox.currentIndexChanged.connect(self._update_frame_rate)
+        
         self.setLayout(layout)
+
+    def _update_frame_rate(self):
+        """Recompute and display the frame rate from lines/frame and scan mode.
+
+        Formula (scanbox.m line 503):
+            frame_rate = sbconfig.resfreq / nlines * (2 - scanmode)
+        where scanmode = 1 (unidirectional) or 0 (bidirectional).
+        """
+        lines = self.lines_per_frame_spinbox.value()
+        bidirectional = self.scan_mode_combobox.currentIndex() == 1  # 0=Uni, 1=Bi
+        rate = hw_controller.ScanboxController.calculate_frame_rate(lines, bidirectional)
+        self.frame_rate_label.setText(f"{rate:.2f} Hz")
 
 
 class PositionDisplayGroup(QtWidgets.QGroupBox):

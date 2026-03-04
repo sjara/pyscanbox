@@ -103,6 +103,15 @@ class ScanboxController:
         '3.4x', '4.0x', '4.8x', '5.7x', '6.7x', '8.0x',
     )
 
+    # Resonant mirror frequency (Hz). Source: sbconfig.resfreq in scanbox_config.m.
+    # Frame-rate formula (scanbox.m line 503):
+    #   frame_rate = resfreq / nlines * (2 - scanmode)
+    # where scanmode = 1 (unidirectional) or 0 (bidirectional).
+    # Examples at 512 lines:
+    #   Unidirectional: 7930 / 512 * 1 = 15.49 Hz  (~15 Hz in practice)
+    #   Bidirectional:  7930 / 512 * 2 = 30.98 Hz
+    RESONANT_FREQ = 7930
+
     # Human-readable names for each command ID, used by log callbacks.
     CMD_NAMES = {
         CMD_FRAME_COUNT: 'set_frame_count',
@@ -117,6 +126,24 @@ class ScanboxController:
         CMD_SHUTTER: 'set_shutter',
         CMD_ETL: 'set_etl_current',
     }
+
+    @staticmethod
+    def calculate_frame_rate(lines_per_frame: int, bidirectional: bool = False) -> float:
+        """Calculate scan frame rate in Hz.
+
+        Matches the MATLAB formula from scanbox.m:
+            frame_rate = sbconfig.resfreq / nlines * (2 - scanmode)
+        where scanmode = 1 for unidirectional, 0 for bidirectional.
+
+        Args:
+            lines_per_frame: Number of scan lines per frame.
+            bidirectional: True for bidirectional scan mode.
+
+        Returns:
+            Frame rate in Hz.
+        """
+        multiplier = 2 if bidirectional else 1
+        return ScanboxController.RESONANT_FREQ / lines_per_frame * multiplier
 
     @staticmethod
     def format_command(cmd_id: int, param1: int, param2: int) -> str:
