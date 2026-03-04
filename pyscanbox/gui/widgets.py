@@ -16,6 +16,8 @@ This module defines individual control groups and display widgets:
 import numpy as np
 import PyQt6.QtWidgets as QtWidgets
 import PyQt6.QtCore as QtCore
+
+from pyscanbox.hardware import controller as hw_controller
 import PyQt6.QtGui as QtGui
 
 
@@ -108,16 +110,14 @@ class ScannerControlGroup(QtWidgets.QGroupBox):
         self.lines_per_frame_spinbox.setSingleStep(16)
         layout.addRow("Lines/frame:", self.lines_per_frame_spinbox)
         
-        # Magnification — 13 discrete zoom levels matching the MATLAB popup.
-        # Labels are logspace(log10(1), log10(8), 13) formatted as "%.1fx",
-        # matching exactly what MATLAB builds via sprintf('%.1f\n', gain_galvo).
+        # Magnification — 13 discrete zoom levels.
+        # Labels come from ScanboxController.MAG_LABELS, the single source of
+        # truth (hardware zoom amplitudes from sbconfig.gain_galvo).
         # Index 0–12 is sent directly to the PSoC5 controller (CMD_MAGNIFICATION).
-        _mag_labels = [
-            '1.0x', '1.2x', '1.4x', '1.7x', '2.0x', '2.4x', '2.8x',
-            '3.4x', '4.0x', '4.8x', '5.7x', '6.7x', '8.0x',
-        ]
         self.magnification_combobox = QtWidgets.QComboBox()
-        self.magnification_combobox.addItems(_mag_labels)
+        self.magnification_combobox.addItems(
+            hw_controller.ScanboxController.MAG_LABELS
+        )
         self.magnification_combobox.setCurrentIndex(0)  # index 0 = minimum zoom (1.0x)
         layout.addRow("Magnification:", self.magnification_combobox)
         
@@ -683,19 +683,21 @@ class OptotuneGroup(QtWidgets.QGroupBox):
         layout = QtWidgets.QVBoxLayout()
 
         # ETL current — slider (coarse) + spinbox (fine), bidirectionally
-        # linked.  Range 0–1760 matches the hardware range sent via
-        # CMD_ETL (ID 48) in controller.py and the MATLAB optoslider.
+        # linked.  Range is taken from ScanboxController.ETL_CURRENT_MIN/MAX,
+        # which is the single source of truth for this value.
+        etl_min = hw_controller.ScanboxController.ETL_CURRENT_MIN
+        etl_max = hw_controller.ScanboxController.ETL_CURRENT_MAX
         layout.addWidget(QtWidgets.QLabel("ETL current"))
 
-        # Vertical slider (0 at bottom = no displacement, 1760 at top)
+        # Vertical slider: high value = top, low value = bottom.
         slider_layout = QtWidgets.QHBoxLayout()
         slider_layout.addStretch()
 
         self.etl_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Vertical)
-        self.etl_slider.setRange(0, 1760)
-        self.etl_slider.setValue(0)
+        self.etl_slider.setRange(etl_min, etl_max)
+        self.etl_slider.setValue(etl_min)
         self.etl_slider.setTickPosition(QtWidgets.QSlider.TickPosition.TicksRight)
-        self.etl_slider.setTickInterval(176)  # 10 ticks across range
+        self.etl_slider.setTickInterval((etl_max - etl_min) // 10)  # 10 ticks
         self.etl_slider.setMinimumHeight(120)
         slider_layout.addWidget(self.etl_slider)
         slider_layout.addStretch()
@@ -703,8 +705,8 @@ class OptotuneGroup(QtWidgets.QGroupBox):
 
         # Spinbox for precise current entry
         self.etl_spinbox = QtWidgets.QSpinBox()
-        self.etl_spinbox.setRange(0, 1760)
-        self.etl_spinbox.setValue(0)
+        self.etl_spinbox.setRange(etl_min, etl_max)
+        self.etl_spinbox.setValue(etl_min)
         self.etl_spinbox.setSuffix('')
         layout.addWidget(self.etl_spinbox)
 
@@ -754,10 +756,10 @@ class CommandLogPanel(QtWidgets.QWidget):
         layout.addWidget(self._text)
 
         bar = QtWidgets.QHBoxLayout()
-        self._hint_label = QtWidgets.QLabel(
-            '<small>Hardware commands and events will appear here.</small>'
-        )
-        bar.addWidget(self._hint_label)
+        # self._hint_label = QtWidgets.QLabel(
+        #     '<small>Hardware commands and events will appear here.</small>'
+        # )
+        # bar.addWidget(self._hint_label)
         bar.addStretch()
         btn_clear = QtWidgets.QPushButton('Clear')
         btn_clear.setMaximumWidth(60)

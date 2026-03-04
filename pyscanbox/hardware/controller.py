@@ -87,6 +87,22 @@ class ScanboxController:
     CMD_SHUTTER = 16
     CMD_ETL = 48  # Electrically tunable lens (Optotune) current
 
+    # ETL current range (hardware units, ~61.5 µA per count).
+    # These are the single source of truth for the ETL range used by
+    # set_etl_current() validation and by GUI widgets.
+    ETL_CURRENT_MIN = 0
+    ETL_CURRENT_MAX = 1760
+
+    # Magnification labels for the 13 discrete zoom levels (index 0–12).
+    # Derived from sbconfig.gain_galvo = logspace(log10(1), log10(8), 13) in
+    # scanbox_config.m, formatted as "%.1f" (same as MATLAB's sprintf).
+    # Index 0 = largest FOV (1.0x); index 12 = smallest FOV (8.0x).
+    # This is the single source of truth consumed by GUI combo boxes.
+    MAG_LABELS = (
+        '1.0x', '1.2x', '1.4x', '1.7x', '2.0x', '2.4x', '2.8x',
+        '3.4x', '4.0x', '4.8x', '5.7x', '6.7x', '8.0x',
+    )
+
     # Human-readable names for each command ID, used by log callbacks.
     CMD_NAMES = {
         CMD_FRAME_COUNT: 'set_frame_count',
@@ -495,8 +511,11 @@ class ScanboxController:
         Raises:
             ValueError: If current is outside 0–1760.
         """
-        if not (0 <= current <= 1760):
-            raise ValueError(f'ETL current must be 0-1760, got {current}')
+        if not (self.ETL_CURRENT_MIN <= current <= self.ETL_CURRENT_MAX):
+            raise ValueError(
+                f'ETL current must be {self.ETL_CURRENT_MIN}-'
+                f'{self.ETL_CURRENT_MAX}, got {current}'
+            )
         encoded = 0x7000 | (current & 0x0FFF)
         b1 = (encoded >> 8) & 0xFF
         b2 = encoded & 0xFF
