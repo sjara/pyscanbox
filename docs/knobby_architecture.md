@@ -165,10 +165,20 @@ TMCL commands used:
 2. Knobby calculates new position in steps: dpos[i] += (encoder_change * mstep)
 3. Knobby converts to microns: position_um = dpos[i] * motor_gain[i]
 4. Knobby updates display: "Z = +1234.56 um"
-5. Knobby sends position to PC via COM5
-6. PC forwards to motor controller via COM4 (TMCL MVP command)
-7. Motor moves to new position
+5. Knobby sends position to PC via COM5  (5-byte packet: motor_id + dpos as int32 LE)
+6. PC computes delta = dpos_new − dpos_prev and forwards it to the motor controller
+   as a TMCL MVP Type 1 (relative) command — NOT an absolute move.  See note below.
+7. Motor moves by the delta amount
 ```
+
+> **Why relative, not absolute?**  The Knobby firmware tracks an accumulated
+> offset (`dpos`) that starts at 0 after each reset or zero-button press.  This
+> value is *not* the motor controller's hardware step counter.  Forwarding
+> `dpos` directly as an MVP Type 0 (absolute) command would drive all motors to
+> hardware position 0 on startup (when `dpos` is still 0) and would produce
+> wrong positions whenever the motor counter was not also zeroed.  Using the
+> delta between consecutive `dpos` packets keeps the two coordinate systems
+> independent and makes startup zero-packets harmless.
 
 ## Step Multipliers (mstep)
 
@@ -252,6 +262,21 @@ knobby.close()
    - Knobby uses Motor 0=Z, 1=Y, 2=X, 3=A
    - Z = focus/depth, Y = vertical stage, X = horizontal stage, A = objective angle
    - This matches the physical axes on the microscope stage
+
+5. **Startup zero-packets (firmware quirk):** On the very first iteration of the
+   Arduino `loop()`, the firmware detects that `page` (initialised to 1) differs
+   from `oldpage` (initialised to -1) and immediately transmits a 5-byte
+   position packet for each of the four axes with `dpos = 0`.  This happens
+   before any knob has been turned.  Any PC-side code that forwards these
+   packets as *absolute* MVP moves will drive all motors to hardware step
+   position 0, which can be dangerous.  Always translate Knobby packets into
+   *relative* (delta) moves to the motor controller, so that a zero-delta
+   startup packet produces no physical movement.
+
+6. **`dpos` is not the motor hardware counter:** The Knobby `dpos` array
+   accumulates encoder deltas from the last zero/reset and is independent of
+   the Trinamic board's absolute step counter.  Never use `dpos` directly as an
+   MVP Type 0 (absolute) target.
 
 ## References
 
