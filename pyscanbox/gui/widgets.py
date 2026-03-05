@@ -7,6 +7,7 @@ This module defines individual control groups and display widgets:
 - AcquisitionControlGroup: Acquisition buttons and status
 - FileStorageGroup: File path and metadata
 - ImageDisplayWidget: Main image display
+- HistogramWidget: Pixel-intensity histogram below the image
 - CameraPathGroup: Camera controls
 - PMTControlGroup: PMT gain controls
 - ImageDisplayControlGroup: Display settings
@@ -565,6 +566,132 @@ class ImageDisplayWidget(QtWidgets.QWidget):
                 call to ``update_frame``.
         """
         self._gain = slider_value / self._GAIN_DIVISOR
+
+
+class HistogramWidget(QtWidgets.QWidget):
+    """Pixel-intensity histogram for the current frame.
+
+    Displays a 256-bin histogram of the raw 14-bit pixel values from
+    channel 0 (PMT0) of the most recently acquired frame.  The widget
+    repaints itself every time ``update_frame`` is called.
+
+    The y-axis auto-scales to the maximum bin count, excluding the very
+    first bin (value == 0) which is often dominated by the dark background
+    and would otherwise compress all other bars to near-zero height.
+    """
+
+    # Number of histogram bins.  256 gives one bin per 8-bit equivalent level.
+    NUM_BINS = 256
+    # Full-scale value of the 14-bit ADC.
+    _ADC_MAX = 16383
+
+    # Visual constants
+    _BG_COLOR = QtGui.QColor("#1a1a1a")
+    _BAR_COLOR = QtGui.QColor("#4a7eb5")
+    _BORDER_COLOR = QtGui.QColor("#6aaedf")
+    _AXIS_COLOR = QtGui.QColor("#555555")
+    _PADDING = 4  # px inside the widget edges
+
+    def __init__(self):
+        """Initialize the histogram widget."""
+        super().__init__()
+        self._counts: np.ndarray | None = None
+        self.setMinimumHeight(80)
+        self.setMaximumHeight(120)
+        self.setMinimumWidth(100)
+        self.setToolTip("Pixel intensity histogram (channel 0, 256 bins, 14-bit range)")
+
+    def update_frame(self, frame_data: np.ndarray) -> None:
+        """Recompute the histogram from a newly acquired frame.
+
+        Accepts the same ``frame_data_ready`` signal payload as
+        ``ImageDisplayWidget.update_frame``.  Only channel 0 is used.
+
+        Args:
+            frame_data: Shape ``(channels, lines_per_frame, pixels_per_line)``,
+                dtype ``uint16``, values 0–16383 (14-bit).
+        """
+        if frame_data is None:
+            return
+        ch0 = frame_data[0].ravel()  # flatten to 1-D
+        self._counts, _ = np.histogram(
+            ch0, bins=self.NUM_BINS, range=(0, self._ADC_MAX + 1)
+        )
+        self.update()  # schedule a repaint
+
+    def paintEvent(self, event) -> None:  # noqa: N802  (Qt naming convention)
+        """Paint the histogram bars using QPainter.
+
+        Draws a filled area chart: a vertical bar for each of the 256 bins
+        scaled to fill the available height.  The y-axis is auto-scaled to
+        the maximum count across bins 1–255 (bin 0, the zero-valued pixels,
+        is excluded from scaling because it is typically orders of magnitude
+        larger than the signal bins and would squash the useful part of the
+        histogram).
+
+        Args:
+            event: QPaintEvent from Qt (unused; we always repaint fully).
+        """
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, False)
+
+        w = self.width()
+        h = self.height()
+        p = self._PADDING
+
+        # Background
+        painter.fillRect(0, 0, w, h, self._BG_COLOR)
+
+        if self._counts is None:
+            painter.setPen(QtGui.QPen(self._AXIS_COLOR))
+            painter.drawText(
+                QtCore.QRect(0, 0, w, h),
+                QtCore.Qt.AlignmentFlag.AlignCenter,
+                "Histogram",
+            )
+            painter.end()
+            return
+
+        # Auto-scale: ignore bin 0 (background) for the y-maximum.
+        max_count = int(self._counts[1:].max()) if len(self._counts) > 1 else 1
+        if max_count == 0:
+            max_count = 1
+
+        draw_w = w - 2 * p
+        draw_h = h - 2 * p
+        n = len(self._counts)
+
+        # Build a polygon for the filled area (faster than n separate fillRect calls).
+        # Points go left→right along the top of each bar, then close at the bottom.
+        poly = QtGui.QPolygon()
+        for i, count in enumerate(self._counts):
+            bar_h = int(min(count, max_count) / max_count * draw_h)
+            x = p + int(i * draw_w / n)
+            y_top = h - p - bar_h
+            poly.append(QtCore.QPoint(x, y_top))
+            poly.append(QtCore.QPoint(x + max(1, int(draw_w / n)), y_top))
+        # Close the polygon along the bottom edge.
+        poly.append(QtCore.QPoint(w - p, h - p))
+        poly.append(QtCore.QPoint(p, h - p))
+
+        painter.setPen(QtCore.Qt.PenStyle.NoPen)
+        painter.setBrush(QtGui.QBrush(self._BAR_COLOR))
+        painter.drawPolygon(poly)
+
+        # Thin bright border along the top of the histogram
+        painter.setPen(QtGui.QPen(self._BORDER_COLOR, 1))
+        for i, count in enumerate(self._counts):
+            bar_h = int(min(count, max_count) / max_count * draw_h)
+            x = p + int(i * draw_w / n)
+            y_top = h - p - bar_h
+            x2 = p + int((i + 1) * draw_w / n)
+            painter.drawLine(x, y_top, x2, y_top)
+
+        # Baseline
+        painter.setPen(QtGui.QPen(self._AXIS_COLOR, 1))
+        painter.drawLine(p, h - p, w - p, h - p)
+
+        painter.end()
 
 
 class CameraPathGroup(QtWidgets.QGroupBox):

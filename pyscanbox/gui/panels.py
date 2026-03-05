@@ -61,10 +61,11 @@ class LeftControlPanel(QtWidgets.QWidget):
 
 class RightDisplayPanel(QtWidgets.QWidget):
     """Right display panel containing image and secondary controls.
-    
-    Contains:
-    - Top: Main image display area
-    - Bottom: Secondary control panels (camera, PMT, display, optotune)
+
+    Contains (top to bottom):
+    - Main image display area
+    - Pixel-intensity histogram (thin strip, full width)
+    - Secondary control panels (camera, PMT, display, optotune)
     """
     
     def __init__(self, config=None):
@@ -79,19 +80,24 @@ class RightDisplayPanel(QtWidgets.QWidget):
         
     def _init_ui(self):
         """Initialize the UI components."""
-        # Create vertical splitter for image display and controls
+        # Create vertical splitter for image display, histogram, and controls
         splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
-        
+
         # Top: Main image display
         self.image_display = widgets.ImageDisplayWidget()
         splitter.addWidget(self.image_display)
-        
+
+        # Middle: Pixel-intensity histogram (full panel width, thin strip)
+        self.histogram = widgets.HistogramWidget()
+        splitter.addWidget(self.histogram)
+
         # Bottom: Secondary controls
         controls_panel = self._create_secondary_controls()
         splitter.addWidget(controls_panel)
-        
-        # Set initial sizes (image takes most space)
-        splitter.setSizes([600, 200])
+
+        # Distribute vertical space: image gets most, histogram is thin,
+        # controls take a fixed chunk.
+        splitter.setSizes([500, 90, 200])
 
         # Wire the Image Display gain slider to the image display widget so
         # that moving the slider re-scales the brightness of the next frame.
