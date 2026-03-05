@@ -441,14 +441,18 @@ class Scanner:
         """Adapter: translate a TrinamicMotor serial-write event to on_command.
 
         Fired by TrinamicMotor.send_command() after every port.write().
+        GAP (position read) commands are silently dropped to avoid flooding
+        the log at 10 Hz during normal polling.
 
         Args:
             com_port: Serial port name.
-            cmd: TMCL command string (e.g. ``'MVP'``, ``'SAP'``).
+            cmd: TMCL command string (e.g. ``'MVP'``, ``'SAP'``, ``'GAP'``).
             cmd_type: TMCL command type parameter.
             motor_num: Motor number (0-3).
             value: 32-bit value parameter.
         """
+        if cmd == 'GAP':
+            return  # Routine position read — do not flood the command log.
         if self.on_command is None:
             return
         direction = f'PC \u2192 Motor ({com_port})'
