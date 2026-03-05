@@ -284,7 +284,10 @@ def reshape_pmt_data_raw(buffer: np.ndarray, lines_per_frame: int,
                      + np.uint32(buffer[line_start + 2 * (s + 1) + 1])
                      + np.uint32(buffer[line_start + 2 * (s + 2) + 1])
                      + np.uint32(buffer[line_start + 2 * (s + 3) + 1]))
-            output[0, line, px] = np.uint16(sum_a >> 2)
-            output[1, line, px] = np.uint16(sum_b >> 2)
+            # >> 4 = >> 2 (strip 2 LSB sync bits per sample) + >> 2 (average 4 samples)
+            # Each raw Alazar word is (14-bit ADC << 2) | sync_bits, so the
+            # combined shift of 4 produces a 14-bit result (0-16383).
+            output[0, line, px] = np.uint16(sum_a >> 4)
+            output[1, line, px] = np.uint16(sum_b >> 4)
 
     return output
