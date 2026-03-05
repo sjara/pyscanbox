@@ -425,7 +425,7 @@ class FileStorageGroup(QtWidgets.QGroupBox):
         layout.addWidget(QtWidgets.QLabel("Save Channels:"), 5, 0)
         self.channels_combobox = QtWidgets.QComboBox()
         self.channels_combobox.addItems(["PMT0", "PMT1", "PMT0 & PMT1"])
-        self.channels_combobox.setCurrentIndex(2)
+        self.channels_combobox.setCurrentIndex(0)
         layout.addWidget(self.channels_combobox, 5, 1)
         
         self.setLayout(layout)
@@ -478,12 +478,18 @@ class ImageDisplayWidget(QtWidgets.QWidget):
     channel 0 (PMT0) is always displayed.
     """
 
+    # Slider range is 1–100; gain = slider_value / 10  (0.1x … 10.0x).
+    # Default slider value is 10, giving gain = 1.0 which preserves the
+    # original >> 6 behaviour (14-bit → 8-bit with no clipping).
+    _GAIN_DIVISOR = 10.0
+
     def __init__(self):
         """Initialize the image display widget."""
         super().__init__()
         # Holds the current uint8 frame buffer so that the QImage's memory
         # reference stays valid until the next frame arrives.
         self._display_buffer: np.ndarray | None = None
+        self._gain: float = 1.0
         self._init_ui()
 
     def _init_ui(self):
@@ -519,9 +525,15 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         """
         if frame_data is None:
             return  # stale queued signal delivered after scanner cleanup
-        # Extract channel 0 and shift the 14-bit values down to 8-bit.
+        # Extract channel 0 and scale the 14-bit values to 8-bit, applying
+        # the display gain set by the Image Display > Gain slider.
+        # Base divisor 64 (>> 6) maps full-scale 14-bit to 255; multiplying
+        # by _gain before clipping brightens or dims the image accordingly.
         ch0 = frame_data[0]  # shape: (lines, pixels)
-        self._display_buffer = np.ascontiguousarray(ch0 >> 6, dtype=np.uint8)
+        scaled = np.clip(
+            ch0.astype(np.float32) * self._gain / 64.0, 0, 255
+        )
+        self._display_buffer = np.ascontiguousarray(scaled, dtype=np.uint8)
         height, width = self._display_buffer.shape
 
         # Wrap the numpy buffer in a QImage without copying.
@@ -543,6 +555,17 @@ class ImageDisplayWidget(QtWidgets.QWidget):
             )
         )
 
+    def set_gain(self, slider_value: int) -> None:
+        """Update the display gain from the Image Display gain slider.
+
+        Args:
+            slider_value: Integer value from the gain slider (1–100).
+                The effective multiplier is ``slider_value / _GAIN_DIVISOR``
+                (i.e. 0.1× – 10.0×).  The change takes effect on the next
+                call to ``update_frame``.
+        """
+        self._gain = slider_value / self._GAIN_DIVISOR
+
 
 class CameraPathGroup(QtWidgets.QGroupBox):
     """Camera path control group box.
@@ -554,18 +577,30 @@ class CameraPathGroup(QtWidgets.QGroupBox):
     """
     
     def __init__(self):
-        """Initialize the camera path group."""
-        super().__init__("Camera Path")
+        """Initialize the light path group."""
+        super().__init__("Light Path")
         self._init_ui()
         
     def _init_ui(self):
         """Initialize the UI components."""
         layout = QtWidgets.QVBoxLayout()
-        
-        # Enable checkbox
-        self.enable_checkbox = QtWidgets.QCheckBox("Enable")
-        layout.addWidget(self.enable_checkbox)
-        
+
+        # Enable checkbox + current path-state label on the same row.
+        # The label shows 'Epi' when the checkbox is checked (camera/epi
+        # path active) and '2p' when unchecked (2-photon path active).
+        enable_row = QtWidgets.QHBoxLayout()
+        self.enable_checkbox = QtWidgets.QCheckBox("Camera Path")
+        enable_row.addWidget(self.enable_checkbox)
+        self.path_state_label = QtWidgets.QLabel("Path:")
+        self.path_state_label.setStyleSheet(
+            "QLabel { font-weight: bold; color: #7bf; }"
+        )
+        enable_row.addWidget(self.path_state_label)
+        enable_row.addStretch()
+        layout.addLayout(enable_row)
+
+        self.enable_checkbox.stateChanged.connect(self._on_enable_changed)
+
         # Exposure slider
         exposure_layout = QtWidgets.QVBoxLayout()
         exposure_layout.addWidget(QtWidgets.QLabel("Exposure"))
@@ -588,9 +623,18 @@ class CameraPathGroup(QtWidgets.QGroupBox):
         # Camera properties button
         self.properties_button = QtWidgets.QPushButton("Camera Properties")
         layout.addWidget(self.properties_button)
-        
+
         layout.addStretch()
         self.setLayout(layout)
+
+    def _on_enable_changed(self, state: int) -> None:
+        """Update the path-state label when the Enable checkbox changes.
+
+        Args:
+            state: Qt.CheckState value emitted by stateChanged.
+        """
+        checked = state == QtCore.Qt.CheckState.Checked.value
+        self.path_state_label.setText("Path: Epi" if checked else "Path: 2p")
 
 
 class PMTControlGroup(QtWidgets.QGroupBox):

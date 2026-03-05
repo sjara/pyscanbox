@@ -92,7 +92,13 @@ class RightDisplayPanel(QtWidgets.QWidget):
         
         # Set initial sizes (image takes most space)
         splitter.setSizes([600, 200])
-        
+
+        # Wire the Image Display gain slider to the image display widget so
+        # that moving the slider re-scales the brightness of the next frame.
+        self.image_display_group.gain_slider.valueChanged.connect(
+            self.image_display.set_gain
+        )
+
         # Add splitter to layout
         layout = QtWidgets.QVBoxLayout()
         layout.addWidget(splitter)
