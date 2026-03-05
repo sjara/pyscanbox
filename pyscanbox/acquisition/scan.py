@@ -122,7 +122,16 @@ class Scanner:
         # Raw-mode acquisition: use arccosine pixel LUT instead of pre-shaped data.
         # When True, each Alazar buffer contains `lines × samples_per_line × 2`
         # interleaved raw ADC samples and reshape_pmt_data_raw() is called.
-        self.raw_mode: bool = config.get('alazar', {}).get('raw_mode', False)
+        #
+        # IMPORTANT: AlazarDigitizer._use_raw_mode is always True on real
+        # hardware (not emulation), regardless of alazar.raw_mode in config.
+        # Scanner must use the same logic so the correct reshape function is
+        # called.  On emulation, raw_mode=False uses the pre-shaped path.
+        emulation_on = config.get('emulation', {}).get('enabled', False)
+        self.raw_mode: bool = (
+            not emulation_on
+            or config.get('alazar', {}).get('raw_mode', False)
+        )
         self._pixel_lut: Optional[np.ndarray] = None
         if self.raw_mode:
             laser_freq = config['laser']['frequency']

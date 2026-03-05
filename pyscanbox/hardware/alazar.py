@@ -318,23 +318,29 @@ class AlazarDigitizer:
             self.board_handle.setExternalClockLevel(65.0)  # 65% level
         
         # Configure input channels (DC coupling, input range)
-        # Range depends on amplifier type: 200mV for variable, 1V for fixed
-        # Reference: scanbox.m lines 804-827
-        # CHANNEL_A = 0x1, CHANNEL_B = 0x2 (not indices 0, 1!)
+        # INPUT_RANGE_PM_200_MV (0x6) for variable-gain amps (default)
+        # INPUT_RANGE_PM_1_V    (0xA) for fixed-gain amps
+        # MATLAB: scanbox.m lines 786-798, selected via sbconfig.pmt_amp_type
+        # pyscanbox: config['pmt']['amplifier_type'] = 'variable' or 'fixed'
+        pmt_amp_type = self.config.get('pmt', {}).get('amplifier_type', 'variable')
+        if pmt_amp_type == 'fixed':
+            input_range = 0xA  # INPUT_RANGE_PM_1_V
+        else:
+            input_range = 0x6  # INPUT_RANGE_PM_200_MV (default)
         if hasattr(self.board_handle, 'inputControl'):
             # Channel A
             self.board_handle.inputControl(
-                1,   # CHANNEL_A (0x1)
-                2,   # DC_COUPLING (0x2)
-                0x6, # INPUT_RANGE_PM_200_MV (default for variable amps)
-                2    # IMPEDANCE_50_OHM (0x2)
+                1,           # CHANNEL_A (0x1)
+                2,           # DC_COUPLING (0x2)
+                input_range, # 0x6 = ±200 mV (variable) or 0xA = ±1 V (fixed)
+                2            # IMPEDANCE_50_OHM (0x2)
             )
             # Channel B
             self.board_handle.inputControl(
-                2,   # CHANNEL_B (0x2)
-                2,   # DC_COUPLING (0x2)
-                0x6, # INPUT_RANGE_PM_200_MV (default for variable amps)
-                2    # IMPEDANCE_50_OHM (0x2)
+                2,           # CHANNEL_B (0x2)
+                2,           # DC_COUPLING (0x2)
+                input_range, # same as channel A
+                2            # IMPEDANCE_50_OHM (0x2)
             )
         
         # Configure trigger operation (external trigger, no second engine)
