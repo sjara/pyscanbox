@@ -50,7 +50,8 @@ class Scanner:
                  on_frame: Optional[Callable[[int], None]] = None,
                  on_frame_data=None,
                  on_command=None,
-                 hw_controller=None):
+                 hw_controller=None,
+                 hw_motor=None):
         """Initialize scanner with configuration.
 
         Args:
@@ -77,6 +78,10 @@ class Scanner:
                 (ownership stays with the caller).  Pass this when the GUI
                 already holds an open connection so that a second open() on
                 the same COM port is avoided on real hardware.
+            hw_motor: Optional pre-opened TrinamicMotor to reuse.
+                Same ownership semantics as ``hw_controller``: when provided
+                Scanner will not call open() or close() on it, preventing a
+                second attempt to open the motor COM port.
         """
         self.config = config
         self.output_path = output_path
@@ -98,7 +103,15 @@ class Scanner:
             )
             self._controller_owned = True
             self._controller_orig_on_cmd = None
-        self.motor: Optional[motor.TrinamicMotor] = None
+        if hw_motor is not None:
+            # Reuse an already-open motor (e.g. held by AppController).
+            self.motor: Optional[motor.TrinamicMotor] = hw_motor
+            self._motor_owned = False
+            self._motor_orig_on_cmd = hw_motor.on_command
+        else:
+            self.motor = None
+            self._motor_owned = True
+            self._motor_orig_on_cmd = None
         
         # Acquisition parameters
         self.lines_per_frame = config['acquisition']['lines_per_frame']
@@ -169,10 +182,15 @@ class Scanner:
 
         # Initialize motor if configured
         if 'motor' in self.config:
-            self.motor = motor.TrinamicMotor(
-                self.config, on_command=self._on_motor_cmd
-            )
-            self.motor.open()
+            if self._motor_owned:
+                # No pre-opened motor was supplied — create and open one.
+                self.motor = motor.TrinamicMotor(
+                    self.config, on_command=self._on_motor_cmd
+                )
+                self.motor.open()
+            else:
+                # Reuse the caller's already-open motor; redirect logging.
+                self.motor.on_command = self._on_motor_cmd
 
     def initialize_writers(self) -> None:
         """Initialize file writers for data output.
@@ -464,9 +482,14 @@ class Scanner:
                 # logging commands sent via the GUI after the scan ends.
                 self.controller.on_command = self._controller_orig_on_cmd
         
-        # Close motor
+        # Close motor only if Scanner created it; if it was passed in by the
+        # caller (e.g. AppController) leave it open and restore the original
+        # on_command callback so the GUI resumes logging motor commands.
         if self.motor is not None:
-            self.motor.close()
+            if self._motor_owned:
+                self.motor.close()
+            else:
+                self.motor.on_command = self._motor_orig_on_cmd
         
         # Close file writers
         if self.sbx_writer is not None:

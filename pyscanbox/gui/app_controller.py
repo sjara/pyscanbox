@@ -75,6 +75,7 @@ class ScannerThread(QtCore.QThread):
                  focus_mode: bool = False,
                  frames_override: int = None,
                  controller=None,
+                 motor=None,
                  parent=None):
         """Initialize the scanner thread.
 
@@ -91,6 +92,9 @@ class ScannerThread(QtCore.QThread):
                 Scanner so that the same serial port is not opened twice on
                 real hardware.  When None, Scanner creates its own instance
                 (backward-compatible behaviour used in emulation and tests).
+            motor: Optional pre-opened TrinamicMotor to share with Scanner
+                so that the motor COM port is not opened twice on real
+                hardware.  When None, Scanner creates its own instance.
             parent: Optional Qt parent object.
         """
         super().__init__(parent)
@@ -99,6 +103,7 @@ class ScannerThread(QtCore.QThread):
         self._focus_mode = focus_mode
         self._frames_override = frames_override
         self._controller = controller
+        self._motor = motor
         self._scanner = None
 
     def run(self) -> None:
@@ -113,6 +118,7 @@ class ScannerThread(QtCore.QThread):
                 on_frame_data=self.frame_data_ready.emit,
                 on_command=self._emit_command,
                 hw_controller=self._controller,
+                hw_motor=self._motor,
             )
             self._scanner.run()
         except Exception as exc:
@@ -652,6 +658,7 @@ class AppController(QtCore.QObject):
             focus_mode=focus_mode,
             frames_override=frames_override,
             controller=self._hw_controller,
+            motor=self._motor if self._motor.is_open else None,
             parent=self,
         )
         self._scanner_thread.frame_acquired.connect(self.frame_acquired)
