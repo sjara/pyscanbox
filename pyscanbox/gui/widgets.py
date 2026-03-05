@@ -520,19 +520,22 @@ class ImageDisplayWidget(QtWidgets.QWidget):
     def update_frame(self, frame_data: np.ndarray) -> None:
         """Update the display with a newly acquired frame.
 
-        Converts the selected PMT channel of the 14-bit frame array to an
-        8-bit grayscale QPixmap and scales it to fill the label while
-        preserving the aspect ratio.
+        Converts the selected PMT channel(s) of the 14-bit frame array to an
+        8-bit RGB QPixmap coloured by channel convention:
+
+        - **PMT0** → green pixels  (R=0, G=intensity, B=0)
+        - **PMT1** → red pixels    (R=intensity, G=0, B=0)
+        - **PMT0 & PMT1** → red/green overlay (R=PMT1, G=PMT0, B=0)
 
         In **fluorescence mode** (default) the display is *inverted*: a PMT
         produces a current that *decreases* the ADC value when light is
         present (the raw offset-binary background sits near 16383 with no
         light).  We compensate with ``(16383 - ch) * gain / 64`` so that the
-        dark background maps to 0 (black) and bright fluorescence maps to
-        white, matching the original Scanbox display.
+        dark background maps to 0 (black) and bright fluorescence maps to the
+        channel colour, matching the original Scanbox display.
 
-        In **direct mode** the raw ADC value is displayed without inversion
-        (high ADC value = bright).  Useful for debugging signal levels.
+        In **direct mode** the raw ADC value is shown without inversion
+        (high ADC value = bright / saturated colour).  Useful for debugging.
 
         This slot is called from the GUI thread via a queued signal
         connection; the numpy array is passed by reference and is safe to
@@ -547,38 +550,53 @@ class ImageDisplayWidget(QtWidgets.QWidget):
 
         n_channels = frame_data.shape[0]
 
-        # Select the channel(s) to display.
+        def _scale(ch: np.ndarray) -> np.ndarray:
+            """Map a 14-bit channel array to uint8, applying inversion + gain."""
+            c = ch.astype(np.float32)
+            if self._invert:
+                # Fluorescence mode: background (high ADC) → 0 (black),
+                # signal (low ADC) → 255.  Matches Scanbox MATLAB display.
+                return np.clip(
+                    (self._MAX_14BIT - c) * self._gain / 64.0, 0, 255
+                ).astype(np.uint8)
+            # Direct mode: high ADC → bright (for debugging).
+            return np.clip(c * self._gain / 64.0, 0, 255).astype(np.uint8)
+
+        # Build a 3-channel RGB array coloured by PMT channel convention.
+        # PMT0 = green (typical fluorescence ch1: GFP, FITC, …)
+        # PMT1 = red   (typical fluorescence ch2: tdTomato, RFP, …)
         if self._channel == 2 and n_channels >= 2:
-            # Average PMT0 and PMT1.
-            ch = frame_data[0].astype(np.float32) + frame_data[1].astype(np.float32)
-            ch = ch / 2.0
+            # Overlay: R = PMT1 (red), G = PMT0 (green), B = 0.
+            g = _scale(frame_data[0])
+            r = _scale(frame_data[1])
+            height, width = g.shape
+            rgb = np.zeros((height, width, 3), dtype=np.uint8)
+            rgb[:, :, 0] = r
+            rgb[:, :, 1] = g
+        elif self._channel == 1:
+            # PMT1 → red channel only.
+            v = _scale(frame_data[min(1, n_channels - 1)])
+            height, width = v.shape
+            rgb = np.zeros((height, width, 3), dtype=np.uint8)
+            rgb[:, :, 0] = v
         else:
-            idx = min(self._channel, n_channels - 1)
-            ch = frame_data[idx].astype(np.float32)
+            # PMT0 (default) → green channel only.
+            v = _scale(frame_data[0])
+            height, width = v.shape
+            rgb = np.zeros((height, width, 3), dtype=np.uint8)
+            rgb[:, :, 1] = v
 
-        # Scale to 8-bit, applying display gain.
-        # Base divisor 64 (>> 6) maps full-scale 14-bit (16383) to ~255.
-        if self._invert:
-            # Fluorescence / PMT mode: invert so background=0 (black),
-            # signal bright.  Matches Scanbox MATLAB display (255 - high_byte).
-            scaled = np.clip(
-                (self._MAX_14BIT - ch) * self._gain / 64.0, 0, 255
-            )
-        else:
-            # Direct mode: high ADC value = bright (for debugging).
-            scaled = np.clip(ch * self._gain / 64.0, 0, 255)
+        self._display_buffer = np.ascontiguousarray(rgb)
+        height, width = self._display_buffer.shape[:2]
 
-        self._display_buffer = np.ascontiguousarray(scaled, dtype=np.uint8)
-        height, width = self._display_buffer.shape
-
-        # Wrap the numpy buffer in a QImage without copying.
+        # Wrap the numpy RGB buffer in a QImage without copying.
         # _display_buffer keeps the memory alive until the next call.
         img = QtGui.QImage(
             self._display_buffer.data,
             width,
             height,
-            width,  # bytes per line (1 byte per pixel, no padding)
-            QtGui.QImage.Format.Format_Grayscale8,
+            width * 3,  # bytes per line: 3 bytes per pixel (R, G, B)
+            QtGui.QImage.Format.Format_RGB888,
         )
 
         pixmap = QtGui.QPixmap.fromImage(img)
