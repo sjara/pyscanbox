@@ -484,6 +484,9 @@ class ImageDisplayWidget(QtWidgets.QWidget):
     # original >> 6 behaviour (14-bit → 8-bit with no clipping).
     _GAIN_DIVISOR = 10.0
 
+    # Maximum 14-bit value (2^14 - 1).
+    _MAX_14BIT = 16383
+
     def __init__(self):
         """Initialize the image display widget."""
         super().__init__()
@@ -491,6 +494,12 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         # reference stays valid until the next frame arrives.
         self._display_buffer: np.ndarray | None = None
         self._gain: float = 1.0
+        # Channel index: 0=PMT0, 1=PMT1, 2=average of both.
+        self._channel: int = 0
+        # Invert display: True = fluorescence mode (PMT output decreases with
+        # more light, so we flip: background=0/black, signal=bright).
+        # False = direct/debug mode (high ADC value = bright).
+        self._invert: bool = True
         self._init_ui()
 
     def _init_ui(self):
@@ -511,9 +520,19 @@ class ImageDisplayWidget(QtWidgets.QWidget):
     def update_frame(self, frame_data: np.ndarray) -> None:
         """Update the display with a newly acquired frame.
 
-        Converts channel 0 (PMT0) of the 14-bit frame array to an 8-bit
-        grayscale QPixmap and scales it to fill the label while preserving
-        the aspect ratio.
+        Converts the selected PMT channel of the 14-bit frame array to an
+        8-bit grayscale QPixmap and scales it to fill the label while
+        preserving the aspect ratio.
+
+        In **fluorescence mode** (default) the display is *inverted*: a PMT
+        produces a current that *decreases* the ADC value when light is
+        present (the raw offset-binary background sits near 16383 with no
+        light).  We compensate with ``(16383 - ch) * gain / 64`` so that the
+        dark background maps to 0 (black) and bright fluorescence maps to
+        white, matching the original Scanbox display.
+
+        In **direct mode** the raw ADC value is displayed without inversion
+        (high ADC value = bright).  Useful for debugging signal levels.
 
         This slot is called from the GUI thread via a queued signal
         connection; the numpy array is passed by reference and is safe to
@@ -521,19 +540,34 @@ class ImageDisplayWidget(QtWidgets.QWidget):
 
         Args:
             frame_data: Shape ``(channels, lines_per_frame, pixels_per_line)``,
-                dtype ``uint16``, values 0-16383 (14-bit).  Only channel 0
-                is displayed; channel selection will be added in 2.3.2.
+                dtype ``uint16``, values 0-16383 (14-bit).
         """
         if frame_data is None:
             return  # stale queued signal delivered after scanner cleanup
-        # Extract channel 0 and scale the 14-bit values to 8-bit, applying
-        # the display gain set by the Image Display > Gain slider.
-        # Base divisor 64 (>> 6) maps full-scale 14-bit to 255; multiplying
-        # by _gain before clipping brightens or dims the image accordingly.
-        ch0 = frame_data[0]  # shape: (lines, pixels)
-        scaled = np.clip(
-            ch0.astype(np.float32) * self._gain / 64.0, 0, 255
-        )
+
+        n_channels = frame_data.shape[0]
+
+        # Select the channel(s) to display.
+        if self._channel == 2 and n_channels >= 2:
+            # Average PMT0 and PMT1.
+            ch = frame_data[0].astype(np.float32) + frame_data[1].astype(np.float32)
+            ch = ch / 2.0
+        else:
+            idx = min(self._channel, n_channels - 1)
+            ch = frame_data[idx].astype(np.float32)
+
+        # Scale to 8-bit, applying display gain.
+        # Base divisor 64 (>> 6) maps full-scale 14-bit (16383) to ~255.
+        if self._invert:
+            # Fluorescence / PMT mode: invert so background=0 (black),
+            # signal bright.  Matches Scanbox MATLAB display (255 - high_byte).
+            scaled = np.clip(
+                (self._MAX_14BIT - ch) * self._gain / 64.0, 0, 255
+            )
+        else:
+            # Direct mode: high ADC value = bright (for debugging).
+            scaled = np.clip(ch * self._gain / 64.0, 0, 255)
+
         self._display_buffer = np.ascontiguousarray(scaled, dtype=np.uint8)
         height, width = self._display_buffer.shape
 
@@ -566,6 +600,24 @@ class ImageDisplayWidget(QtWidgets.QWidget):
                 call to ``update_frame``.
         """
         self._gain = slider_value / self._GAIN_DIVISOR
+
+    def set_channel(self, index: int) -> None:
+        """Set the PMT channel to display.
+
+        Args:
+            index: 0 = PMT0, 1 = PMT1, 2 = average of PMT0 & PMT1.
+        """
+        self._channel = index
+
+    def set_display_mode(self, index: int) -> None:
+        """Switch between fluorescence (inverted) and direct display modes.
+
+        Args:
+            index: 0 = Fluorescence (inverted, black background + bright
+                signal, matches Scanbox MATLAB display).
+                   1 = Direct (raw ADC value, high = bright, for debugging).
+        """
+        self._invert = (index == 0)
 
 
 class HistogramWidget(QtWidgets.QWidget):
@@ -856,7 +908,22 @@ class ImageDisplayControlGroup(QtWidgets.QGroupBox):
         self.channel_combobox.addItems(["PMT0", "PMT1", "PMT0 & PMT1"])
         self.channel_combobox.setCurrentIndex(0)
         layout.addWidget(self.channel_combobox)
-        
+
+        # Display mode selector: fluorescence (inverted) vs direct (raw ADC).
+        # "Fluorescence" matches Scanbox MATLAB display: PMT background is
+        # dark, fluorescent signal is bright.  "Direct" shows raw ADC values
+        # (high ADC = bright) and is useful for debugging signal levels.
+        layout.addWidget(QtWidgets.QLabel("Display mode:"))
+        self.display_mode_combobox = QtWidgets.QComboBox()
+        self.display_mode_combobox.addItems(["Fluorescence", "Direct (debug)"])
+        self.display_mode_combobox.setCurrentIndex(0)
+        self.display_mode_combobox.setToolTip(
+            "Fluorescence: inverted display matching Scanbox (dark background, "
+            "bright signal).\nDirect: raw ADC value (high ADC = bright, for "
+            "debugging)."
+        )
+        layout.addWidget(self.display_mode_combobox)
+
         # Display gain
         gain_layout = QtWidgets.QVBoxLayout()
         gain_layout.addWidget(QtWidgets.QLabel("Gain"))
