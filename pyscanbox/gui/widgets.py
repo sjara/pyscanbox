@@ -761,7 +761,7 @@ class CameraPathGroup(QtWidgets.QGroupBox):
             state: Qt.CheckState value emitted by stateChanged.
         """
         checked = state == QtCore.Qt.CheckState.Checked.value
-        self.path_state_label.setText("Path: Epi" if checked else "Path: 2p")
+        self.path_state_label.setText("[Epi]" if checked else "[2p]")
 
 
 class PMTControlGroup(QtWidgets.QGroupBox):
