@@ -356,6 +356,10 @@ class AppController(QtCore.QObject):
 
         hw_value = round(percent * POCKELS_PERCENT_TO_HW)
 
+        # Cache in config so the Scanner can restore the value after its
+        # own initialize_pockels() zeros the cell at acquisition start.
+        self.config.setdefault('laser', {})['pockels_active'] = hw_value
+
         try:
             self._hw_controller.set_pockels(base=0, active=hw_value)
             logger.debug("Pockels set to %d%% (hw=%d)", percent, hw_value)

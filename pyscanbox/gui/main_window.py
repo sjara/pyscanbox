@@ -343,6 +343,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # CameraPath toggle -> mirror control
         camera = self._left_panel.camera_group
         camera.path_changed.connect(self._on_camera_path_changed)
+        # Force the hardware mirror to match the GUI default (Epi) at startup
+        # since there is no way to read back the current mirror position.
+        self._on_camera_path_changed(camera.current_path)
 
         # PMT gain sliders -> hardware
         pmt = self._right_panel.pmt_group
@@ -363,6 +366,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # inside OptotuneGroup, so wiring the slider covers both widgets)
         optotune = self._right_panel.optotune_group
         optotune.etl_slider.valueChanged.connect(self._on_etl_current_changed)
+        # Send the initial slider value so hardware matches the GUI at startup.
+        self._on_etl_current_changed(optotune.etl_slider.value())
 
         # Acquisition buttons -> AppController
         acq.focus_button.clicked.connect(self._on_focus_clicked)

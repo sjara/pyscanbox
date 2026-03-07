@@ -930,12 +930,12 @@ class CameraPathGroup(QtWidgets.QGroupBox):
 
         self._twop_button = QtWidgets.QPushButton("2p")
         self._twop_button.setCheckable(True)
-        self._twop_button.setChecked(True)   # default: 2p active
+        self._twop_button.setChecked(False)
         self._twop_button.setToolTip("Two-photon imaging path")
 
         self._epi_button = QtWidgets.QPushButton("Epi")
         self._epi_button.setCheckable(True)
-        self._epi_button.setChecked(False)
+        self._epi_button.setChecked(True)   # default: Epi (can't read hardware state)
         self._epi_button.setToolTip("Epifluorescence path (camera active)")
 
         # Exclusive toggle: only one button checked at a time.

@@ -309,6 +309,15 @@ class Scanner:
 
             print("Configuring Pockels to zero (safe start)...")
             self.initialize_pockels()
+            # Re-apply the Pockels level the user had on the GUI slider.
+            # AppController.set_pockels() stores the hw value in
+            # config['laser']['pockels_active'] each time the slider moves,
+            # so it is already correct even if the slider was not touched
+            # since the last acquisition.
+            desired_pockels = self.config.get('laser', {}).get('pockels_active', 0)
+            if desired_pockels > 0:
+                print(f"Restoring Pockels to hw={desired_pockels} (from slider).")
+                self.controller.set_pockels(base=0, active=desired_pockels)
 
             print("Configuring scan parameters...")
             self.configure_scan_params()
