@@ -258,7 +258,9 @@ def reshape_pmt_data_raw(buffer: np.ndarray, lines_per_frame: int,
 
     Returns:
         uint16 array of shape ``(2, lines_per_frame, pixels_per_line)``.
-        Values are 14-bit (0–16383) averages of 4 raw samples per pixel.
+        Values are in the same 16-bit wire encoding as the input (14-bit ADC
+        data in bits 15:2; 2 LSB sync bits are NOT stripped).  This exactly
+        matches ``alazarReshapeCData2.c``'s ``(unsigned short)(tmp >> 2)``.
 
     Note:
         This function is JIT-compiled with Numba.  Pass ``lut_base`` as a
@@ -284,10 +286,11 @@ def reshape_pmt_data_raw(buffer: np.ndarray, lines_per_frame: int,
                      + np.uint32(buffer[line_start + 2 * (s + 1) + 1])
                      + np.uint32(buffer[line_start + 2 * (s + 2) + 1])
                      + np.uint32(buffer[line_start + 2 * (s + 3) + 1]))
-            # >> 4 = >> 2 (strip 2 LSB sync bits per sample) + >> 2 (average 4 samples)
-            # Each raw Alazar word is (14-bit ADC << 2) | sync_bits, so the
-            # combined shift of 4 produces a 14-bit result (0-16383).
-            output[0, line, px] = np.uint16(sum_a >> 4)
-            output[1, line, px] = np.uint16(sum_b >> 4)
+            # >> 2 averages 4 samples (divide by 4), matching alazarReshapeCData2.c
+            # which does exactly `(unsigned short int)(tmp >>2)`.
+            # The 2 LSB sync bits are NOT stripped here; the output retains the
+            # same 16-bit wire encoding as the input (14-bit ADC data in bits 15:2).
+            output[0, line, px] = np.uint16(sum_a >> 2)
+            output[1, line, px] = np.uint16(sum_b >> 2)
 
     return output
