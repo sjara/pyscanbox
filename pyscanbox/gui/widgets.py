@@ -25,6 +25,49 @@ from pyscanbox.hardware import controller as hw_controller
 import PyQt6.QtGui as QtGui
 
 
+def _build_colormap_lut(name: str) -> np.ndarray:
+    """Return a 256×3 uint8 lookup table for the named display colormap.
+
+    Colormaps available:
+
+    ``'green'``
+        Black → green.  The current default: only the G channel is set.
+        Matches the original Scanbox MATLAB display convention.
+
+    ``'green_white'``
+        Black → green → white.  Intensity 0=black, ~128=pure green,
+        255=white.  Similar in spirit to matplotlib's ``hot`` colormap
+        but using green as the midpoint colour.  Useful when bright
+        fluorescence should saturate to white rather than stay green.
+
+    ``'gray'``
+        Black → white.  Grayscale reference colormap.
+
+    Args:
+        name: One of ``'green'``, ``'green_white'``, ``'gray'``.
+
+    Returns:
+        numpy array of shape (256, 3), dtype uint8 (R, G, B columns).
+    """
+    v = np.arange(256, dtype=np.float32)
+    lut = np.zeros((256, 3), dtype=np.uint8)
+    if name == 'green_white':
+        # G ramps 0→255 linearly (same as plain green).
+        lut[:, 1] = v.astype(np.uint8)
+        # R and B stay 0 until v=128, then ramp to 255 — creates the
+        # transition from green to white in the upper half of the range.
+        white = np.clip(2.0 * v - 255.0, 0.0, 255.0).astype(np.uint8)
+        lut[:, 0] = white
+        lut[:, 2] = white
+    elif name == 'gray':
+        lut[:, 0] = v.astype(np.uint8)
+        lut[:, 1] = v.astype(np.uint8)
+        lut[:, 2] = v.astype(np.uint8)
+    else:  # 'green' (default)
+        lut[:, 1] = v.astype(np.uint8)
+    return lut
+
+
 class LaserControlGroup(QtWidgets.QGroupBox):
     """Laser control group box.
     
@@ -601,6 +644,9 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         # more light, so we flip: background=0/black, signal=bright).
         # False = direct/debug mode (high ADC value = bright).
         self._invert: bool = True
+        # Active colormap name and precomputed 256×3 uint8 LUT.
+        self._colormap: str = 'green'
+        self._lut: np.ndarray = _build_colormap_lut('green')
         self._init_ui()
 
     def _init_ui(self):
@@ -666,6 +712,7 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         # Build a 3-channel RGB array coloured by PMT channel convention.
         # PMT0 = green (typical fluorescence ch1: GFP, FITC, …)
         # PMT1 = red   (typical fluorescence ch2: tdTomato, RFP, …)
+        # TODO: apply self._lut colormap once re-enabled (was slow; see git log).
         if self._channel == 2 and n_channels >= 2:
             # Overlay: R = PMT1 (red), G = PMT0 (green), B = 0.
             g = _scale(frame_data[0])
@@ -737,6 +784,31 @@ class ImageDisplayWidget(QtWidgets.QWidget):
                    1 = Direct (raw ADC value, high = bright, for debugging).
         """
         self._invert = (index == 0)
+
+    def set_colormap(self, index: int) -> None:
+        """Set the display colormap from the Colormap combobox index.
+
+        Colormaps (indices match the combobox order in
+        ``ImageDisplayControlGroup``):
+
+        * 0 – **Green** (default): black → green.  Matches the original
+          Scanbox MATLAB convention for PMT0.
+        * 1 – **Green-White**: black → green → white.  Lower half of the
+          intensity range maps to shades of green; upper half adds equal
+          red and blue so the brightest pixels saturate to white.
+          Useful for seeing fine structure that would otherwise clip to
+          a single saturated colour.
+        * 2 – **Gray**: black → white.  Standard grayscale reference.
+
+        The change takes effect on the next call to ``update_frame``.
+
+        Args:
+            index: 0 = Green, 1 = Green-White, 2 = Gray.
+        """
+        names = ['green', 'green_white', 'gray']
+        name = names[index] if 0 <= index < len(names) else 'green'
+        self._colormap = name
+        self._lut = _build_colormap_lut(name)
 
     def save_snapshot(self, path: str) -> bool:
         """Save the current frame as a PNG file at its original resolution.
@@ -1094,6 +1166,19 @@ class ImageDisplayControlGroup(QtWidgets.QGroupBox):
             "debugging)."
         )
         layout.addWidget(self.display_mode_combobox)
+
+        # Colormap selector (not yet implemented)
+        # layout.addWidget(QtWidgets.QLabel("Colormap:"))
+        # self.colormap_combobox = QtWidgets.QComboBox()
+        # self.colormap_combobox.addItems(["Green", "Green-White", "Gray"])
+        # self.colormap_combobox.setCurrentIndex(0)
+        # self.colormap_combobox.setToolTip(
+        #     "Green: black → green (default, matches Scanbox).\n"
+        #     "Green-White: black → green → white — bright pixels saturate to "
+        #     "white instead of staying green.\n"
+        #     "Gray: standard grayscale (black → white)."
+        # )
+        # layout.addWidget(self.colormap_combobox)
 
         # Display gain
         gain_layout = QtWidgets.QVBoxLayout()
