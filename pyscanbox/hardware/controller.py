@@ -92,6 +92,7 @@ class ScanboxController:
     # set_etl_current() validation and by GUI widgets.
     ETL_CURRENT_MIN = 0
     ETL_CURRENT_MAX = 1760
+    ETL_CURRENT_MID = (ETL_CURRENT_MIN + ETL_CURRENT_MAX) // 2
 
     # Magnification labels for the 13 discrete zoom levels (index 0–12).
     # Derived from sbconfig.gain_galvo = logspace(log10(1), log10(8), 13) in

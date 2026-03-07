@@ -289,7 +289,12 @@ class AppController(QtCore.QObject):
         self._log_event(f'Hardware connected{suffix}')
 
     def close(self) -> None:
-        """Stop polling, stop any running acquisition, and close all hardware."""
+        """Stop polling, stop any running acquisition, and close all hardware.
+
+        Before closing, zeros both PMT gains and the Pockels cell so that
+        the laser and detectors are in a safe state even when the shutdown
+        is triggered by a crash handler rather than a clean UI close.
+        """
         self._poll_timer.stop()
 
         # Stop any running acquisition and wait for the thread to finish
@@ -300,6 +305,13 @@ class AppController(QtCore.QObject):
         self._scanner_thread = None
 
         if self._hw_controller.is_open:
+            # Zero PMT gains and Pockels before disconnecting.
+            try:
+                self._hw_controller.set_pmt_gain(0, 0)
+                self._hw_controller.set_pmt_gain(1, 0)
+                self._hw_controller.set_pockels(base=0, active=0)
+            except Exception:
+                pass  # best-effort; do not block the rest of shutdown
             self._hw_controller.close()
 
         if self._knobby.is_open:

@@ -16,8 +16,8 @@ class LeftControlPanel(QtWidgets.QWidget):
     
     Contains vertically stacked group boxes for:
     - Laser control (power, shutter, wavelength)
+    - Light path toggle (2p / Epi)
     - Scanner settings (frames, lines, magnification, etc.)
-    - Position display (objective angle, coordinates)
     - Acquisition control (focus, grab, snapshot)
     - File storage (directory, metadata, channels)
     """
@@ -40,14 +40,14 @@ class LeftControlPanel(QtWidgets.QWidget):
         
         # Add control group boxes
         self.laser_group = widgets.LaserControlGroup(self.config)
+        self.camera_group = widgets.CameraPathGroup()
         self.scanner_group = widgets.ScannerControlGroup()
-        self.position_group = widgets.PositionDisplayGroup()
         self.acquisition_group = widgets.AcquisitionControlGroup()
         self.file_group = widgets.FileStorageGroup(self.config)
 
         layout.addWidget(self.laser_group)
+        layout.addWidget(self.camera_group)
         layout.addWidget(self.scanner_group)
-        layout.addWidget(self.position_group)
         layout.addWidget(self.acquisition_group)
         layout.addWidget(self.file_group)
 
@@ -124,24 +124,28 @@ class RightDisplayPanel(QtWidgets.QWidget):
         
     def _create_secondary_controls(self):
         """Create the secondary controls panel.
-        
+
+        Uses a horizontal QSplitter so the user can resize individual panels.
+        Initial widths: Objective Position = 300 px; all other groups = 200 px.
+
         Returns:
-            QWidget containing the secondary control group boxes.
+            QSplitter containing the secondary control group boxes.
         """
-        panel = QtWidgets.QWidget()
-        layout = QtWidgets.QHBoxLayout()
-        layout.setSpacing(10)
-        
+        splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Horizontal)
+        splitter.setContentsMargins(0, 0, 0, 0)
+
         # Add control group boxes side-by-side
-        self.camera_group = widgets.CameraPathGroup()
+        self.position_group = widgets.PositionDisplayGroup()
         self.pmt_group = widgets.PMTControlGroup()
         self.image_display_group = widgets.ImageDisplayControlGroup()
         self.optotune_group = widgets.OptotuneGroup()
 
-        layout.addWidget(self.camera_group)
-        layout.addWidget(self.pmt_group)
-        layout.addWidget(self.image_display_group)
-        layout.addWidget(self.optotune_group)
-        
-        panel.setLayout(layout)
-        return panel
+        splitter.addWidget(self.position_group)
+        splitter.addWidget(self.pmt_group)
+        splitter.addWidget(self.image_display_group)
+        splitter.addWidget(self.optotune_group)
+
+        # Objective Position wider (300); remaining panels narrower (200 each).
+        splitter.setSizes([300, 200, 200, 200])
+
+        return splitter

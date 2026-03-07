@@ -14,6 +14,9 @@ This module defines individual control groups and display widgets:
 - OptotuneGroup: ETL control
 """
 
+import glob
+import os
+
 import numpy as np
 import PyQt6.QtWidgets as QtWidgets
 import PyQt6.QtCore as QtCore
@@ -167,14 +170,14 @@ class PositionDisplayGroup(QtWidgets.QGroupBox):
     Contains four rows of read-only coordinate fields:
 
     - **Angle**: A-axis (objective tilt in degrees).
-    - **World (μm)**: Knobby ``dpos`` in physical units — relative position
+    - **Knobby (μm)**: Knobby ``dpos`` in physical units — relative position
       from the last zero, matching what the Knobby screen displays.
     - **Abs (μm)**: Absolute motor hardware step counter in physical units,
       polled from the Trinamic board every 100 ms.  Useful for debugging to
       confirm that commanded moves reached the hardware.
     - **Rotated (μm)**: Reserved for the future angle-compensation mode
       (Knobby rotate mode, where Z becomes the objective axis when the
-      objective is tilted).  Currently mirrors the World row.
+      objective is tilted).  Currently mirrors the Knobby row.
     """
 
     def __init__(self):
@@ -184,71 +187,88 @@ class PositionDisplayGroup(QtWidgets.QGroupBox):
 
     def _init_ui(self):
         """Initialize the UI components."""
-        layout = QtWidgets.QGridLayout()
+        outer = QtWidgets.QVBoxLayout()
+        outer.setSpacing(6)
 
-        # Objective angle
-        layout.addWidget(QtWidgets.QLabel("Angle:"), 0, 0)
+        # --- Angle row (separate from coordinate grid) ---
+        angle_row = QtWidgets.QHBoxLayout()
+        angle_row.addWidget(QtWidgets.QLabel("Angle:"))
         self.objective_angle_edit = QtWidgets.QLineEdit("0.0°")
         self.objective_angle_edit.setReadOnly(True)
-        layout.addWidget(self.objective_angle_edit, 0, 1, 1, 3)
+        angle_row.addWidget(self.objective_angle_edit)
+        outer.addLayout(angle_row)
 
-        # X, Y, Z column headers
-        layout.addWidget(QtWidgets.QLabel("X"), 1, 1, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(QtWidgets.QLabel("Y"), 1, 2, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(QtWidgets.QLabel("Z"), 1, 3, alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
+        # --- Coordinate grid: bold X/Y/Z headers immediately above rows ---
+        grid = QtWidgets.QGridLayout()
+        grid.setSpacing(4)
 
-        # Row 2: World coordinates (Knobby dpos — matches Knobby screen)
-        layout.addWidget(QtWidgets.QLabel("World (μm):"), 2, 0)
+        def _bold_label(text: str) -> QtWidgets.QLabel:
+            lbl = QtWidgets.QLabel(text)
+            font = lbl.font()
+            font.setBold(True)
+            lbl.setFont(font)
+            lbl.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+            return lbl
+
+        # Row 0: bold X, Y, Z column headers
+        grid.addWidget(_bold_label("X"), 0, 1)
+        grid.addWidget(_bold_label("Y"), 0, 2)
+        grid.addWidget(_bold_label("Z"), 0, 3)
+
+        # Row 1: Knobby coordinates (Knobby dpos — matches Knobby screen)
+        grid.addWidget(QtWidgets.QLabel("Knobby (μm):"), 1, 0)
         self.world_x_edit = QtWidgets.QLineEdit("0.00")
         self.world_x_edit.setReadOnly(True)
         self.world_x_edit.setMaximumWidth(70)
-        layout.addWidget(self.world_x_edit, 2, 1)
+        grid.addWidget(self.world_x_edit, 1, 1)
 
         self.world_y_edit = QtWidgets.QLineEdit("0.00")
         self.world_y_edit.setReadOnly(True)
         self.world_y_edit.setMaximumWidth(70)
-        layout.addWidget(self.world_y_edit, 2, 2)
+        grid.addWidget(self.world_y_edit, 1, 2)
 
         self.world_z_edit = QtWidgets.QLineEdit("0.00")
         self.world_z_edit.setReadOnly(True)
         self.world_z_edit.setMaximumWidth(70)
-        layout.addWidget(self.world_z_edit, 2, 3)
+        grid.addWidget(self.world_z_edit, 1, 3)
 
-        # Row 3: Absolute motor hardware positions (polled from Trinamic board)
-        layout.addWidget(QtWidgets.QLabel("Abs (μm):"), 3, 0)
+        # Row 2: Absolute motor hardware positions (polled from Trinamic board)
+        grid.addWidget(QtWidgets.QLabel("Abs (μm):"), 2, 0)
         self.abs_x_edit = QtWidgets.QLineEdit("0.00")
         self.abs_x_edit.setReadOnly(True)
         self.abs_x_edit.setMaximumWidth(70)
-        layout.addWidget(self.abs_x_edit, 3, 1)
+        grid.addWidget(self.abs_x_edit, 2, 1)
 
         self.abs_y_edit = QtWidgets.QLineEdit("0.00")
         self.abs_y_edit.setReadOnly(True)
         self.abs_y_edit.setMaximumWidth(70)
-        layout.addWidget(self.abs_y_edit, 3, 2)
+        grid.addWidget(self.abs_y_edit, 2, 2)
 
         self.abs_z_edit = QtWidgets.QLineEdit("0.00")
         self.abs_z_edit.setReadOnly(True)
         self.abs_z_edit.setMaximumWidth(70)
-        layout.addWidget(self.abs_z_edit, 3, 3)
+        grid.addWidget(self.abs_z_edit, 2, 3)
 
-        # Row 4: Rotated coordinates (reserved — angle-compensated, future)
-        layout.addWidget(QtWidgets.QLabel("Rotated (μm):"), 4, 0)
+        # Row 3: Rotated coordinates (reserved — angle-compensated, future)
+        grid.addWidget(QtWidgets.QLabel("Rotated (μm):"), 3, 0)
         self.rotated_x_edit = QtWidgets.QLineEdit("0.00")
         self.rotated_x_edit.setReadOnly(True)
         self.rotated_x_edit.setMaximumWidth(70)
-        layout.addWidget(self.rotated_x_edit, 4, 1)
+        grid.addWidget(self.rotated_x_edit, 3, 1)
 
         self.rotated_y_edit = QtWidgets.QLineEdit("0.00")
         self.rotated_y_edit.setReadOnly(True)
         self.rotated_y_edit.setMaximumWidth(70)
-        layout.addWidget(self.rotated_y_edit, 4, 2)
+        grid.addWidget(self.rotated_y_edit, 3, 2)
 
         self.rotated_z_edit = QtWidgets.QLineEdit("0.00")
         self.rotated_z_edit.setReadOnly(True)
         self.rotated_z_edit.setMaximumWidth(70)
-        layout.addWidget(self.rotated_z_edit, 4, 3)
+        grid.addWidget(self.rotated_z_edit, 3, 3)
 
-        self.setLayout(layout)
+        outer.addLayout(grid)
+        outer.addStretch()
+        self.setLayout(outer)
 
 
 class AcquisitionControlGroup(QtWidgets.QGroupBox):
@@ -314,13 +334,10 @@ class AcquisitionControlGroup(QtWidgets.QGroupBox):
         
         layout.addLayout(middle_row)
         
-        # Bottom row: Snapshot and Load buttons
+        # Bottom row: Snapshot button
         bottom_row = QtWidgets.QHBoxLayout()
         self.snapshot_button = QtWidgets.QPushButton("Snapshot")
         bottom_row.addWidget(self.snapshot_button)
-        
-        self.load_button = QtWidgets.QPushButton("Load")
-        bottom_row.addWidget(self.load_button)
         layout.addLayout(bottom_row)
         
         self.setLayout(layout)
@@ -414,11 +431,13 @@ class FileStorageGroup(QtWidgets.QGroupBox):
         from datetime import datetime
         self.date_edit.setText(datetime.now().strftime("%Y%m%d"))
         self.date_edit.textChanged.connect(self._update_filename)
+        self.date_edit.textChanged.connect(self._auto_set_session_id)
+        self.date_edit.textChanged.connect(self._auto_set_snapshot_index)
         layout.addWidget(self.date_edit, 3, 1)
-        
+
         layout.addWidget(QtWidgets.QLabel("Session ID:"), 4, 0)
         self.session_edit = QtWidgets.QLineEdit()
-        self.session_edit.setPlaceholderText("001")
+        self.session_edit.setPlaceholderText("000")
         self.session_edit.textChanged.connect(self._update_filename)
         layout.addWidget(self.session_edit, 4, 1)
         
@@ -430,10 +449,13 @@ class FileStorageGroup(QtWidgets.QGroupBox):
         layout.addWidget(self.channels_combobox, 5, 1)
         
         self.setLayout(layout)
-        
-        # Update filename initially
+
+        # Set initial filename and auto-detect next session/snapshot IDs.
+        self._snapshot_index = 0
         self._update_filename()
-        
+        self._auto_set_session_id()
+        self._auto_set_snapshot_index()
+
     def _update_filename(self):
         """Update the filename preview based on metadata fields."""
         subject = self.subject_edit.text() or DEFAULT_SUBJECT
@@ -464,6 +486,85 @@ class FileStorageGroup(QtWidgets.QGroupBox):
         )
         if directory:
             self.directory_edit.setText(directory)
+            self._auto_set_session_id()
+            self._auto_set_snapshot_index()
+
+    def _auto_set_session_id(self) -> None:
+        """Set Session ID to the next 3-digit number not already on disk.
+
+        Scans the output directory for ``*_{date}_???.sbx`` files and
+        advances past the highest existing three-digit session number.
+        Falls back to ``000`` when the directory is empty or unreachable.
+        """
+        directory = self.directory_edit.text()
+        date = self.date_edit.text() or DEFAULT_DATE
+        highest = -1
+        pattern = os.path.join(directory, f'*_{date}_???.sbx')
+        for filepath in glob.glob(pattern):
+            basename = os.path.splitext(os.path.basename(filepath))[0]
+            parts = basename.rsplit('_', 1)
+            if len(parts) == 2:
+                try:
+                    n = int(parts[1])
+                    if n > highest:
+                        highest = n
+                except ValueError:
+                    pass
+        self.session_edit.setText(f'{highest + 1:03d}')
+
+    def increment_session_id(self) -> None:
+        """Increment the Session ID field by one.
+
+        Called by ``MainWindow`` after each completed Grab acquisition so
+        that the next run automatically receives a unique session number.
+        """
+        try:
+            current = int(self.session_edit.text())
+        except ValueError:
+            current = 0
+        self.session_edit.setText(f'{current + 1:03d}')
+
+    def _auto_set_snapshot_index(self) -> None:
+        """Initialise the snapshot counter to the next available number.
+
+        Scans the output directory for ``*_{date}_???.png`` files and
+        sets ``_snapshot_index`` past the highest existing number.
+        Falls back to ``0`` when the directory is empty or unreachable.
+        """
+        directory = self.directory_edit.text()
+        date = self.date_edit.text() or DEFAULT_DATE
+        highest = -1
+        pattern = os.path.join(directory, f'*_{date}_???.png')
+        for filepath in glob.glob(pattern):
+            basename = os.path.splitext(os.path.basename(filepath))[0]
+            parts = basename.rsplit('_', 1)
+            if len(parts) == 2:
+                try:
+                    n = int(parts[1])
+                    if n > highest:
+                        highest = n
+                except ValueError:
+                    pass
+        self._snapshot_index = highest + 1
+
+    def get_snapshot_path(self) -> str:
+        """Return the full path for the next snapshot PNG file.
+
+        Combines the output directory, subject, date, and the internal
+        snapshot counter.  Does not increment the counter; call
+        ``increment_snapshot_index()`` after a successful save.
+
+        Returns:
+            Absolute file path string ending in .png.
+        """
+        subject = self.subject_edit.text() or DEFAULT_SUBJECT
+        date = self.date_edit.text() or DEFAULT_DATE
+        filename = f'{subject}_{date}_{self._snapshot_index:03d}.png'
+        return os.path.join(self.directory_edit.text(), filename)
+
+    def increment_snapshot_index(self) -> None:
+        """Advance the snapshot counter by one."""
+        self._snapshot_index += 1
 
 
 class ImageDisplayWidget(QtWidgets.QWidget):
@@ -637,6 +738,33 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         """
         self._invert = (index == 0)
 
+    def save_snapshot(self, path: str) -> bool:
+        """Save the current frame as a PNG file at its original resolution.
+
+        The image is saved from ``_display_buffer`` (the last rendered RGB
+        frame) rather than from the scaled pixmap in the display label, so
+        the output is always at the raw frame resolution.
+
+        Args:
+            path: Absolute path to the output ``.png`` file.  The parent
+                directory must already exist.
+
+        Returns:
+            True if the image was saved successfully, False if no frame has
+            been acquired yet.
+        """
+        if self._display_buffer is None:
+            return False
+        height, width = self._display_buffer.shape[:2]
+        img = QtGui.QImage(
+            self._display_buffer.data,
+            width,
+            height,
+            width * 3,
+            QtGui.QImage.Format.Format_RGB888,
+        )
+        return img.save(path, 'PNG')
+
 
 class HistogramWidget(QtWidgets.QWidget):
     """Pixel-intensity histogram for the current frame.
@@ -765,73 +893,98 @@ class HistogramWidget(QtWidgets.QWidget):
 
 
 class CameraPathGroup(QtWidgets.QGroupBox):
-    """Camera path control group box.
-    
-    Contains:
-    - Enable checkbox
-    - Exposure slider
-    - Camera properties button
+    """Light path toggle group box.
+
+    Presents two large labeled buttons — ``2p`` and ``Epi`` — as an
+    exclusive toggle pair.  The active path is highlighted in bright blue;
+    the inactive path is visually dimmed.  Emits ``path_changed`` with the
+    new mode string (``'2p'`` or ``'epi'``) whenever the selection changes.
     """
-    
+
+    # Emitted with '2p' or 'epi' whenever the selected light path changes.
+    path_changed = QtCore.pyqtSignal(str)
+
+    _STYLE_ACTIVE = (
+        "QPushButton { background-color: #2c6fbb; color: #fff; "
+        "font-weight: bold; font-size: 14px; padding: 8px 18px; "
+        "border: 2px solid #5a9bf5; border-radius: 4px; }"
+    )
+    _STYLE_INACTIVE = (
+        "QPushButton { background-color: #2a2a2a; color: #555; "
+        "font-size: 14px; padding: 8px 18px; "
+        "border: 1px solid #444; border-radius: 4px; }"
+    )
+
     def __init__(self):
         """Initialize the light path group."""
         super().__init__("Light Path")
         self._init_ui()
-        
+
     def _init_ui(self):
         """Initialize the UI components."""
         layout = QtWidgets.QVBoxLayout()
+        layout.setSpacing(6)
 
-        # Enable checkbox + current path-state label on the same row.
-        # The label shows 'Epi' when the checkbox is checked (camera/epi
-        # path active) and '2p' when unchecked (2-photon path active).
-        enable_row = QtWidgets.QHBoxLayout()
-        self.enable_checkbox = QtWidgets.QCheckBox("Camera Path")
-        enable_row.addWidget(self.enable_checkbox)
-        self.path_state_label = QtWidgets.QLabel("Path:")
-        self.path_state_label.setStyleSheet(
-            "QLabel { font-weight: bold; color: #7bf; }"
-        )
-        enable_row.addWidget(self.path_state_label)
-        enable_row.addStretch()
-        layout.addLayout(enable_row)
+        btn_row = QtWidgets.QHBoxLayout()
+        btn_row.setSpacing(4)
 
-        self.enable_checkbox.stateChanged.connect(self._on_enable_changed)
+        self._twop_button = QtWidgets.QPushButton("2p")
+        self._twop_button.setCheckable(True)
+        self._twop_button.setChecked(True)   # default: 2p active
+        self._twop_button.setToolTip("Two-photon imaging path")
 
-        # Exposure slider
-        exposure_layout = QtWidgets.QVBoxLayout()
-        exposure_layout.addWidget(QtWidgets.QLabel("Exposure"))
-        
-        self.exposure_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
-        self.exposure_slider.setRange(1, 100)
-        self.exposure_slider.setValue(50)
-        exposure_layout.addWidget(self.exposure_slider)
-        
-        self.exposure_label = QtWidgets.QLabel("50 ms")
-        self.exposure_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        exposure_layout.addWidget(self.exposure_label)
-        
-        self.exposure_slider.valueChanged.connect(
-            lambda v: self.exposure_label.setText(f"{v} ms")
-        )
-        
-        layout.addLayout(exposure_layout)
-        
-        # Camera properties button
-        self.properties_button = QtWidgets.QPushButton("Camera Properties")
-        layout.addWidget(self.properties_button)
+        self._epi_button = QtWidgets.QPushButton("Epi")
+        self._epi_button.setCheckable(True)
+        self._epi_button.setChecked(False)
+        self._epi_button.setToolTip("Epifluorescence path (camera active)")
+
+        # Exclusive toggle: only one button checked at a time.
+        self._button_group = QtWidgets.QButtonGroup(self)
+        self._button_group.setExclusive(True)
+        self._button_group.addButton(self._twop_button)
+        self._button_group.addButton(self._epi_button)
+
+        btn_row.addWidget(self._twop_button)
+        btn_row.addWidget(self._epi_button)
+        layout.addLayout(btn_row)
+
+        self._update_styles()
+        self._button_group.buttonClicked.connect(self._on_button_clicked)
 
         layout.addStretch()
         self.setLayout(layout)
 
-    def _on_enable_changed(self, state: int) -> None:
-        """Update the path-state label when the Enable checkbox changes.
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    @property
+    def current_path(self) -> str:
+        """Active light path: ``'2p'`` or ``'epi'``."""
+        return 'epi' if self._epi_button.isChecked() else '2p'
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _on_button_clicked(self, button) -> None:
+        """Handle button group click: refresh styles and emit path_changed.
 
         Args:
-            state: Qt.CheckState value emitted by stateChanged.
+            button: The QPushButton that was just clicked.
         """
-        checked = state == QtCore.Qt.CheckState.Checked.value
-        self.path_state_label.setText("[Epi]" if checked else "[2p]")
+        self._update_styles()
+        mode = 'epi' if button is self._epi_button else '2p'
+        self.path_changed.emit(mode)
+
+    def _update_styles(self) -> None:
+        """Apply active/inactive stylesheet to each button."""
+        if self._twop_button.isChecked():
+            self._twop_button.setStyleSheet(self._STYLE_ACTIVE)
+            self._epi_button.setStyleSheet(self._STYLE_INACTIVE)
+        else:
+            self._twop_button.setStyleSheet(self._STYLE_INACTIVE)
+            self._epi_button.setStyleSheet(self._STYLE_ACTIVE)
 
 
 class PMTControlGroup(QtWidgets.QGroupBox):
@@ -983,37 +1136,34 @@ class OptotuneGroup(QtWidgets.QGroupBox):
         layout = QtWidgets.QVBoxLayout()
 
         # ETL current — slider (coarse) + spinbox (fine), bidirectionally
-        # linked.  Range is taken from ScanboxController.ETL_CURRENT_MIN/MAX,
-        # which is the single source of truth for this value.
+        # linked.  Range and mid-point come from ScanboxController constants,
+        # the single source of truth for this value.
         etl_min = hw_controller.ScanboxController.ETL_CURRENT_MIN
         etl_max = hw_controller.ScanboxController.ETL_CURRENT_MAX
+        etl_mid = hw_controller.ScanboxController.ETL_CURRENT_MID
         layout.addWidget(QtWidgets.QLabel("ETL current"))
 
-        # Vertical slider: high value = top, low value = bottom.
-        slider_layout = QtWidgets.QHBoxLayout()
-        slider_layout.addStretch()
-
-        self.etl_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Vertical)
+        # Horizontal slider, defaulting to the mid-level value.
+        self.etl_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.etl_slider.setRange(etl_min, etl_max)
-        self.etl_slider.setValue(etl_min)
-        self.etl_slider.setTickPosition(QtWidgets.QSlider.TickPosition.TicksRight)
+        self.etl_slider.setValue(etl_mid)
+        self.etl_slider.setTickPosition(QtWidgets.QSlider.TickPosition.TicksBelow)
         self.etl_slider.setTickInterval((etl_max - etl_min) // 10)  # 10 ticks
-        self.etl_slider.setMinimumHeight(120)
-        slider_layout.addWidget(self.etl_slider)
-        slider_layout.addStretch()
-        layout.addLayout(slider_layout)
+        self.etl_slider.setMinimumWidth(120)
+        layout.addWidget(self.etl_slider)
 
         # Spinbox for precise current entry
         self.etl_spinbox = QtWidgets.QSpinBox()
         self.etl_spinbox.setRange(etl_min, etl_max)
-        self.etl_spinbox.setValue(etl_min)
+        self.etl_spinbox.setValue(etl_mid)
         self.etl_spinbox.setSuffix('')
         layout.addWidget(self.etl_spinbox)
 
         # Bidirectional link: slider ↔ spinbox
         self.etl_slider.valueChanged.connect(self.etl_spinbox.setValue)
         self.etl_spinbox.valueChanged.connect(self.etl_slider.setValue)
-
+        
+        layout.addStretch()
         self.setLayout(layout)
 
 

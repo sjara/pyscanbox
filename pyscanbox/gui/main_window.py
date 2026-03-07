@@ -25,6 +25,8 @@ class MainWindow(QtWidgets.QMainWindow):
     and real-time image display on the right.
     """
     
+    WINDOW_TITLE = "Two-Photon Microscope Control Software"
+
     # Default window geometry
     DEFAULT_WINDOW_X = 100
     DEFAULT_WINDOW_Y = 100
@@ -48,6 +50,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # Hardware controller and acquisition elapsed-time tracking.
         self._ctrl = None
         self._acq_start_time = 0.0
+        # True when a Grab (data-saving) acquisition is running; False for Focus.
+        # Used to gate post-acquisition actions that only apply to Grab (e.g.
+        # Session ID increment).
+        self._grab_active = False
         self._elapsed_timer = QtCore.QTimer(self)
         self._elapsed_timer.setInterval(1000)
         self._elapsed_timer.timeout.connect(self._update_elapsed_time)
@@ -56,7 +62,7 @@ class MainWindow(QtWidgets.QMainWindow):
         
     def _init_ui(self):
         """Initialize the user interface components."""
-        self.setWindowTitle("pyscanbox - Two-Photon Microscope Control")
+        self.setWindowTitle(self.WINDOW_TITLE)
         self.setGeometry(
             self.DEFAULT_WINDOW_X,
             self.DEFAULT_WINDOW_Y,
@@ -334,9 +340,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # Laser power slider -> Pockels cell
         laser.power_slider.valueChanged.connect(self._on_pockels_changed)
 
-        # CameraPath Enable checkbox -> mirror control
-        camera = self._right_panel.camera_group
-        camera.enable_checkbox.stateChanged.connect(self._on_camera_enable_changed)
+        # CameraPath toggle -> mirror control
+        camera = self._left_panel.camera_group
+        camera.path_changed.connect(self._on_camera_path_changed)
 
         # PMT gain sliders -> hardware
         pmt = self._right_panel.pmt_group
@@ -361,6 +367,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Acquisition buttons -> AppController
         acq.focus_button.clicked.connect(self._on_focus_clicked)
         acq.grab_button.clicked.connect(self._on_grab_clicked)
+        acq.snapshot_button.clicked.connect(self._on_snapshot_clicked)
 
         # AppController -> GUI
         self._ctrl.position_updated.connect(self._on_position_updated)
@@ -382,10 +389,21 @@ class MainWindow(QtWidgets.QMainWindow):
     def closeEvent(self, event):
         """Stop acquisition and close hardware before the window is destroyed.
 
+        Zeros the PMT gains and Pockels cell before shutting down hardware
+        so that the laser and detectors are in a safe state.
+
         Args:
             event: QCloseEvent from Qt.
         """
         if self._ctrl is not None and self._ctrl.is_open:
+            # Zero PMTs and Pockels via hardware calls before closing.
+            # Setting the GUI sliders fires valueChanged, which calls the
+            # hardware through the existing signal connections.
+            pmt = self._right_panel.pmt_group
+            pmt.pmt0_slider.setValue(0)
+            pmt.pmt1_slider.setValue(0)
+            laser = self._left_panel.laser_group
+            laser.power_slider.setValue(0)
             self._ctrl.close()
         super().closeEvent(event)
 
@@ -393,19 +411,14 @@ class MainWindow(QtWidgets.QMainWindow):
     # Camera path / mirror
     # ------------------------------------------------------------------
 
-    def _on_camera_enable_changed(self, state):
-        """Toggle epi/2P mirror when the CameraPath Enable checkbox changes.
-
-        Sets the mirror to ``'epi'`` when the checkbox is checked, and to
-        ``'2p'`` when it is unchecked.
+    def _on_camera_path_changed(self, mode: str):
+        """Toggle epi/2P mirror when the Light Path toggle changes.
 
         Args:
-            state: Qt.CheckState value emitted by stateChanged.
+            mode: ``'epi'`` or ``'2p'`` as emitted by CameraPathGroup.
         """
         if self._ctrl is None:
             return
-        checked = state == QtCore.Qt.CheckState.Checked.value
-        mode = 'epi' if checked else '2p'
         self._ctrl.set_mirror(mode)
 
     def _on_magnification_changed(self, index: int):
@@ -470,6 +483,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         acq = self._left_panel.acquisition_group
         if checked:
+            self._grab_active = False
             try:
                 self._ctrl.start_focus()
             except RuntimeError as exc:
@@ -501,11 +515,13 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             # 0 = run forever, matching MATLAB convention.
             frames = self._left_panel.scanner_group.total_frames_spinbox.value()
+            self._grab_active = True
             try:
                 self._ctrl.start_grab(output_path=output_path, frames=frames)
             except RuntimeError as exc:
                 acq.grab_button.setChecked(False)
                 acq.grab_button.setText("Grab")
+                self._grab_active = False
                 self.statusBar.showMessage(str(exc))
                 return
             acq.focus_button.setEnabled(False)
@@ -514,6 +530,27 @@ class MainWindow(QtWidgets.QMainWindow):
             self.statusBar.showMessage(f"Grabbing: {output_path}")
         else:
             self._ctrl.stop_acquisition()
+
+    def _on_snapshot_clicked(self):
+        """Save a PNG snapshot of the current frame.
+
+        The file is written to the directory and subject/date fields from
+        File Storage, but uses an independently incrementing numeric suffix
+        instead of the Session ID, giving filenames like
+        ``mouse01_20260306_002.png``.
+
+        Shows a status-bar message on success or failure.
+        """
+        file_grp = self._left_panel.file_group
+        path = file_grp.get_snapshot_path()
+        saved = self._right_panel.image_display.save_snapshot(path)
+        if saved:
+            file_grp.increment_snapshot_index()
+            self.statusBar.showMessage(f"Snapshot saved: {path}")
+        else:
+            self.statusBar.showMessage(
+                "Snapshot: no frame available yet — start Focus or Grab first."
+            )
 
     # ------------------------------------------------------------------
     # AppController signal handlers
@@ -533,7 +570,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 ``'abs_X'``, ``'abs_Y'``, ``'abs_Z'``, ``'abs_A'``: Absolute
                 motor hardware positions in physical units.
         """
-        pos_grp = self._left_panel.position_group
+        pos_grp = self._right_panel.position_group
 
         # World row — Knobby relative position (matches Knobby screen)
         pos_grp.world_x_edit.setText(f"{pos.get('X', 0.0):.2f}")
@@ -571,6 +608,10 @@ class MainWindow(QtWidgets.QMainWindow):
         acq.grab_button.setText("Grab")
         acq.focus_button.setEnabled(True)
         acq.grab_button.setEnabled(True)
+        # Advance the session ID only after a data-saving Grab, not Focus.
+        if self._grab_active:
+            self._left_panel.file_group.increment_session_id()
+        self._grab_active = False
         self.statusBar.showMessage("Acquisition complete")
 
     def _on_hardware_error(self, message):
