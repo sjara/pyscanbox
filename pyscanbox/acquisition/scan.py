@@ -51,7 +51,8 @@ class Scanner:
                  on_frame_data=None,
                  on_command=None,
                  hw_controller=None,
-                 hw_motor=None):
+                 hw_motor=None,
+                 save_channels: int = 2):
         """Initialize scanner with configuration.
 
         Args:
@@ -82,6 +83,9 @@ class Scanner:
                 Same ownership semantics as ``hw_controller``: when provided
                 Scanner will not call open() or close() on it, preventing a
                 second attempt to open the motor COM port.
+            save_channels: Which PMT channels to write to disk.  Matches the
+                FileStorageGroup combobox index: 0 = PMT0 only, 1 = PMT1
+                only, 2 = both channels (default).
         """
         self.config = config
         self.output_path = output_path
@@ -151,6 +155,7 @@ class Scanner:
         self.on_frame = on_frame
         self.on_frame_data = on_frame_data
         self.on_command = on_command
+        self.save_channels = save_channels
         # Apply GUI override first (0 means "forever", matching MATLAB convention).
         if frames_override is not None:
             self.frames_to_acquire = frames_override
@@ -367,9 +372,15 @@ class Scanner:
                     self.pixels_per_line,
                 )
             
-            # Write to disk
+            # Write to disk, selecting only the requested channel(s).
             if self.sbx_writer is not None:
-                self.sbx_writer.write_frame(reshaped)
+                if self.save_channels == 0:
+                    frame_to_write = reshaped[0:1]   # PMT0 only
+                elif self.save_channels == 1:
+                    frame_to_write = reshaped[1:2]   # PMT1 only
+                else:
+                    frame_to_write = reshaped        # both channels
+                self.sbx_writer.write_frame(frame_to_write)
             
             # Update counters
             self.frames_acquired += 1
@@ -532,12 +543,15 @@ class Scanner:
             Dictionary with acquisition metadata for Suite2p compatibility.
         """
         pockels = self.controller.get_current_pockels()
+        # Channels actually written to disk: 1 when a single channel was
+        # selected in the GUI (save_channels 0 or 1), 2 for both.
+        saved_channels = 1 if self.save_channels in (0, 1) else 2
         return {
             'frames': self.frames_acquired,
             'lines_per_frame': self.lines_per_frame,
             'pixels_per_line': self.pixels_per_line,
             'sample_rate': self.config['alazar']['sample_rate'],
-            'channels': self.config['alazar']['channels'],
+            'channels': saved_channels,
             'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
             'pockels_base': pockels.get('base', 0),
             'pockels_active': pockels.get('active', 0),

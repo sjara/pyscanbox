@@ -445,7 +445,7 @@ class FileStorageGroup(QtWidgets.QGroupBox):
         layout.addWidget(QtWidgets.QLabel("Save Channels:"), 5, 0)
         self.channels_combobox = QtWidgets.QComboBox()
         self.channels_combobox.addItems(["PMT0", "PMT1", "PMT0 & PMT1"])
-        self.channels_combobox.setCurrentIndex(0)
+        self.channels_combobox.setCurrentIndex(2)
         layout.addWidget(self.channels_combobox, 5, 1)
         
         self.setLayout(layout)
@@ -1162,7 +1162,7 @@ class OptotuneGroup(QtWidgets.QGroupBox):
         # Bidirectional link: slider ↔ spinbox
         self.etl_slider.valueChanged.connect(self.etl_spinbox.setValue)
         self.etl_spinbox.valueChanged.connect(self.etl_slider.setValue)
-        
+
         layout.addStretch()
         self.setLayout(layout)
 

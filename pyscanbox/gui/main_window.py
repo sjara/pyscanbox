@@ -515,9 +515,12 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             # 0 = run forever, matching MATLAB convention.
             frames = self._left_panel.scanner_group.total_frames_spinbox.value()
+            # Combobox indices: 0 = PMT0 only, 1 = PMT1 only, 2 = both.
+            save_channels = file_grp.channels_combobox.currentIndex()
             self._grab_active = True
             try:
-                self._ctrl.start_grab(output_path=output_path, frames=frames)
+                self._ctrl.start_grab(output_path=output_path, frames=frames,
+                                      save_channels=save_channels)
             except RuntimeError as exc:
                 acq.grab_button.setChecked(False)
                 acq.grab_button.setText("Grab")

@@ -76,6 +76,7 @@ class ScannerThread(QtCore.QThread):
                  frames_override: int = None,
                  controller=None,
                  motor=None,
+                 save_channels: int = 2,
                  parent=None):
         """Initialize the scanner thread.
 
@@ -95,6 +96,9 @@ class ScannerThread(QtCore.QThread):
             motor: Optional pre-opened TrinamicMotor to share with Scanner
                 so that the motor COM port is not opened twice on real
                 hardware.  When None, Scanner creates its own instance.
+            save_channels: Which PMT channels to write to disk.  Matches the
+                FileStorageGroup combobox index: 0 = PMT0 only, 1 = PMT1
+                only, 2 = both channels (default).
             parent: Optional Qt parent object.
         """
         super().__init__(parent)
@@ -104,6 +108,7 @@ class ScannerThread(QtCore.QThread):
         self._frames_override = frames_override
         self._controller = controller
         self._motor = motor
+        self._save_channels = save_channels
         self._scanner = None
 
     def run(self) -> None:
@@ -119,6 +124,7 @@ class ScannerThread(QtCore.QThread):
                 on_command=self._emit_command,
                 hw_controller=self._controller,
                 hw_motor=self._motor,
+                save_channels=self._save_channels,
             )
             self._scanner.run()
         except Exception as exc:
@@ -607,7 +613,8 @@ class AppController(QtCore.QObject):
         self._log_event('Focus mode started')
 
     def start_grab(self, output_path: str = None,
-                   frames: int = None) -> None:
+                   frames: int = None,
+                   save_channels: int = 2) -> None:
         """Start a timed grab acquisition and save data to disk.
 
         Acquires the number of frames specified by ``frames`` (or
@@ -620,6 +627,9 @@ class AppController(QtCore.QObject):
                 If None, Scanner auto-generates a path from the io config.
             frames: Frame count override.  0 = run until Stop is pressed.
                 If None, the value from config is used.
+            save_channels: Which PMT channels to write to disk.  Matches the
+                FileStorageGroup combobox index: 0 = PMT0 only, 1 = PMT1
+                only, 2 = both channels (default).
 
         Raises:
             RuntimeError: If hardware is not open or acquisition is already
@@ -632,7 +642,8 @@ class AppController(QtCore.QObject):
                 "Acquisition already running. Call stop_acquisition() first."
             )
         self._start_scanner(focus_mode=False, output_path=output_path,
-                            frames_override=frames)
+                            frames_override=frames,
+                            save_channels=save_channels)
         logger.info("AppController: grab started, output_path=%s", output_path)
         self._log_event(f'Grab started  →  {output_path}')
 
@@ -656,13 +667,16 @@ class AppController(QtCore.QObject):
         )
 
     def _start_scanner(self, focus_mode: bool, output_path,
-                        frames_override: int = None) -> None:
+                        frames_override: int = None,
+                        save_channels: int = 2) -> None:
         """Create and start a ScannerThread (internal helper).
 
         Args:
             focus_mode: Passed to ScannerThread.
             output_path: Passed to ScannerThread.
             frames_override: Optional frame count override (0 = forever).
+            save_channels: Passed to ScannerThread.  Ignored in focus mode
+                (focus mode never writes to disk).
         """
         self._scanner_thread = ScannerThread(
             self.config,
@@ -671,6 +685,7 @@ class AppController(QtCore.QObject):
             frames_override=frames_override,
             controller=self._hw_controller,
             motor=self._motor if self._motor.is_open else None,
+            save_channels=save_channels,
             parent=self,
         )
         self._scanner_thread.frame_acquired.connect(self.frame_acquired)
