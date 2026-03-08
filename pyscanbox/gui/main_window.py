@@ -430,11 +430,26 @@ class MainWindow(QtWidgets.QMainWindow):
             pass  # hardware not open yet; silently ignore
 
     def _on_etl_current_changed(self, current: int):
-        """Forward ETL slider / spinbox value to the hardware.
+        """Forward ETL slider / spinbox value to hardware and update depth label.
+
+        The depth label shows the raw ETL current value (4 digits) when no
+        calibration is loaded, or depth in µm once a calibration file is
+        present (loaded by AppController.open from optotune.calibration_file).
 
         Args:
             current: ETL current level (0–1760 hardware units).
         """
+        # Update depth label regardless of hardware state.
+        optotune = self._right_panel.optotune_group
+        depth = (
+            self._ctrl.etl_to_depth(current)
+            if self._ctrl is not None
+            else None
+        )
+        optotune.set_depth_display(
+            f'{depth} \u00b5m' if depth is not None else f'{current:04d}'
+        )
+        # Forward to hardware (no-op if not yet connected).
         if self._ctrl is not None:
             try:
                 self._ctrl.set_etl_current(current)

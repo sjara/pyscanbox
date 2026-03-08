@@ -363,5 +363,156 @@ class TestConfigurationCommands(unittest.TestCase):
             ctrl.set_pockels_deadband(left=0, right=256)
 
 
+class TestETLCurrentControl(unittest.TestCase):
+    """Tests for set_etl_current() and its format_command() decoder."""
+
+    def setUp(self):
+        self.config = {
+            'controller': {
+                'com_port': 'COM3',
+                'baud_rate': 1_000_000,
+                'timeout': 1.0,
+            }
+        }
+
+    # -- Packet encoding --------------------------------------------------------
+
+    @mock.patch('serial.Serial')
+    def test_set_etl_current_zero_sends_correct_packet(self, mock_serial):
+        """set_etl_current(0) sends [48, 112, 0].
+
+        Encoding: encoded = 0x7000 | 0 = 0x7000; b1=0x70=112, b2=0x00=0.
+        """
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        ctrl.set_etl_current(0)
+        mock_port.write.assert_called_with(bytes([48, 112, 0]))
+
+    @mock.patch('serial.Serial')
+    def test_set_etl_current_max_sends_correct_packet(self, mock_serial):
+        """set_etl_current(1760) sends [48, 118, 224].
+
+        Encoding: 1760=0x6E0; encoded = 0x7000 | 0x6E0 = 0x76E0;
+        b1=0x76=118, b2=0xE0=224.
+        """
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        ctrl.set_etl_current(1760)
+        mock_port.write.assert_called_with(bytes([48, 118, 224]))
+
+    @mock.patch('serial.Serial')
+    def test_set_etl_current_mid_sends_correct_packet(self, mock_serial):
+        """set_etl_current(860) sends [48, 115, 92].
+
+        860 is the typical resting position (default_current in config).
+        Encoding: 860=0x35C; encoded = 0x7000 | 0x35C = 0x735C;
+        b1=0x73=115, b2=0x5C=92.
+        """
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        ctrl.set_etl_current(860)
+        mock_port.write.assert_called_with(bytes([48, 115, 92]))
+
+    @mock.patch('serial.Serial')
+    def test_set_etl_current_cmd_id_is_48(self, mock_serial):
+        """First byte of every ETL packet is the CMD_ETL constant (48)."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        ctrl.set_etl_current(256)
+        sent_packet = mock_port.write.call_args[0][0]
+        self.assertEqual(sent_packet[0], 48)
+
+    # -- State tracking ---------------------------------------------------------
+
+    @mock.patch('serial.Serial')
+    def test_set_etl_current_tracks_state(self, mock_serial):
+        """set_etl_current updates the etl_current attribute."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        ctrl.set_etl_current(500)
+        self.assertEqual(ctrl.etl_current, 500)
+
+    @mock.patch('serial.Serial')
+    def test_set_etl_current_initial_state_is_zero(self, mock_serial):
+        """etl_current is 0 before any command is sent."""
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        self.assertEqual(ctrl.etl_current, 0)
+
+    # -- Validation -------------------------------------------------------------
+
+    @mock.patch('serial.Serial')
+    def test_set_etl_current_validation_below_min(self, mock_serial):
+        """set_etl_current raises ValueError for current below ETL_CURRENT_MIN."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        with self.assertRaises(ValueError):
+            ctrl.set_etl_current(-1)
+
+    @mock.patch('serial.Serial')
+    def test_set_etl_current_validation_above_max(self, mock_serial):
+        """set_etl_current raises ValueError for current above ETL_CURRENT_MAX."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        with self.assertRaises(ValueError):
+            ctrl.set_etl_current(1761)
+
+    @mock.patch('serial.Serial')
+    def test_set_etl_current_boundary_values_do_not_raise(self, mock_serial):
+        """set_etl_current accepts exact boundary values 0 and 1760."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        ctrl.set_etl_current(controller.ScanboxController.ETL_CURRENT_MIN)
+        ctrl.set_etl_current(controller.ScanboxController.ETL_CURRENT_MAX)
+
+    # -- format_command decoder -------------------------------------------------
+
+    def test_format_command_decodes_etl_zero(self):
+        """format_command correctly decodes ETL packet for current=0."""
+        result = controller.ScanboxController.format_command(48, 112, 0)
+        self.assertEqual(result, 'set_etl_current(current=0)')
+
+    def test_format_command_decodes_etl_max(self):
+        """format_command correctly decodes ETL packet for current=1760."""
+        result = controller.ScanboxController.format_command(48, 118, 224)
+        self.assertEqual(result, 'set_etl_current(current=1760)')
+
+    def test_format_command_decodes_etl_mid(self):
+        """format_command correctly decodes ETL packet for current=860."""
+        result = controller.ScanboxController.format_command(48, 115, 92)
+        self.assertEqual(result, 'set_etl_current(current=860)')
+
+    def test_format_command_etl_roundtrip(self):
+        """Encoding via set_etl_current and decoding via format_command is lossless."""
+        mock_port = mock.Mock()
+        with mock.patch('serial.Serial', return_value=mock_port):
+            ctrl = controller.ScanboxController(self.config)
+            ctrl.open()
+            for current in [0, 1, 255, 256, 860, 1759, 1760]:
+                ctrl.set_etl_current(current)
+                packet = mock_port.write.call_args[0][0]
+                decoded = controller.ScanboxController.format_command(
+                    packet[0], packet[1], packet[2]
+                )
+                self.assertEqual(decoded, f'set_etl_current(current={current})',
+                                 f'Round-trip failed for current={current}')
+
+
 if __name__ == '__main__':
     unittest.main()

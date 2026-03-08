@@ -138,7 +138,15 @@ class RightDisplayPanel(QtWidgets.QWidget):
         self.position_group = widgets.PositionDisplayGroup()
         self.pmt_group = widgets.PMTControlGroup()
         self.image_display_group = widgets.ImageDisplayControlGroup()
-        self.optotune_group = widgets.OptotuneGroup()
+        # Extract ETL default value from config; OptotuneGroup uses it as its
+        # initial slider position.  Falls back to ETL_CURRENT_MID when absent.
+        config_dict = (
+            self.config.to_dict()
+            if hasattr(self.config, 'to_dict')
+            else (self.config or {})
+        )
+        etl_default = config_dict.get('optotune', {}).get('default_value', None)
+        self.optotune_group = widgets.OptotuneGroup(default_value=etl_default)
 
         splitter.addWidget(self.position_group)
         splitter.addWidget(self.pmt_group)

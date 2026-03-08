@@ -20,10 +20,12 @@ Example:
 
 import datetime
 import logging
+from typing import Optional
 
 import PyQt6.QtCore as QtCore
 
 from pyscanbox.hardware import controller as hw_controller
+from pyscanbox.hardware import etl_calibration
 from pyscanbox.hardware import knobby as hw_knobby
 from pyscanbox.hardware import motor as hw_motor
 from pyscanbox.acquisition import scan as acq_scan
@@ -240,6 +242,10 @@ class AppController(QtCore.QObject):
         self._pockels_hw: int = 0
         self._pmt_hw: list = [0, 0]
 
+        # ETL calibration: 3-element numpy array of polynomial coefficients
+        # [a, b, c] loaded from etl_cal.json on open(), or None if absent.
+        self._etl_calibration = None
+
         # Timer for periodic Knobby position polling.
         self._poll_timer = QtCore.QTimer(self)
         self._poll_timer.setInterval(POSITION_POLL_INTERVAL_MS)
@@ -291,6 +297,19 @@ class AppController(QtCore.QObject):
             msg = f"Could not open motor controller (motor control unavailable): {exc}"
             logger.warning(msg)
             self.hardware_error.emit(msg)
+
+        # Load ETL calibration coefficients from JSON file if available.
+        cal_path = self.config.get('optotune', {}).get(
+            'calibration_file', etl_calibration.DEFAULT_CALIBRATION_FILE
+        )
+        self._etl_calibration = etl_calibration.load_calibration(cal_path)
+        if self._etl_calibration is not None:
+            logger.info("ETL calibration loaded from %s", cal_path)
+        else:
+            logger.info(
+                "No ETL calibration at %s; depth label shows raw current",
+                cal_path,
+            )
 
         self.is_open = True
         self._poll_timer.start()
@@ -513,6 +532,20 @@ class AppController(QtCore.QObject):
             msg = f"set_etl_current failed: {exc}"
             logger.error(msg)
             self.hardware_error.emit(msg)
+
+    def etl_to_depth(self, current: int) -> Optional[int]:
+        """Convert an ETL current value to focal depth in microns.
+
+        Returns ``None`` when no calibration file has been loaded (the GUI
+        then falls back to displaying the raw ETL current value).
+
+        Args:
+            current: ETL current level (0–1760 hardware units).
+
+        Returns:
+            Depth in microns as an ``int``, or ``None`` if uncalibrated.
+        """
+        return etl_calibration.etl_to_depth(current, self._etl_calibration)
 
     # ------------------------------------------------------------------
     # Position polling (internal)

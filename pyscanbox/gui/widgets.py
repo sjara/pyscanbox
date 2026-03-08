@@ -1323,33 +1323,41 @@ class ImageDisplayControlGroup(QtWidgets.QGroupBox):
 
 class OptotuneGroup(QtWidgets.QGroupBox):
     """Optotune/Volumetric control group box.
-    
+
     Contains:
-    - ETL (electrotunable lens) vertical slider
-    - Placeholder for future volumetric parameters
+    - ETL (electrotunable lens) slider + spinbox
+    - Depth display label (shows raw current or µm when calibration loaded)
     """
-    
-    def __init__(self):
-        """Initialize the optotune group."""
+
+    def __init__(self, default_value=None):
+        """Initialize the optotune group.
+
+        Args:
+            default_value: Initial ETL current value from config
+                (``optotune.default_value``).  Falls back to
+                ``ETL_CURRENT_MID`` when ``None``.
+        """
         super().__init__("Optotune / Volumetric")
+        if default_value is None:
+            default_value = hw_controller.ScanboxController.ETL_CURRENT_MID
+        self._default_value = default_value
         self._init_ui()
-        
+
     def _init_ui(self):
         """Initialize the UI components."""
         layout = QtWidgets.QVBoxLayout()
 
         # ETL current — slider (coarse) + spinbox (fine), bidirectionally
-        # linked.  Range and mid-point come from ScanboxController constants,
-        # the single source of truth for this value.
+        # linked.  Range from ScanboxController constants (single source of
+        # truth); initial value from config (optotune.default_value).
         etl_min = hw_controller.ScanboxController.ETL_CURRENT_MIN
         etl_max = hw_controller.ScanboxController.ETL_CURRENT_MAX
-        etl_mid = hw_controller.ScanboxController.ETL_CURRENT_MID
         layout.addWidget(QtWidgets.QLabel("ETL current"))
 
-        # Horizontal slider, defaulting to the mid-level value.
+        # Horizontal slider starting at the config default value.
         self.etl_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.etl_slider.setRange(etl_min, etl_max)
-        self.etl_slider.setValue(etl_mid)
+        self.etl_slider.setValue(self._default_value)
         self.etl_slider.setTickPosition(QtWidgets.QSlider.TickPosition.TicksBelow)
         self.etl_slider.setTickInterval((etl_max - etl_min) // 10)  # 10 ticks
         self.etl_slider.setMinimumWidth(120)
@@ -1358,9 +1366,15 @@ class OptotuneGroup(QtWidgets.QGroupBox):
         # Spinbox for precise current entry
         self.etl_spinbox = QtWidgets.QSpinBox()
         self.etl_spinbox.setRange(etl_min, etl_max)
-        self.etl_spinbox.setValue(etl_mid)
+        self.etl_spinbox.setValue(self._default_value)
         self.etl_spinbox.setSuffix('')
         layout.addWidget(self.etl_spinbox)
+
+        # Depth display: shows raw ETL value (4 digits) when uncalibrated,
+        # or depth in µm (e.g. "42 µm") once a calibration file is loaded.
+        self.depth_label = QtWidgets.QLabel(f'{self._default_value:04d}')
+        self.depth_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.depth_label)
 
         # Bidirectional link: slider ↔ spinbox
         self.etl_slider.valueChanged.connect(self.etl_spinbox.setValue)
@@ -1368,6 +1382,19 @@ class OptotuneGroup(QtWidgets.QGroupBox):
 
         layout.addStretch()
         self.setLayout(layout)
+
+    def set_depth_display(self, text: str) -> None:
+        """Update the ETL depth display label.
+
+        Called on every slider move by MainWindow._on_etl_current_changed.
+        Shows the raw ETL current when no calibration is loaded, or depth
+        in µm once a calibration file is present.
+
+        Args:
+            text: Formatted string, e.g. ``'0860'`` (uncalibrated) or
+                ``'42 µm'`` (calibrated).
+        """
+        self.depth_label.setText(text)
 
 
 class CommandLogPanel(QtWidgets.QWidget):
