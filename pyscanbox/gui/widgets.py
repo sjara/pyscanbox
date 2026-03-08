@@ -68,6 +68,23 @@ def _build_colormap_lut(name: str) -> np.ndarray:
     return lut
 
 
+# ---------------------------------------------------------------------------
+# Module-level display configuration
+# ---------------------------------------------------------------------------
+
+# Colormap used for both the image display and the histogram colourbar.
+# Allowed values: 'green', 'green_white', 'gray'  (see _build_colormap_lut).
+_DISPLAY_COLORMAP: str = 'green_white'
+
+# Fraction (0.0–1.0) of the colormap range used for the histogram bar colour.
+# 0.80 → the bar is drawn with the LUT colour at index int(0.80 × 255) = 204.
+_HISTOGRAM_COLOR_LEVEL: float = 0.4
+
+# Precomputed lookup table for _DISPLAY_COLORMAP.  Used by both
+# ImageDisplayWidget and HistogramWidget so derived colours stay consistent.
+_DISPLAY_LUT: np.ndarray = _build_colormap_lut(_DISPLAY_COLORMAP)
+
+
 class LaserControlGroup(QtWidgets.QGroupBox):
     """Laser control group box.
     
@@ -645,8 +662,10 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         # False = direct/debug mode (high ADC value = bright).
         self._invert: bool = True
         # Active colormap name and precomputed 256×3 uint8 LUT.
-        self._colormap: str = 'green'
-        self._lut: np.ndarray = _build_colormap_lut('green')
+        # Initialised from the module-level _DISPLAY_COLORMAP constant; can
+        # still be changed at runtime via set_colormap().
+        self._colormap: str = _DISPLAY_COLORMAP
+        self._lut: np.ndarray = _DISPLAY_LUT
         self._init_ui()
 
     def _init_ui(self):
@@ -882,10 +901,7 @@ class HistogramWidget(QtWidgets.QWidget):
 
     # Visual constants
     _BG_COLOR = QtGui.QColor("#1a1a1a")
-    _BAR_COLOR = QtGui.QColor("#4a7eb5")
-    _BORDER_COLOR = QtGui.QColor("#6aaedf")
     _AXIS_COLOR = QtGui.QColor("#555555")
-    _LABEL_COLOR = QtGui.QColor("#888888")
     _PADDING = 4        # px inside the widget edges (left / right / top)
     _LABEL_HEIGHT = 11  # px reserved at the bottom for axis tick labels
 
@@ -905,30 +921,13 @@ class HistogramWidget(QtWidgets.QWidget):
             "X-axis: display value 0 = dark background (left) → 16383 = max signal (right)"
         )
 
-        # "zeros" checkbox overlaid in the top-right corner.
-        self._show_zeros_cb = QtWidgets.QCheckBox("zeros", self)
-        self._show_zeros_cb.setChecked(False)
-        self._show_zeros_cb.setToolTip(
-            "Show dark-background pixels (display value ≈ 0, raw ADC ≈ 16383) in the histogram"
+        # Bar and border colours derived from the module-level display colormap.
+        _bar_idx = int(_HISTOGRAM_COLOR_LEVEL * 255)
+        _bar_rgb = _DISPLAY_LUT[_bar_idx]
+        self._bar_color = QtGui.QColor(
+            int(_bar_rgb[0]), int(_bar_rgb[1]), int(_bar_rgb[2])
         )
-        self._show_zeros_cb.setStyleSheet(
-            "QCheckBox { color: #777777; font-size: 7pt; background: transparent; }"
-            "QCheckBox::indicator { width: 9px; height: 9px; }"
-        )
-        # Redraw when toggled so the change is immediate.
-        self._show_zeros_cb.toggled.connect(self.update)
-        self._reposition_checkbox()
-
-    def resizeEvent(self, event) -> None:  # noqa: N802
-        """Reposition the zeros checkbox when the widget is resized."""
-        super().resizeEvent(event)
-        self._reposition_checkbox()
-
-    def _reposition_checkbox(self) -> None:
-        """Place the zeros checkbox in the top-right corner."""
-        cb = self._show_zeros_cb
-        cb.adjustSize()
-        cb.move(self.width() - cb.width() - self._PADDING, self._PADDING)
+        self._border_color = self._bar_color.lighter(130)
 
     def update_frame(self, frame_data: np.ndarray) -> None:
         """Recompute the histogram from a newly acquired frame.
@@ -1003,9 +1002,6 @@ class HistogramWidget(QtWidgets.QWidget):
         # and low raw ADC values (bright signal) sit on the right.  After the
         # flip, index 0 corresponds to raw ≈ 16383 (display value ≈ 0, dark).
         disp_counts = self._counts[::-1].copy()
-        # Optionally suppress the dark-background bin (index 0 after flip).
-        if not self._show_zeros_cb.isChecked():
-            disp_counts[0] = 0
 
         # Chart area sits above the label strip.
         chart_bottom = h - lh          # leave lh px for axis labels
@@ -1043,14 +1039,14 @@ class HistogramWidget(QtWidgets.QWidget):
         poly = QtGui.QPolygon(poly_pts)
 
         painter.setPen(QtCore.Qt.PenStyle.NoPen)
-        painter.setBrush(QtGui.QBrush(self._BAR_COLOR))
+        painter.setBrush(QtGui.QBrush(self._bar_color))
         painter.drawPolygon(poly)
 
         # --- Thin bright border along the top of each bar ---
         xs_l = xs_left.tolist()
         xs_r = xs_right.tolist()
         yt = y_tops.tolist()
-        painter.setPen(QtGui.QPen(self._BORDER_COLOR, 1))
+        painter.setPen(QtGui.QPen(self._border_color, 1))
         border_lines = [
             QtCore.QLine(x1, y, x2, y)
             for x1, y, x2 in zip(xs_l, yt, xs_r)
@@ -1061,16 +1057,35 @@ class HistogramWidget(QtWidgets.QWidget):
         painter.setPen(QtGui.QPen(self._AXIS_COLOR, 1))
         painter.drawLine(p, chart_bottom, w - p, chart_bottom)
 
-        # --- Fixed axis labels: "0" at the left edge, "16383" at the right ---
+        # --- Colourbar + axis labels in the label strip ---
+        # Render the full display colormap as a scaled 1-row image, then
+        # overlay "0" (left) and "16383" (right) with luminance-based text
+        # colours so labels are readable against the gradient.
+        cb_data = np.ascontiguousarray(_DISPLAY_LUT)  # (256, 3) uint8
+        cb_img = QtGui.QImage(
+            cb_data.data, 256, 1, 256 * 3,
+            QtGui.QImage.Format.Format_RGB888,
+        )
+        painter.drawImage(QtCore.QRect(p, chart_bottom, draw_w, lh), cb_img)
+
+        def _label_pen(lut_idx: int) -> QtGui.QPen:
+            r = int(_DISPLAY_LUT[lut_idx, 0])
+            g = int(_DISPLAY_LUT[lut_idx, 1])
+            b = int(_DISPLAY_LUT[lut_idx, 2])
+            lum = 0.299 * r + 0.587 * g + 0.114 * b
+            color = QtGui.QColor(0, 0, 0) if lum > 128 else QtGui.QColor(255, 255, 255)
+            return QtGui.QPen(color)
+
         font = painter.font()
         font.setPointSize(7)
         painter.setFont(font)
-        painter.setPen(QtGui.QPen(self._LABEL_COLOR))
+        painter.setPen(_label_pen(0))   # left edge — LUT[0] (darkest)
         painter.drawText(
             QtCore.QRect(p, chart_bottom, draw_w // 2, lh),
             QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter,
             "0",
         )
+        painter.setPen(_label_pen(255))  # right edge — LUT[255] (brightest)
         painter.drawText(
             QtCore.QRect(p + draw_w // 2, chart_bottom, draw_w // 2, lh),
             QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter,
@@ -1282,19 +1297,6 @@ class ImageDisplayControlGroup(QtWidgets.QGroupBox):
             "debugging)."
         )
         layout.addWidget(self.display_mode_combobox)
-
-        # Colormap selector
-        layout.addWidget(QtWidgets.QLabel("Colormap:"))
-        self.colormap_combobox = QtWidgets.QComboBox()
-        self.colormap_combobox.addItems(["Green", "Black-Green-White", "Gray"])
-        self.colormap_combobox.setCurrentIndex(1)
-        self.colormap_combobox.setToolTip(
-            "Green: black → green (default, matches Scanbox).\n"
-            "Green-White: black → green → white — bright pixels saturate to "
-            "white instead of staying green.\n"
-            "Gray: standard grayscale (black → white)."
-        )
-        layout.addWidget(self.colormap_combobox)
 
         # Display gain
         gain_layout = QtWidgets.QVBoxLayout()

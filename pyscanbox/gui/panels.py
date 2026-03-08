@@ -116,16 +116,6 @@ class RightDisplayPanel(QtWidgets.QWidget):
             self.image_display.set_display_mode
         )
 
-        # Wire the colormap combobox and apply the initial selection so the
-        # display starts with the combobox default (index 1) rather than the
-        # ImageDisplayWidget's own hardcoded default.
-        self.image_display_group.colormap_combobox.currentIndexChanged.connect(
-            self.image_display.set_colormap
-        )
-        self.image_display.set_colormap(
-            self.image_display_group.colormap_combobox.currentIndex()
-        )
-
         # Add splitter to layout
         layout = QtWidgets.QVBoxLayout()
         layout.addWidget(splitter)
