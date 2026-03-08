@@ -109,6 +109,13 @@ class MainWindow(QtWidgets.QMainWindow):
         # Frame selector is hidden by default (can be enabled via View menu).
         self._right_panel.frame_selector.setVisible(False)
 
+        # Re-render the current loaded frame whenever the gain slider moves.
+        # set_gain (wired in panels.py) updates _gain first; this fires next
+        # so update_frame sees the new value immediately.
+        self._right_panel.image_display_group.gain_slider.valueChanged.connect(
+            self._on_display_gain_changed
+        )
+
         # Create status bar
         self.statusBar = QtWidgets.QStatusBar()
         self.setStatusBar(self.statusBar)
@@ -354,6 +361,26 @@ class MainWindow(QtWidgets.QMainWindow):
         except IndexError:
             return
         self._right_panel.image_display.update_frame(frame_data)
+        self._right_panel.histogram.force_update_frame(frame_data)
+
+    def _on_display_gain_changed(self, slider_value: int) -> None:
+        """Re-render the current loaded frame when the display gain changes.
+
+        ``set_gain`` (wired in panels.py) runs first and updates the stored
+        gain in ``ImageDisplayWidget``; this slot fires immediately after and
+        re-calls ``_on_frame_selected`` so the new gain is applied right away.
+        Has no effect when no recording is loaded (live acquisition naturally
+        picks up the new gain on its next frame).
+
+        Args:
+            slider_value: Raw slider integer (passed through but unused here;
+                gain is already updated inside ImageDisplayWidget.set_gain).
+        """
+        if self._sbx_reader is None:
+            return
+        self._on_frame_selected(
+            self._right_panel.frame_selector.current_frame
+        )
 
     def _on_log_dock_floating(self, floating: bool) -> None:
         """Resize the main window when the log dock is detached or re-docked.

@@ -949,7 +949,30 @@ class HistogramWidget(QtWidgets.QWidget):
         self._frame_counter += 1
         if self._frame_counter % self.UPDATE_EVERY != 0:
             return
+        self._compute_histogram(frame_data)
 
+    def force_update_frame(self, frame_data: np.ndarray) -> None:
+        """Recompute the histogram immediately, bypassing the frame throttle.
+
+        Use this when displaying a specific frame from a loaded recording so
+        that every slider move produces an instant histogram update regardless
+        of ``UPDATE_EVERY``.
+
+        Args:
+            frame_data: Shape ``(channels, lines_per_frame, pixels_per_line)``,
+                dtype ``uint16``, values 0–16383 (14-bit).
+        """
+        if frame_data is None or not self.isVisible():
+            return
+        self._compute_histogram(frame_data)
+
+    def _compute_histogram(self, frame_data: np.ndarray) -> None:
+        """Compute bin counts from *frame_data* and schedule a repaint.
+
+        Args:
+            frame_data: Shape ``(channels, lines_per_frame, pixels_per_line)``,
+                dtype ``uint16``, values 0–16383 (14-bit).
+        """
         # Subsample then bin-count.  bincount on integer data is ~4× faster
         # than np.histogram and requires no range argument.
         ch0 = frame_data[0].ravel()[::self.SUBSAMPLE]
@@ -1165,6 +1188,11 @@ class FrameSelectorWidget(QtWidgets.QWidget):
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    @property
+    def current_frame(self) -> int:
+        """Current 0-based frame index shown in the slider."""
+        return self._slider.value()
 
     def set_recording(self, num_frames: int) -> None:
         """Configure the slider for a loaded recording.
