@@ -31,6 +31,11 @@ _SIGNAL_BASELINE_14BIT = 16383
 # without having to touch any sliders immediately after opening the GUI.
 _AMBIENT_SCALE = 0.25
 
+# Standard deviation of the per-pixel Gaussian background noise added to
+# every pre-computed test frame (14-bit units, full scale = 16383).
+# Increase this to make the histogram broader; decrease for a sharper peak.
+_BACKGROUND_NOISE_SIGMA = 2000
+
 
 class Board:
     """Mock AlazarTech board interface.
@@ -514,7 +519,7 @@ class Board:
         for f in range(n):
             # Start with full-dark baseline (inverted PMT: high = dark)
             imgs = np.full((2, lines, pixels), 16383.0, dtype=np.float32)
-            imgs += rng.normal(0, 200, imgs.shape).astype(np.float32)
+            imgs += rng.normal(0, _BACKGROUND_NOISE_SIGMA, imgs.shape).astype(np.float32)
 
             for i in range(n_neurons):
                 dy2 = (yy - ny[i]) ** 2           # (lines,)
@@ -602,7 +607,7 @@ class Board:
         for f in range(n):
             # Start with full-dark baseline (inverted PMT: high = dark)
             imgs = np.full((2, lines, pixels), 16383.0, dtype=np.float32)
-            imgs += rng.normal(0, 200, imgs.shape).astype(np.float32)
+            imgs += rng.normal(0, _BACKGROUND_NOISE_SIGMA, imgs.shape).astype(np.float32)
 
             for i in range(n_neurons):
                 dy2 = (yy - ny[i]) ** 2
@@ -626,8 +631,8 @@ class Board:
             raw_ch1[:, valid_samples] = imgs[1][:, mapped_pixels]
 
             # Add noise to fill sparse gaps between LUT samples.
-            raw_ch0 += rng.normal(0, 200, raw_ch0.shape).astype(np.float32)
-            raw_ch1 += rng.normal(0, 200, raw_ch1.shape).astype(np.float32)
+            raw_ch0 += rng.normal(0, _BACKGROUND_NOISE_SIGMA, raw_ch0.shape).astype(np.float32)
+            raw_ch1 += rng.normal(0, _BACKGROUND_NOISE_SIGMA, raw_ch1.shape).astype(np.float32)
             raw_ch0 = np.clip(raw_ch0, 0, 16383)
             raw_ch1 = np.clip(raw_ch1, 0, 16383)
 

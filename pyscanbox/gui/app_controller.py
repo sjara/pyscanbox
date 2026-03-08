@@ -728,6 +728,9 @@ class AppController(QtCore.QObject):
         )
         self._scanner_thread.acquisition_error.connect(self.hardware_error)
         self._scanner_thread.start()
+        # Apply the current Pockels/PMT values to the mock Alazar once the
+        # thread has had time to initialise its alazar object (~100 ms).
+        QtCore.QTimer.singleShot(150, self._update_mock_signal_scale)
 
     def _on_acquisition_finished(self) -> None:
         """Slot called when ScannerThread emits acquisition_finished."""
