@@ -61,9 +61,9 @@ class Board:
         self.completed_buffers: List[np.ndarray] = []
         self.buffer_lock = threading.Lock()
 
-        # Data generation parameters
-        self.noise_level = 1000  # RMS noise level (14-bit scale)
-        self.dc_offset = 8192  # Center at middle of 14-bit range
+        # Data generation parameters (inverted PMT: high = dark, low = bright)
+        self.noise_level = 200  # RMS noise level (14-bit scale)
+        self.dc_offset = 13000  # High baseline (inverted PMT signal)
         self.frame_sync_enabled = True
 
         # Frame-aware synthetic data.  Set via set_frame_shape() before
@@ -402,16 +402,20 @@ class Board:
 
         The results are stored as Alazar wire-format buffers in self._test_frames
         (interleaved channels, values left-shifted by 2 into bits 15:2).
+
+        Note: PMT signals are inverted - high values = no light (dark),
+        low values = bright signal. Neurons appear as dips below baseline.
         """
         lines, pixels = self.frame_shape
         n = self._n_test_frames
         rng = np.random.default_rng(42)   # fixed seed → reproducible layout
 
-        # --- Fixed neuron positions and baseline intensities ---
+        # --- Fixed neuron positions and signal strengths ---
         n_neurons = 15
         ny = rng.integers(2, max(3, lines  - 2), n_neurons).astype(np.float32)
         nx = rng.integers(2, max(3, pixels - 2), n_neurons).astype(np.float32)
-        peak = rng.uniform(4000, 12000, n_neurons).astype(np.float32)  # 14-bit
+        # Signal strength: how much the signal dips below baseline (inverted PMT)
+        signal_strength = rng.uniform(3000, 8000, n_neurons).astype(np.float32)  
         sigma = rng.uniform(4, 10, n_neurons).astype(np.float32)       # px
 
         # 1-D coordinate arrays for outer-product Gaussian computation.
@@ -420,7 +424,10 @@ class Board:
 
         frames = []
         for f in range(n):
-            imgs = np.zeros((2, lines, pixels), dtype=np.float32)
+            # Start with high baseline (inverted PMT: high = dark)
+            # Use ~13000 as baseline with some noise
+            imgs = np.full((2, lines, pixels), 13000.0, dtype=np.float32)
+            imgs += rng.normal(0, 200, imgs.shape).astype(np.float32)
 
             for i in range(n_neurons):
                 dy2 = (yy - ny[i]) ** 2           # (lines,)
@@ -432,11 +439,10 @@ class Board:
                 phase = 2 * np.pi * f / n + i * 0.7
                 activity = 0.7 + 0.3 * np.sin(phase)
 
-                imgs[0] += peak[i] * activity * gauss
-                imgs[1] += peak[i] * activity * 0.4 * gauss   # ch1 dimmer
+                # Subtract signal (bright spots are dips in PMT signal)
+                imgs[0] -= signal_strength[i] * activity * gauss
+                imgs[1] -= signal_strength[i] * activity * 0.4 * gauss   # ch1 weaker
 
-            # Low background + photon shot-noise.
-            imgs += rng.normal(300, 150, imgs.shape).astype(np.float32)
             imgs = np.clip(imgs, 0, 16383)
 
             # Pack into Alazar wire format:
@@ -471,6 +477,9 @@ class Board:
         Buffer layout: interleaved channels (chA, chB per sample), line-major,
         with each sample left-shifted by 2 (14-bit value in bits 15:2).
         Shape: ``(lines * samples_per_line * 2,)`` uint16.
+
+        Note: PMT signals are inverted - high values = no light (dark),
+        low values = bright signal. Neurons appear as dips below baseline.
         """
         lines, pixels = self.frame_shape
         n_samp = self.samples_per_line
@@ -480,7 +489,8 @@ class Board:
         n_neurons = 15
         ny = rng.integers(2, max(3, lines  - 2), n_neurons).astype(np.float32)
         nx = rng.integers(2, max(3, pixels - 2), n_neurons).astype(np.float32)
-        peak = rng.uniform(4000, 12000, n_neurons).astype(np.float32)
+        # Signal strength: how much the signal dips below baseline (inverted PMT)
+        signal_strength = rng.uniform(3000, 8000, n_neurons).astype(np.float32)
         sigma = rng.uniform(4, 10, n_neurons).astype(np.float32)
 
         yy = np.arange(lines,  dtype=np.float32)
@@ -503,7 +513,9 @@ class Board:
 
         frames = []
         for f in range(n):
-            imgs = np.zeros((2, lines, pixels), dtype=np.float32)
+            # Start with high baseline (inverted PMT: high = dark)
+            imgs = np.full((2, lines, pixels), 13000.0, dtype=np.float32)
+            imgs += rng.normal(0, 200, imgs.shape).astype(np.float32)
 
             for i in range(n_neurons):
                 dy2 = (yy - ny[i]) ** 2
@@ -512,23 +524,23 @@ class Board:
                                  np.exp(-dx2 / (2 * sigma[i] ** 2)))
                 phase = 2 * np.pi * f / n + i * 0.7
                 activity = 0.7 + 0.3 * np.sin(phase)
-                imgs[0] += peak[i] * activity * gauss
-                imgs[1] += peak[i] * activity * 0.4 * gauss
+                # Subtract signal (bright spots are dips in PMT signal)
+                imgs[0] -= signal_strength[i] * activity * gauss
+                imgs[1] -= signal_strength[i] * activity * 0.4 * gauss
 
-            imgs += rng.normal(300, 150, imgs.shape).astype(np.float32)
             imgs = np.clip(imgs, 0, 16383)
 
             # Map display pixels → raw sample positions (vectorised).
-            # Uninitialised raw samples get a background level of 300.
-            bg = 300.0
+            # Uninitialised raw samples get high baseline (inverted PMT).
+            bg = 13000.0
             raw_ch0 = np.full((lines, n_samp), bg, dtype=np.float32)
             raw_ch1 = np.full((lines, n_samp), bg, dtype=np.float32)
             raw_ch0[:, valid_samples] = imgs[0][:, mapped_pixels]
             raw_ch1[:, valid_samples] = imgs[1][:, mapped_pixels]
 
             # Add noise to fill sparse gaps between LUT samples.
-            raw_ch0 += rng.normal(0, 150, raw_ch0.shape).astype(np.float32)
-            raw_ch1 += rng.normal(0, 150, raw_ch1.shape).astype(np.float32)
+            raw_ch0 += rng.normal(0, 200, raw_ch0.shape).astype(np.float32)
+            raw_ch1 += rng.normal(0, 200, raw_ch1.shape).astype(np.float32)
             raw_ch0 = np.clip(raw_ch0, 0, 16383)
             raw_ch1 = np.clip(raw_ch1, 0, 16383)
 
