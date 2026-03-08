@@ -8,6 +8,7 @@ This module defines individual control groups and display widgets:
 - FileStorageGroup: File path and metadata
 - ImageDisplayWidget: Main image display
 - HistogramWidget: Pixel-intensity histogram below the image
+- FrameSelectorWidget: Compact slider to browse frames of a loaded recording
 - CameraPathGroup: Camera controls
 - PMTControlGroup: PMT gain controls
 - ImageDisplayControlGroup: Display settings
@@ -1093,6 +1094,117 @@ class HistogramWidget(QtWidgets.QWidget):
         )
 
         painter.end()
+
+
+class FrameSelectorWidget(QtWidgets.QWidget):
+    """Compact frame selector for browsing loaded .sbx recordings.
+
+    Displays a horizontal slider and a frame counter (e.g. ``"12 / 300"``)
+    so the user can scrub through frames of a previously saved recording.
+
+    The widget is hidden by default and shown via the View menu (similar to
+    the histogram).  It is disabled until :meth:`set_recording` is called
+    with a valid frame count.
+
+    Signals:
+        frame_selected: Emitted with the 0-based frame index whenever the
+            slider is moved.
+    """
+
+    frame_selected = QtCore.pyqtSignal(int)
+
+    _BG_COLOR = "#1a1a1a"
+    _TEXT_COLOR = "#aaaaaa"
+
+    def __init__(self):
+        """Initialize the frame selector widget."""
+        super().__init__()
+        self._num_frames: int = 0
+        self._init_ui()
+        self.setMinimumHeight(28)
+        self.setMaximumHeight(40)
+        self.setMinimumWidth(100)
+        # Dark background matching the histogram.
+        palette = self.palette()
+        palette.setColor(
+            self.backgroundRole(), QtGui.QColor(self._BG_COLOR)
+        )
+        self.setAutoFillBackground(True)
+        self.setPalette(palette)
+        self.setEnabled(False)
+
+    def _init_ui(self) -> None:
+        """Build the widget layout."""
+        layout = QtWidgets.QHBoxLayout()
+        layout.setContentsMargins(8, 2, 8, 2)
+        layout.setSpacing(8)
+
+        self._label = QtWidgets.QLabel("Frame:")
+        self._label.setStyleSheet(f"color: {self._TEXT_COLOR};")
+        layout.addWidget(self._label)
+
+        self._slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        self._slider.setMinimum(0)
+        self._slider.setMaximum(0)
+        self._slider.setValue(0)
+        self._slider.setTickPosition(QtWidgets.QSlider.TickPosition.NoTicks)
+        self._slider.valueChanged.connect(self._on_slider_changed)
+        layout.addWidget(self._slider, stretch=1)
+
+        self._counter_label = QtWidgets.QLabel("0 / 0")
+        self._counter_label.setStyleSheet(f"color: {self._TEXT_COLOR};")
+        self._counter_label.setMinimumWidth(70)
+        self._counter_label.setAlignment(
+            QtCore.Qt.AlignmentFlag.AlignRight
+            | QtCore.Qt.AlignmentFlag.AlignVCenter
+        )
+        layout.addWidget(self._counter_label)
+
+        self.setLayout(layout)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def set_recording(self, num_frames: int) -> None:
+        """Configure the slider for a loaded recording.
+
+        Resets the slider to frame 0 and enables the widget when
+        ``num_frames`` is positive.
+
+        Args:
+            num_frames: Total number of frames in the recording.
+        """
+        self._num_frames = num_frames
+        self._slider.setMinimum(0)
+        self._slider.setMaximum(max(0, num_frames - 1))
+        self._slider.setValue(0)
+        self._update_counter(0)
+        self.setEnabled(num_frames > 0)
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _on_slider_changed(self, value: int) -> None:
+        """Handle slider movement and emit frame_selected.
+
+        Args:
+            value: New 0-based frame index.
+        """
+        self._update_counter(value)
+        self.frame_selected.emit(value)
+
+    def _update_counter(self, index: int) -> None:
+        """Refresh the ``N / M`` counter label.
+
+        Args:
+            index: Current 0-based frame index.
+        """
+        if self._num_frames > 0:
+            self._counter_label.setText(f"{index + 1} / {self._num_frames}")
+        else:
+            self._counter_label.setText("0 / 0")
 
 
 class CameraPathGroup(QtWidgets.QGroupBox):

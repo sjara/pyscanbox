@@ -91,13 +91,17 @@ class RightDisplayPanel(QtWidgets.QWidget):
         self.histogram = widgets.HistogramWidget()
         splitter.addWidget(self.histogram)
 
+        # Middle: Frame selector for browsing loaded recordings (thin strip)
+        self.frame_selector = widgets.FrameSelectorWidget()
+        splitter.addWidget(self.frame_selector)
+
         # Bottom: Secondary controls
         controls_panel = self._create_secondary_controls()
         splitter.addWidget(controls_panel)
 
-        # Distribute vertical space: image gets most, histogram is thin,
-        # controls take a fixed chunk.
-        splitter.setSizes([500, 90, 200])
+        # Distribute vertical space: image gets most, histogram and frame
+        # selector are thin strips, controls take a fixed chunk.
+        splitter.setSizes([500, 90, 36, 200])
 
         # Wire the Image Display gain slider to the image display widget so
         # that moving the slider re-scales the brightness of the next frame.

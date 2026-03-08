@@ -16,6 +16,7 @@ import pyscanbox
 from pyscanbox.gui import app_controller
 from pyscanbox.gui import panels
 from pyscanbox.gui import widgets
+from pyscanbox.io import sbx_reader
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -50,6 +51,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # Hardware controller and acquisition elapsed-time tracking.
         self._ctrl = None
         self._acq_start_time = 0.0
+        # SbxReader for a loaded recording; None when no file is open.
+        self._sbx_reader: sbx_reader.SbxReader | None = None
         # True when a Grab (data-saving) acquisition is running; False for Focus.
         # Used to gate post-acquisition actions that only apply to Grab (e.g.
         # Session ID increment).
@@ -103,6 +106,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # Histogram is hidden by default (can be enabled via View menu).
         self._right_panel.histogram.setVisible(False)
 
+        # Frame selector is hidden by default (can be enabled via View menu).
+        self._right_panel.frame_selector.setVisible(False)
+
         # Create status bar
         self.statusBar = QtWidgets.QStatusBar()
         self.setStatusBar(self.statusBar)
@@ -143,6 +149,13 @@ class MainWindow(QtWidgets.QMainWindow):
         file_menu.addAction(save_action)
         
         file_menu.addSeparator()
+
+        open_data_action = QtGui.QAction("Open &Data...", self)
+        open_data_action.setShortcut("Ctrl+D")
+        open_data_action.triggered.connect(self._open_data_file)
+        file_menu.addAction(open_data_action)
+
+        file_menu.addSeparator()
         
         exit_action = QtGui.QAction("E&xit", self)
         exit_action.setShortcut("Ctrl+Q")
@@ -181,6 +194,14 @@ class MainWindow(QtWidgets.QMainWindow):
         histogram_action.triggered.connect(self._toggle_histogram)
         view_menu.addAction(histogram_action)
         self._histogram_action = histogram_action
+
+        frame_selector_action = QtGui.QAction("Show &Frame Selector", self)
+        frame_selector_action.setShortcut("Ctrl+F")
+        frame_selector_action.setCheckable(True)
+        frame_selector_action.setChecked(False)
+        frame_selector_action.triggered.connect(self._toggle_frame_selector)
+        view_menu.addAction(frame_selector_action)
+        self._frame_selector_action = frame_selector_action
 
         log_action = QtGui.QAction("Show &Command Log", self)
         log_action.setShortcut("Ctrl+L")
@@ -246,6 +267,93 @@ class MainWindow(QtWidgets.QMainWindow):
             checked: True to show the histogram, False to hide it.
         """
         self._right_panel.histogram.setVisible(checked)
+
+    def _toggle_frame_selector(self, checked: bool) -> None:
+        """Show or hide the frame selector widget.
+
+        Args:
+            checked: True to show the frame selector, False to hide it.
+        """
+        self._right_panel.frame_selector.setVisible(checked)
+
+    # ------------------------------------------------------------------
+    # Data loading
+    # ------------------------------------------------------------------
+
+    def _open_data_file(self) -> None:
+        """Open a file dialog to select an .sbx recording and display it.
+
+        Loads the .sbx/.mat pair via :class:`~pyscanbox.io.sbx_reader.SbxReader`,
+        configures the frame selector widget, shows it, and displays the
+        first frame.  Any previously loaded recording is closed first.
+        """
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Open Data File",
+            "",
+            "Scanbox data (*.sbx);;All files (*)",
+        )
+        if not path:
+            return
+
+        # Strip the .sbx extension to get the base path expected by SbxReader.
+        base_path = path[:-4] if path.lower().endswith('.sbx') else path
+
+        # Close any previously loaded recording.
+        if self._sbx_reader is not None:
+            self._sbx_reader.close()
+            self._sbx_reader = None
+
+        try:
+            reader = sbx_reader.SbxReader(base_path)
+        except (FileNotFoundError, ValueError) as exc:
+            QtWidgets.QMessageBox.critical(
+                self, "Failed to open data file", str(exc)
+            )
+            return
+
+        self._sbx_reader = reader
+        frame_sel = self._right_panel.frame_selector
+        frame_sel.set_recording(reader.num_frames)
+        # Wire slider → display (disconnect previous connection first to avoid
+        # duplicate connections when a new file is opened).
+        try:
+            frame_sel.frame_selected.disconnect(self._on_frame_selected)
+        except (RuntimeError, TypeError):
+            pass  # not yet connected
+        frame_sel.frame_selected.connect(self._on_frame_selected)
+
+        # Ensure the frame selector is visible and its menu action is checked.
+        frame_sel.setVisible(True)
+        self._frame_selector_action.setChecked(True)
+
+        # Display the first frame immediately.
+        self._on_frame_selected(0)
+
+        self.statusBar.showMessage(
+            f"Loaded: {os.path.basename(base_path)}.sbx  "
+            f"({reader.num_frames} frames, "
+            f"{reader.num_channels} ch, "
+            f"{reader.lines_per_frame}\u00d7{reader.pixels_per_line})"
+        )
+
+    def _on_frame_selected(self, index: int) -> None:
+        """Display the frame at *index* from the currently loaded recording.
+
+        Retrieves the frame from the memory-mapped SbxReader and forwards it
+        to the image display widget using the same array shape that live
+        acquisition uses: ``(channels, lines_per_frame, pixels_per_line)``.
+
+        Args:
+            index: 0-based frame index.
+        """
+        if self._sbx_reader is None:
+            return
+        try:
+            frame_data = self._sbx_reader.get_frame(index)
+        except IndexError:
+            return
+        self._right_panel.image_display.update_frame(frame_data)
 
     def _on_log_dock_floating(self, floating: bool) -> None:
         """Resize the main window when the log dock is detached or re-docked.
@@ -400,6 +508,9 @@ class MainWindow(QtWidgets.QMainWindow):
             laser = self._left_panel.laser_group
             laser.power_slider.setValue(0)
             self._ctrl.close()
+        if self._sbx_reader is not None:
+            self._sbx_reader.close()
+            self._sbx_reader = None
         super().closeEvent(event)
 
     # ------------------------------------------------------------------
