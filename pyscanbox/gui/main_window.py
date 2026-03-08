@@ -238,25 +238,14 @@ class MainWindow(QtWidgets.QMainWindow):
     def _toggle_histogram(self, checked: bool) -> None:
         """Show or hide the pixel-intensity histogram.
 
-        Also disconnects/reconnects the ``frame_data_ready`` signal so that
-        histogram computation is skipped entirely while the widget is hidden.
+        The ``frame_data_ready`` signal remains permanently connected;
+        ``HistogramWidget.update_frame`` short-circuits immediately when the
+        widget is hidden, so no connect/disconnect management is needed here.
 
         Args:
             checked: True to show the histogram, False to hide it.
         """
         self._right_panel.histogram.setVisible(checked)
-        if self._ctrl is not None:
-            if checked:
-                self._ctrl.frame_data_ready.connect(
-                    self._right_panel.histogram.update_frame
-                )
-            else:
-                try:
-                    self._ctrl.frame_data_ready.disconnect(
-                        self._right_panel.histogram.update_frame
-                    )
-                except RuntimeError:
-                    pass  # signal was not connected; nothing to do
 
     def _on_log_dock_floating(self, floating: bool) -> None:
         """Resize the main window when the log dock is detached or re-docked.
@@ -380,10 +369,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._ctrl.frame_data_ready.connect(
             self._right_panel.image_display.update_frame
         )
-        if self._histogram_action.isChecked():
-            self._ctrl.frame_data_ready.connect(
-                self._right_panel.histogram.update_frame
-            )
+        # Always connected: update_frame is a no-op when the widget is hidden
+        # or when the frame-skip counter has not elapsed (see HistogramWidget).
+        self._ctrl.frame_data_ready.connect(
+            self._right_panel.histogram.update_frame
+        )
         self._ctrl.acquisition_finished.connect(self._on_acquisition_finished)
         self._ctrl.hardware_error.connect(self._on_hardware_error)
 
