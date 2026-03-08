@@ -712,9 +712,11 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         # Build a 3-channel RGB array coloured by PMT channel convention.
         # PMT0 = green (typical fluorescence ch1: GFP, FITC, …)
         # PMT1 = red   (typical fluorescence ch2: tdTomato, RFP, …)
-        # TODO: apply self._lut colormap once re-enabled (was slow; see git log).
+        # Colormap is applied via NumPy fancy indexing (lut[grayscale]) which
+        # runs in compiled C code — fast enough for real-time display.
         if self._channel == 2 and n_channels >= 2:
             # Overlay: R = PMT1 (red), G = PMT0 (green), B = 0.
+            # Colormap is not applied to overlay; channel colours are fixed.
             g = _scale(frame_data[0])
             r = _scale(frame_data[1])
             height, width = g.shape
@@ -722,17 +724,13 @@ class ImageDisplayWidget(QtWidgets.QWidget):
             rgb[:, :, 0] = r
             rgb[:, :, 1] = g
         elif self._channel == 1:
-            # PMT1 → red channel only.
+            # PMT1 → apply colormap (intensity maps as per selected LUT).
             v = _scale(frame_data[min(1, n_channels - 1)])
-            height, width = v.shape
-            rgb = np.zeros((height, width, 3), dtype=np.uint8)
-            rgb[:, :, 0] = v
+            rgb = self._lut[v]  # fancy indexing: (H, W) → (H, W, 3)
         else:
-            # PMT0 (default) → green channel only.
+            # PMT0 (default) → apply colormap.
             v = _scale(frame_data[0])
-            height, width = v.shape
-            rgb = np.zeros((height, width, 3), dtype=np.uint8)
-            rgb[:, :, 1] = v
+            rgb = self._lut[v]  # fancy indexing: (H, W) → (H, W, 3)
 
         self._display_buffer = np.ascontiguousarray(rgb)
         height, width = self._display_buffer.shape[:2]
@@ -1167,18 +1165,18 @@ class ImageDisplayControlGroup(QtWidgets.QGroupBox):
         )
         layout.addWidget(self.display_mode_combobox)
 
-        # Colormap selector (not yet implemented)
-        # layout.addWidget(QtWidgets.QLabel("Colormap:"))
-        # self.colormap_combobox = QtWidgets.QComboBox()
-        # self.colormap_combobox.addItems(["Green", "Green-White", "Gray"])
-        # self.colormap_combobox.setCurrentIndex(0)
-        # self.colormap_combobox.setToolTip(
-        #     "Green: black → green (default, matches Scanbox).\n"
-        #     "Green-White: black → green → white — bright pixels saturate to "
-        #     "white instead of staying green.\n"
-        #     "Gray: standard grayscale (black → white)."
-        # )
-        # layout.addWidget(self.colormap_combobox)
+        # Colormap selector
+        layout.addWidget(QtWidgets.QLabel("Colormap:"))
+        self.colormap_combobox = QtWidgets.QComboBox()
+        self.colormap_combobox.addItems(["Green", "Black-Green-White", "Gray"])
+        self.colormap_combobox.setCurrentIndex(0)
+        self.colormap_combobox.setToolTip(
+            "Green: black → green (default, matches Scanbox).\n"
+            "Green-White: black → green → white — bright pixels saturate to "
+            "white instead of staying green.\n"
+            "Gray: standard grayscale (black → white)."
+        )
+        layout.addWidget(self.colormap_combobox)
 
         # Display gain
         gain_layout = QtWidgets.QVBoxLayout()

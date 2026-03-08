@@ -235,6 +235,11 @@ class AppController(QtCore.QObject):
         # Scanner thread (created by start_focus() / start_grab()).
         self._scanner_thread = None
 
+        # Most-recently sent hardware values for Pockels and PMT gains.
+        # Used in emulation mode to scale mock signal brightness in real time.
+        self._pockels_hw: int = 0
+        self._pmt_hw: list = [0, 0]
+
         # Timer for periodic Knobby position polling.
         self._poll_timer = QtCore.QTimer(self)
         self._poll_timer.setInterval(POSITION_POLL_INTERVAL_MS)
@@ -368,6 +373,9 @@ class AppController(QtCore.QObject):
             logger.error(msg)
             self.hardware_error.emit(msg)
 
+        self._pockels_hw = hw_value
+        self._update_mock_signal_scale()
+
     # ------------------------------------------------------------------
     # Mirror control
     # ------------------------------------------------------------------
@@ -429,6 +437,26 @@ class AppController(QtCore.QObject):
             msg = f"set_pmt_gain(pmt_id={pmt_id}) failed: {exc}"
             logger.error(msg)
             self.hardware_error.emit(msg)
+
+        self._pmt_hw[pmt_id] = hw_value
+        self._update_mock_signal_scale()
+
+    def _update_mock_signal_scale(self) -> None:
+        """Propagate current Pockels/PMT values to the mock Alazar board.
+
+        Only meaningful in emulation mode while a scanner thread is active.
+        Walks the thread → scanner → alazar chain and calls
+        ``set_signal_scale()`` so the live-preview image responds
+        immediately to Pockels and PMT gain slider movements.
+        """
+        if self._scanner_thread is None or not self._scanner_thread.isRunning():
+            return
+        scanner = self._scanner_thread._scanner
+        if scanner is None:
+            return
+        scanner.alazar.set_signal_scale(
+            self._pockels_hw, self._pmt_hw[0], self._pmt_hw[1]
+        )
 
     def set_magnification(self, index: int) -> None:
         """Set the zoom level from the magnification combobox selection.

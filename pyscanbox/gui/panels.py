@@ -116,10 +116,10 @@ class RightDisplayPanel(QtWidgets.QWidget):
             self.image_display.set_display_mode
         )
 
-        # Wire the colormap combobox (not yet implemented).
-        # self.image_display_group.colormap_combobox.currentIndexChanged.connect(
-        #     self.image_display.set_colormap
-        # )
+        # Wire the colormap combobox.
+        self.image_display_group.colormap_combobox.currentIndexChanged.connect(
+            self.image_display.set_colormap
+        )
 
         # Add splitter to layout
         layout = QtWidgets.QVBoxLayout()

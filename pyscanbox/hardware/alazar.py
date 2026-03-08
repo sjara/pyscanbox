@@ -629,6 +629,29 @@ class AlazarDigitizer:
         if self.on_command is not None:
             self.on_command('stop_acquisition', '')
 
+    def set_signal_scale(self, pockels_hw: int,
+                         pmt0_hw: int, pmt1_hw: int) -> None:
+        """Propagate Pockels/PMT gain values to the mock board for live scaling.
+
+        Only meaningful in emulation mode.  Normalises the 0–255 hardware
+        values to [0.0, 1.0] and delegates to the mock board's
+        ``set_signal_scale()`` method.  No-op on real hardware.
+
+        Args:
+            pockels_hw: Pockels active power in hardware units (0–255).
+            pmt0_hw: PMT0 gain in hardware units (0–255).
+            pmt1_hw: PMT1 gain in hardware units (0–255).
+        """
+        if not self.use_emulation:
+            return
+        if (self.board_handle is None
+                or not hasattr(self.board_handle, 'set_signal_scale')):
+            return
+        self.board_handle.set_signal_scale(
+            pockels_hw / 255.0,
+            [pmt0_hw / 255.0, pmt1_hw / 255.0],
+        )
+
     def close(self) -> None:
         """Close connection to Alazar board and cleanup resources."""
         if self.is_acquiring:

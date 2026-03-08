@@ -20,6 +20,17 @@ from typing import Optional, List, Union
 
 logger = logging.getLogger(__name__)
 
+# Background 14-bit value representing the dark state (no laser / no gain).
+# Matches the baseline baked into the pre-computed test frames so that
+# scaling to 0 produces a perfectly flat output.
+_SIGNAL_BASELINE_14BIT = 16383
+
+# Minimum effective signal scale applied even when pockels=0 and pmt_gain=0.
+# At this fraction of full scale the image looks like the real rig at roughly
+# half Pockels / half PMT — enough to see dark features on a dark background
+# without having to touch any sliders immediately after opening the GUI.
+_AMBIENT_SCALE = 0.25
+
 
 class Board:
     """Mock AlazarTech board interface.
@@ -63,8 +74,15 @@ class Board:
 
         # Data generation parameters (inverted PMT: high = dark, low = bright)
         self.noise_level = 200  # RMS noise level (14-bit scale)
-        self.dc_offset = 13000  # High baseline (inverted PMT signal)
+        self.dc_offset = 16383  # Full-dark baseline (inverted PMT signal)
         self.frame_sync_enabled = True
+
+        # Signal scaling: simulate effect of Pockels cell power and PMT gain.
+        # pockels_level and each pmt_gains entry are normalised to [0.0, 1.0].
+        # At 0.0 the emulator outputs a flat dark field; at 1.0 the
+        # pre-computed test frames are emitted unmodified.
+        self.pockels_level: float = 0.0
+        self.pmt_gains: list = [0.0, 0.0]
 
         # Frame-aware synthetic data.  Set via set_frame_shape() before
         # startCapture() to enable realistic test frames instead of noise.
@@ -381,16 +399,86 @@ class Board:
                 buf = np.concatenate([part1, part2])
                 self._sample_pos = needed
 
-            return buf
+            return self._apply_signal_scale(buf)
 
         # --- Fallback: pure noise (no frame shape set) ---
+        # Apply the same ambient floor as _apply_signal_scale so that the
+        # fallback path is consistent with the framed path.
+        pmt_max = max(self.pmt_gains[0], self.pmt_gains[1])
+        raw_scale = self.pockels_level * pmt_max
+        effective_scale = _AMBIENT_SCALE + (1.0 - _AMBIENT_SCALE) * raw_scale
+        effective_noise = max(1, round(self.noise_level * effective_scale))
         noise = np.random.normal(
-            self.dc_offset,
-            self.noise_level,
+            _SIGNAL_BASELINE_14BIT,
+            effective_noise,
             self.buffer_size_samples
         ).astype(np.int32)
         noise = np.clip(noise, 0, 16383)
         return (noise << 2).astype(np.uint16)
+
+    def set_signal_scale(self, pockels_level: float,
+                         pmt_gains: list) -> None:
+        """Update Pockels and PMT gain levels used for live signal scaling.
+
+        Takes effect on the very next buffer without regenerating the
+        pre-computed test frames.  Call this whenever the GUI Pockels or
+        PMT gain controls change so the emulated image responds in real time.
+
+        Args:
+            pockels_level: Normalised laser power (0.0 = off, 1.0 = maximum).
+            pmt_gains: Two-element list [pmt0_gain, pmt1_gain], each 0.0–1.0.
+        """
+        self.pockels_level = float(np.clip(pockels_level, 0.0, 1.0))
+        self.pmt_gains = [
+            float(np.clip(pmt_gains[0], 0.0, 1.0)),
+            float(np.clip(pmt_gains[1], 0.0, 1.0)),
+        ]
+        logger.debug(
+            "Mock Alazar signal scale: pockels=%.3f pmt=[%.3f, %.3f]",
+            self.pockels_level, self.pmt_gains[0], self.pmt_gains[1],
+        )
+
+    def _apply_signal_scale(self, buf: np.ndarray) -> np.ndarray:
+        """Scale the fluorescence dip in a wire-format buffer.
+
+        The pre-computed frames represent maximum-signal data.  This method
+        blends each buffer back toward the flat dark baseline according to
+        the current ``pockels_level`` and ``pmt_gains``, so that lower
+        laser power or PMT gain visibly reduces image brightness.
+
+        Channels are scaled independently: even-indexed samples are PMT0,
+        odd-indexed samples are PMT1.
+
+        Args:
+            buf: Wire-format uint16 array (interleaved ch0/ch1, 14-bit values
+                left-shifted by 2, frame-sync bits in the two LSBs of
+                sample 0).
+
+        Returns:
+            Scaled uint16 array of the same length.
+        """
+        BASELINE = _SIGNAL_BASELINE_14BIT << 2  # in wire units (4 × 14-bit)
+
+        # Mix the raw pockels*pmt product with the ambient floor so that even
+        # at (pockels=0, pmt=0) the image shows _AMBIENT_SCALE of full signal.
+        raw_ch0 = self.pockels_level * self.pmt_gains[0]
+        raw_ch1 = self.pockels_level * self.pmt_gains[1]
+        ch0_scale = _AMBIENT_SCALE + (1.0 - _AMBIENT_SCALE) * raw_ch0
+        ch1_scale = _AMBIENT_SCALE + (1.0 - _AMBIENT_SCALE) * raw_ch1
+
+        data = buf.astype(np.int32)
+        sync_bits = data & 3
+        data_bits = data & ~3  # isolate the 14-bit value (bits 15:2)
+
+        # dip > 0 where there is signal (low ADC = bright fluorescence dip)
+        dip_ch0 = BASELINE - data_bits[0::2]
+        dip_ch1 = BASELINE - data_bits[1::2]
+        result = data_bits.copy()
+        result[0::2] = BASELINE - np.round(dip_ch0 * ch0_scale).astype(np.int32)
+        result[1::2] = BASELINE - np.round(dip_ch1 * ch1_scale).astype(np.int32)
+        result = np.clip(result, 0, 65532) & ~3  # stay within 14-bit wire range
+        result |= sync_bits
+        return result.astype(np.uint16)
 
     def _prepare_test_frames(self) -> None:
         """Pre-compute a bank of synthetic test frames.
@@ -415,8 +503,8 @@ class Board:
         ny = rng.integers(2, max(3, lines  - 2), n_neurons).astype(np.float32)
         nx = rng.integers(2, max(3, pixels - 2), n_neurons).astype(np.float32)
         # Signal strength: how much the signal dips below baseline (inverted PMT)
-        signal_strength = rng.uniform(3000, 8000, n_neurons).astype(np.float32)  
-        sigma = rng.uniform(4, 10, n_neurons).astype(np.float32)       # px
+        signal_strength = rng.uniform(8000, 16383, n_neurons).astype(np.float32)  
+        sigma = rng.uniform(8, 20, n_neurons).astype(np.float32)       # px
 
         # 1-D coordinate arrays for outer-product Gaussian computation.
         yy = np.arange(lines,  dtype=np.float32)   # (lines,)
@@ -424,9 +512,8 @@ class Board:
 
         frames = []
         for f in range(n):
-            # Start with high baseline (inverted PMT: high = dark)
-            # Use ~13000 as baseline with some noise
-            imgs = np.full((2, lines, pixels), 13000.0, dtype=np.float32)
+            # Start with full-dark baseline (inverted PMT: high = dark)
+            imgs = np.full((2, lines, pixels), 16383.0, dtype=np.float32)
             imgs += rng.normal(0, 200, imgs.shape).astype(np.float32)
 
             for i in range(n_neurons):
@@ -490,8 +577,8 @@ class Board:
         ny = rng.integers(2, max(3, lines  - 2), n_neurons).astype(np.float32)
         nx = rng.integers(2, max(3, pixels - 2), n_neurons).astype(np.float32)
         # Signal strength: how much the signal dips below baseline (inverted PMT)
-        signal_strength = rng.uniform(3000, 8000, n_neurons).astype(np.float32)
-        sigma = rng.uniform(4, 10, n_neurons).astype(np.float32)
+        signal_strength = rng.uniform(8000, 16383, n_neurons).astype(np.float32)
+        sigma = rng.uniform(8, 20, n_neurons).astype(np.float32)
 
         yy = np.arange(lines,  dtype=np.float32)
         xx = np.arange(pixels, dtype=np.float32)
@@ -513,8 +600,8 @@ class Board:
 
         frames = []
         for f in range(n):
-            # Start with high baseline (inverted PMT: high = dark)
-            imgs = np.full((2, lines, pixels), 13000.0, dtype=np.float32)
+            # Start with full-dark baseline (inverted PMT: high = dark)
+            imgs = np.full((2, lines, pixels), 16383.0, dtype=np.float32)
             imgs += rng.normal(0, 200, imgs.shape).astype(np.float32)
 
             for i in range(n_neurons):
@@ -531,8 +618,8 @@ class Board:
             imgs = np.clip(imgs, 0, 16383)
 
             # Map display pixels → raw sample positions (vectorised).
-            # Uninitialised raw samples get high baseline (inverted PMT).
-            bg = 13000.0
+            # Uninitialised raw samples get full-dark baseline (inverted PMT).
+            bg = 16383.0
             raw_ch0 = np.full((lines, n_samp), bg, dtype=np.float32)
             raw_ch1 = np.full((lines, n_samp), bg, dtype=np.float32)
             raw_ch0[:, valid_samples] = imgs[0][:, mapped_pixels]
