@@ -902,14 +902,14 @@ class HistogramWidget(QtWidgets.QWidget):
         self.setMinimumWidth(100)
         self.setToolTip(
             "Pixel intensity histogram (channel 0, 256 bins, 14-bit range)\n"
-            "X-axis: raw ADC value 0 (left) → 16383 (right)"
+            "X-axis: display value 0 = dark background (left) → 16383 = max signal (right)"
         )
 
         # "zeros" checkbox overlaid in the top-right corner.
         self._show_zeros_cb = QtWidgets.QCheckBox("zeros", self)
         self._show_zeros_cb.setChecked(False)
         self._show_zeros_cb.setToolTip(
-            "Show zero-valued pixels (bin 0) in the histogram"
+            "Show dark-background pixels (display value ≈ 0, raw ADC ≈ 16383) in the histogram"
         )
         self._show_zeros_cb.setStyleSheet(
             "QCheckBox { color: #777777; font-size: 7pt; background: transparent; }"
@@ -999,8 +999,11 @@ class HistogramWidget(QtWidgets.QWidget):
             painter.end()
             return
 
-        # Optionally suppress the zero-valued bin.
-        disp_counts = self._counts.copy()
+        # Flip so that high raw ADC values (dark background) sit on the left
+        # and low raw ADC values (bright signal) sit on the right.  After the
+        # flip, index 0 corresponds to raw ≈ 16383 (display value ≈ 0, dark).
+        disp_counts = self._counts[::-1].copy()
+        # Optionally suppress the dark-background bin (index 0 after flip).
         if not self._show_zeros_cb.isChecked():
             disp_counts[0] = 0
 
