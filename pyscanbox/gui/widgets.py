@@ -842,9 +842,18 @@ class HistogramWidget(QtWidgets.QWidget):
     Displays a 256-bin histogram of the raw 14-bit pixel values from
     channel 0 (PMT0) of the most recently acquired frame.
 
-    The y-axis auto-scales to the maximum bin count, excluding the very
-    first bin (value == 0) which is often dominated by the dark background
-    and would otherwise compress all other bars to near-zero height.
+    Display conventions
+    -------------------
+    * The x-axis spans the full 14-bit range with a **fixed scale**: raw
+      value 0 on the left, 16383 on the right.  This makes it easy to see
+      how the distribution shifts when PMT gain or Pockels power changes.
+    * Fixed axis labels "0" and "16383" are painted at the bottom corners.
+    * A small "zeros" checkbox in the top-right corner controls whether bin 0
+      (pixels at raw value 0) is included in the display and the y-scale.
+      Bin 0 is often dominated by the zero-padding / sync pixels and can
+      dwarf the signal bins; hiding it reveals fine structure elsewhere.
+    * The y-axis always auto-scales, excluding bin 0 from the scaling
+      reference regardless of whether it is shown.
 
     Performance design
     ------------------
@@ -853,13 +862,13 @@ class HistogramWidget(QtWidgets.QWidget):
     * The histogram is recomputed only every ``UPDATE_EVERY`` frames to keep
       the main thread load negligible even at high frame rates.
     * Data reduction: only every 4th pixel is sampled (``SUBSAMPLE``).
-      At 512×512, this reduces the working set from 262 K to 65 K elements
+      At 512×512 this reduces the working set from 262 K to 65 K elements
       with no perceptible change in histogram shape.
     * Bin counts use ``np.bincount`` on 14-bit integers, which is 3–5× faster
       than ``np.histogram`` for integer data.
     * ``paintEvent`` uses fully vectorised numpy arithmetic; no per-bin Python
       loop remains.  The polygon and border lines are built from numpy arrays
-      converted to Qt objects in a single list comprehension each.
+      converted to Qt objects in a single pass.
     """
 
     # Number of histogram bins.  256 gives one bin per 8-bit equivalent level.
@@ -876,7 +885,9 @@ class HistogramWidget(QtWidgets.QWidget):
     _BAR_COLOR = QtGui.QColor("#4a7eb5")
     _BORDER_COLOR = QtGui.QColor("#6aaedf")
     _AXIS_COLOR = QtGui.QColor("#555555")
-    _PADDING = 4  # px inside the widget edges
+    _LABEL_COLOR = QtGui.QColor("#888888")
+    _PADDING = 4        # px inside the widget edges (left / right / top)
+    _LABEL_HEIGHT = 11  # px reserved at the bottom for axis tick labels
 
     # Number of 14-bit values per histogram bin (16384 / 256 = 64).
     _VALUES_PER_BIN = (_ADC_MAX + 1) // NUM_BINS
@@ -889,7 +900,35 @@ class HistogramWidget(QtWidgets.QWidget):
         self.setMinimumHeight(80)
         self.setMaximumHeight(120)
         self.setMinimumWidth(100)
-        self.setToolTip("Pixel intensity histogram (channel 0, 256 bins, 14-bit range)")
+        self.setToolTip(
+            "Pixel intensity histogram (channel 0, 256 bins, 14-bit range)\n"
+            "X-axis: raw ADC value 0 (left) → 16383 (right)"
+        )
+
+        # "zeros" checkbox overlaid in the top-right corner.
+        self._show_zeros_cb = QtWidgets.QCheckBox("zeros", self)
+        self._show_zeros_cb.setChecked(False)
+        self._show_zeros_cb.setToolTip(
+            "Show zero-valued pixels (bin 0) in the histogram"
+        )
+        self._show_zeros_cb.setStyleSheet(
+            "QCheckBox { color: #777777; font-size: 7pt; background: transparent; }"
+            "QCheckBox::indicator { width: 9px; height: 9px; }"
+        )
+        # Redraw when toggled so the change is immediate.
+        self._show_zeros_cb.toggled.connect(self.update)
+        self._reposition_checkbox()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        """Reposition the zeros checkbox when the widget is resized."""
+        super().resizeEvent(event)
+        self._reposition_checkbox()
+
+    def _reposition_checkbox(self) -> None:
+        """Place the zeros checkbox in the top-right corner."""
+        cb = self._show_zeros_cb
+        cb.adjustSize()
+        cb.move(self.width() - cb.width() - self._PADDING, self._PADDING)
 
     def update_frame(self, frame_data: np.ndarray) -> None:
         """Recompute the histogram from a newly acquired frame.
@@ -924,14 +963,14 @@ class HistogramWidget(QtWidgets.QWidget):
         self.update()  # schedule a repaint
 
     def paintEvent(self, event) -> None:  # noqa: N802  (Qt naming convention)
-        """Paint the histogram bars using QPainter.
+        """Paint the histogram bars and axis labels using QPainter.
 
-        Draws a filled area chart: a vertical bar for each of the 256 bins
-        scaled to fill the available height.  The y-axis is auto-scaled to
-        the maximum count across bins 1–255 (bin 0, the zero-valued pixels,
-        is excluded from scaling because it is typically orders of magnitude
-        larger than the signal bins and would squash the useful part of the
-        histogram).
+        The x-axis has a fixed scale: bin 0 (raw value 0) on the left,
+        bin 255 (raw value 16383) on the right.  The y-axis auto-scales to
+        the maximum count across bins 1–255; bin 0 is excluded from the
+        scaling reference so a dominant zero-pixel spike does not compress
+        the rest of the chart.  When the "zeros" checkbox is unchecked, bin 0
+        is drawn as zero.
 
         All per-bin coordinate arithmetic is fully vectorised with numpy;
         no Python loop iterates over individual bins.
@@ -945,6 +984,7 @@ class HistogramWidget(QtWidgets.QWidget):
         w = self.width()
         h = self.height()
         p = self._PADDING
+        lh = self._LABEL_HEIGHT
 
         # Background
         painter.fillRect(0, 0, w, h, self._BG_COLOR)
@@ -959,40 +999,44 @@ class HistogramWidget(QtWidgets.QWidget):
             painter.end()
             return
 
-        # Auto-scale: ignore bin 0 (background) for the y-maximum.
-        max_count = int(self._counts[1:].max()) if len(self._counts) > 1 else 1
+        # Optionally suppress the zero-valued bin.
+        disp_counts = self._counts.copy()
+        if not self._show_zeros_cb.isChecked():
+            disp_counts[0] = 0
+
+        # Chart area sits above the label strip.
+        chart_bottom = h - lh          # leave lh px for axis labels
+        draw_w = w - 2 * p
+        draw_h = chart_bottom - p      # chart top = p (top padding)
+        n = len(disp_counts)           # always NUM_BINS = 256
+
+        # Y auto-scale: bin 0 is always excluded from the reference maximum
+        # so a large zero-pixel spike never compresses the signal bars.
+        max_count = int(disp_counts[1:].max()) if n > 1 else 1
         if max_count == 0:
             max_count = 1
 
-        draw_w = w - 2 * p
-        draw_h = h - 2 * p
-        n = len(self._counts)
-
-        # --- Vectorised coordinate computation (no per-bin Python loop) ---
+        # --- Vectorised coordinate computation ---
         indices = np.arange(n)
         xs_left = (p + indices * draw_w // n).astype(np.int32)
         xs_right = (p + (indices + 1) * draw_w // n).astype(np.int32)
-        # Ensure each bar is at least 1 px wide.
         xs_right = np.maximum(xs_right, xs_left + 1)
-        clamped = np.minimum(self._counts, max_count)
+        clamped = np.minimum(disp_counts, max_count)
         bar_heights = (clamped * draw_h // max_count).astype(np.int32)
-        y_tops = (h - p - bar_heights).astype(np.int32)
+        y_tops = (chart_bottom - bar_heights).astype(np.int32)
 
         # --- Filled polygon ---
-        # Layout: for each bin i → (xs_left[i], y_tops[i]), (xs_right[i], y_tops[i])
-        # then two closing points at the bottom-right and bottom-left corners.
+        # Vertices: left-top and right-top of each bar, then two closing
+        # points along the baseline.
         pts = np.empty((2 * n + 2, 2), dtype=np.int32)
         pts[0:2 * n:2, 0] = xs_left
         pts[1:2 * n:2, 0] = xs_right
         pts[0:2 * n:2, 1] = y_tops
         pts[1:2 * n:2, 1] = y_tops
-        pts[2 * n] = [w - p, h - p]
-        pts[2 * n + 1] = [p, h - p]
+        pts[2 * n] = [w - p, chart_bottom]
+        pts[2 * n + 1] = [p, chart_bottom]
 
-        xs_l = xs_left.tolist()
-        xs_r = xs_right.tolist()
-        yt = y_tops.tolist()
-        poly_pts = [QtCore.QPoint(x, y) for row in pts.tolist() for x, y in [row]]
+        poly_pts = [QtCore.QPoint(x, y) for x, y in pts.tolist()]
         poly = QtGui.QPolygon(poly_pts)
 
         painter.setPen(QtCore.Qt.PenStyle.NoPen)
@@ -1000,6 +1044,9 @@ class HistogramWidget(QtWidgets.QWidget):
         painter.drawPolygon(poly)
 
         # --- Thin bright border along the top of each bar ---
+        xs_l = xs_left.tolist()
+        xs_r = xs_right.tolist()
+        yt = y_tops.tolist()
         painter.setPen(QtGui.QPen(self._BORDER_COLOR, 1))
         border_lines = [
             QtCore.QLine(x1, y, x2, y)
@@ -1007,9 +1054,25 @@ class HistogramWidget(QtWidgets.QWidget):
         ]
         painter.drawLines(border_lines)
 
-        # Baseline
+        # --- Baseline ---
         painter.setPen(QtGui.QPen(self._AXIS_COLOR, 1))
-        painter.drawLine(p, h - p, w - p, h - p)
+        painter.drawLine(p, chart_bottom, w - p, chart_bottom)
+
+        # --- Fixed axis labels: "0" at the left edge, "16383" at the right ---
+        font = painter.font()
+        font.setPointSize(7)
+        painter.setFont(font)
+        painter.setPen(QtGui.QPen(self._LABEL_COLOR))
+        painter.drawText(
+            QtCore.QRect(p, chart_bottom, draw_w // 2, lh),
+            QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter,
+            "0",
+        )
+        painter.drawText(
+            QtCore.QRect(p + draw_w // 2, chart_bottom, draw_w // 2, lh),
+            QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter,
+            str(self._ADC_MAX),
+        )
 
         painter.end()
 
