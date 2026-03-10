@@ -628,17 +628,162 @@ class FileStorageGroup(QtWidgets.QGroupBox):
         self._snapshot_index += 1
 
 
+class _ImageCanvas(QtWidgets.QGraphicsView):
+    """Internal QGraphicsView used by ImageDisplayWidget for zoom and pan.
+
+    Gestures:
+    - **Mouse wheel**: zoom in/out centred on the cursor position.
+    - **Left-click drag**: pan the image.
+    - **Right-click**: context menu — Fit to Window, Zoom In, Zoom Out,
+      Actual Size (1:1).
+
+    The view starts in *fit mode*: the image is automatically scaled to fill
+    the available space while preserving aspect ratio.  Any zoom gesture
+    switches to *manual zoom* mode.  "Fit to Window" in the context menu
+    (or ``fit_to_window()``) restores fit mode.
+    """
+
+    _ZOOM_FACTOR = 1.25  # scale multiplier per wheel step
+
+    # Nominal scene size used for the placeholder text before the first frame.
+    _PLACEHOLDER_W = 512
+    _PLACEHOLDER_H = 512
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._scene = QtWidgets.QGraphicsScene(self)
+        self.setScene(self._scene)
+
+        # Placeholder text shown before the first frame arrives.
+        self._placeholder = self._scene.addText(
+            "Image Display\n(Live preview will appear here)"
+        )
+        self._placeholder.setDefaultTextColor(QtGui.QColor("#969696"))
+        self._placeholder.setFont(QtGui.QFont("Arial", 14))
+        self._scene.setSceneRect(0, 0, self._PLACEHOLDER_W, self._PLACEHOLDER_H)
+        br = self._placeholder.boundingRect()
+        self._placeholder.setPos(
+            (self._PLACEHOLDER_W - br.width()) / 2,
+            (self._PLACEHOLDER_H - br.height()) / 2,
+        )
+
+        # Pixmap item sits above the placeholder.
+        self._pixmap_item = QtWidgets.QGraphicsPixmapItem()
+        self._pixmap_item.setZValue(1)
+        self._scene.addItem(self._pixmap_item)
+
+        # True = auto-fit; any user zoom sets this to False.
+        self._is_fit: bool = True
+
+        self.setStyleSheet("background-color: #1e1e1e; border: none;")
+        self.setHorizontalScrollBarPolicy(
+            QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self.setVerticalScrollBarPolicy(
+            QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        # No smooth scaling during live acquisition — FastTransformation is
+        # fast enough and avoids blurring at 1:1 or lower zoom levels.
+        self.setRenderHint(
+            QtGui.QPainter.RenderHint.SmoothPixmapTransform, False
+        )
+        # Zoom anchored to whichever pixel the cursor is over.
+        self.setTransformationAnchor(
+            QtWidgets.QGraphicsView.ViewportAnchor.AnchorUnderMouse
+        )
+        self.setResizeAnchor(
+            QtWidgets.QGraphicsView.ViewportAnchor.AnchorViewCenter
+        )
+        # Left-click drag = pan.
+        self.setDragMode(QtWidgets.QGraphicsView.DragMode.ScrollHandDrag)
+
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
+
+    def set_pixmap(self, pixmap: QtGui.QPixmap) -> None:
+        """Replace the displayed image with *pixmap*.
+
+        Called from ``ImageDisplayWidget.update_frame`` on every new frame.
+        The view's scene rectangle is updated to match the pixmap dimensions
+        so that ``fitInView`` works correctly.
+        """
+        self._pixmap_item.setPixmap(pixmap)
+        if self._placeholder.isVisible():
+            self._placeholder.setVisible(False)
+        self._scene.setSceneRect(self._pixmap_item.boundingRect())
+        if self._is_fit:
+            self._fit_in_view()
+
+    def fit_to_window(self) -> None:
+        """Switch to fit mode and scale the image to fill the view."""
+        self._is_fit = True
+        self._fit_in_view()
+
+    # ------------------------------------------------------------------
+    # Qt event overrides
+    # ------------------------------------------------------------------
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if self._is_fit:
+            self._fit_in_view()
+
+    def wheelEvent(self, event: QtGui.QWheelEvent) -> None:
+        """Zoom in or out centred on the cursor position."""
+        if event.angleDelta().y() > 0:
+            factor = self._ZOOM_FACTOR
+        else:
+            factor = 1.0 / self._ZOOM_FACTOR
+        self._is_fit = False
+        self.scale(factor, factor)
+
+    def contextMenuEvent(self, event: QtGui.QContextMenuEvent) -> None:
+        """Show a right-click context menu with zoom/view actions."""
+        menu = QtWidgets.QMenu(self)
+        fit_action       = menu.addAction("Fit to Window")
+        menu.addSeparator()
+        zoom_in_action   = menu.addAction("Zoom In")
+        zoom_out_action  = menu.addAction("Zoom Out")
+        actual_action    = menu.addAction("Actual Size (1:1)")
+        action = menu.exec(event.globalPos())
+        if action == fit_action:
+            self.fit_to_window()
+        elif action == zoom_in_action:
+            self._is_fit = False
+            self.scale(self._ZOOM_FACTOR, self._ZOOM_FACTOR)
+        elif action == zoom_out_action:
+            self._is_fit = False
+            self.scale(1.0 / self._ZOOM_FACTOR, 1.0 / self._ZOOM_FACTOR)
+        elif action == actual_action:
+            self._is_fit = False
+            self.resetTransform()
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _fit_in_view(self) -> None:
+        rect = self._pixmap_item.boundingRect()
+        if not rect.isNull():
+            self.fitInView(rect, QtCore.Qt.AspectRatioMode.KeepAspectRatio)
+
+
 class ImageDisplayWidget(QtWidgets.QWidget):
     """Main image display widget for real-time frame visualization.
 
-    Displays the most recently acquired frame as a grayscale image.  The
+    Displays the most recently acquired frame as a coloured image.  The
     frame data (numpy array) is delivered by calling ``update_frame()``
     which is connected to ``AppController.frame_data_ready`` in
     ``MainWindow._connect_hardware()``.
 
-    Channel selection and other display controls (colormap, histogram, …)
-    are deferred to Milestone 2.3.2 (Advanced Visualization).  Currently
-    channel 0 (PMT0) is always displayed.
+    Zoom and pan are handled by the embedded :class:`_ImageCanvas`
+    (``QGraphicsView``):
+
+    - **Mouse wheel**: zoom in/out centred on the cursor.
+    - **Left-click drag**: pan.
+    - **Right-click**: context menu — Fit to Window, Zoom In, Zoom Out,
+      Actual Size (1:1).
     """
 
     # Slider range is 1–100; gain = slider_value / 10  (0.1x … 10.0x).
@@ -672,15 +817,8 @@ class ImageDisplayWidget(QtWidgets.QWidget):
     def _init_ui(self):
         """Initialize the UI components."""
         layout = QtWidgets.QVBoxLayout()
-
-        self.image_label = QtWidgets.QLabel()
-        self.image_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.image_label.setMinimumSize(1, 1)
-        self.image_label.setStyleSheet("background-color: #1e1e1e; color: #969696;")
-        self.image_label.setText("Image Display\n(Live preview will appear here)")
-        self.image_label.setFont(QtGui.QFont("Arial", 14))
-
-        layout.addWidget(self.image_label)
+        self._canvas = _ImageCanvas()
+        layout.addWidget(self._canvas)
         layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)
 
@@ -766,13 +904,7 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         )
 
         pixmap = QtGui.QPixmap.fromImage(img)
-        self.image_label.setPixmap(
-            pixmap.scaled(
-                self.image_label.size(),
-                QtCore.Qt.AspectRatioMode.KeepAspectRatio,
-                QtCore.Qt.TransformationMode.FastTransformation,
-            )
-        )
+        self._canvas.set_pixmap(pixmap)
 
     def set_gain(self, slider_value: int) -> None:
         """Update the display gain from the Image Display gain slider.
