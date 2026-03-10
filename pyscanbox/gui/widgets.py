@@ -697,6 +697,41 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         # Left-click drag = pan.
         self.setDragMode(QtWidgets.QGraphicsView.DragMode.ScrollHandDrag)
 
+        # ------------------------------------------------------------------
+        # Marker state
+        # ------------------------------------------------------------------
+        self._marker_mode: bool = False
+        self._markers: list = []   # list of (QGraphicsEllipseItem, QGraphicsTextItem)
+        self._marker_count: int = 0
+
+        # Small toggle button overlaid on the top-right corner of the view.
+        # It is a direct child widget of _ImageCanvas so it floats above the
+        # scene without affecting the layout of ImageDisplayWidget.
+        self._mark_button = QtWidgets.QPushButton("✛", self)
+        self._mark_button.setCheckable(True)
+        self._mark_button.setFixedSize(28, 28)
+        self._mark_button.setToolTip(
+            "Marker mode — click to place numbered markers\n"
+            "Press Esc or click again to exit"
+        )
+        self._mark_button.setStyleSheet(
+            "QPushButton {"
+            "  background: rgba(40,40,40,180);"
+            "  color: #cccccc;"
+            "  border: 1px solid #555;"
+            "  border-radius: 4px;"
+            "  font-size: 14px;"
+            "}"
+            "QPushButton:checked {"
+            "  background: rgba(180,140,0,200);"
+            "  color: #ffffff;"
+            "  border: 1px solid #ffcc00;"
+            "}"
+            "QPushButton:hover { border: 1px solid #888; }"
+        )
+        self._mark_button.toggled.connect(self._on_mark_toggled)
+        self._reposition_mark_button()
+
     # ------------------------------------------------------------------
     # Public interface
     # ------------------------------------------------------------------
@@ -728,6 +763,7 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         super().resizeEvent(event)
         if self._is_fit:
             self._fit_in_view()
+        self._reposition_mark_button()
 
     def wheelEvent(self, event: QtGui.QWheelEvent) -> None:
         """Zoom in or out centred on the cursor position."""
@@ -738,6 +774,22 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         self._is_fit = False
         self.scale(factor, factor)
 
+    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
+        """Place a marker on left-click when marker mode is active."""
+        if (self._marker_mode
+                and event.button() == QtCore.Qt.MouseButton.LeftButton):
+            scene_pos = self.mapToScene(event.pos())
+            self._add_marker(scene_pos)
+            return  # do not pan
+        super().mousePressEvent(event)
+
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
+        """Exit marker mode on Esc."""
+        if event.key() == QtCore.Qt.Key.Key_Escape and self._marker_mode:
+            self._mark_button.setChecked(False)
+            return
+        super().keyPressEvent(event)
+
     def contextMenuEvent(self, event: QtGui.QContextMenuEvent) -> None:
         """Show a right-click context menu with zoom/view actions."""
         menu = QtWidgets.QMenu(self)
@@ -746,6 +798,8 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         zoom_in_action   = menu.addAction("Zoom In")
         zoom_out_action  = menu.addAction("Zoom Out")
         actual_action    = menu.addAction("Actual Size (1:1)")
+        menu.addSeparator()
+        clear_action     = menu.addAction("Clear Markers")
         action = menu.exec(event.globalPos())
         if action == fit_action:
             self.fit_to_window()
@@ -758,6 +812,8 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         elif action == actual_action:
             self._is_fit = False
             self.resetTransform()
+        elif action == clear_action:
+            self.clear_markers()
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -767,6 +823,47 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         rect = self._pixmap_item.boundingRect()
         if not rect.isNull():
             self.fitInView(rect, QtCore.Qt.AspectRatioMode.KeepAspectRatio)
+
+    def _reposition_mark_button(self) -> None:
+        """Keep the Mark button in the top-right corner of the viewport."""
+        margin = 6
+        btn = self._mark_button
+        btn.move(self.width() - btn.width() - margin, margin)
+        btn.raise_()
+
+    def _on_mark_toggled(self, enabled: bool) -> None:
+        """Switch between marker mode and normal pan mode."""
+        self._marker_mode = enabled
+        if enabled:
+            self.setDragMode(QtWidgets.QGraphicsView.DragMode.NoDrag)
+            self.setCursor(QtCore.Qt.CursorShape.CrossCursor)
+        else:
+            self.setDragMode(QtWidgets.QGraphicsView.DragMode.ScrollHandDrag)
+            self.unsetCursor()
+
+    def _add_marker(self, scene_pos: QtCore.QPointF) -> None:
+        """Add a circular marker at *scene_pos* (image coordinates)."""
+        self._marker_count += 1
+        r = 5   # radius in image pixels
+        color = QtGui.QColor(255, 220, 0)   # yellow
+        pen = QtGui.QPen(color, 1.5)
+
+        ellipse = self._scene.addEllipse(
+            scene_pos.x() - r, scene_pos.y() - r, r * 2, r * 2,
+            pen,
+            QtGui.QBrush(QtCore.Qt.BrushStyle.NoBrush),
+        )
+        ellipse.setZValue(2)
+        self._markers.append(ellipse)
+        print(f"Marker {self._marker_count}: "
+              f"({scene_pos.x():.1f}, {scene_pos.y():.1f}) px")
+
+    def clear_markers(self) -> None:
+        """Remove all markers from the scene and reset the counter."""
+        for ellipse in self._markers:
+            self._scene.removeItem(ellipse)
+        self._markers.clear()
+        self._marker_count = 0
 
 
 class ImageDisplayWidget(QtWidgets.QWidget):
