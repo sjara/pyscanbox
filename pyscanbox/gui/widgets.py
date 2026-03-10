@@ -120,8 +120,9 @@ class LaserControlGroup(QtWidgets.QGroupBox):
         
         # Power slider (Pockels control)
         power_layout = QtWidgets.QVBoxLayout()
-        power_layout.addWidget(QtWidgets.QLabel("Power (Pockels)"))
-        
+        self.power_label = QtWidgets.QLabel("Power (Pockels):  0%")
+        power_layout.addWidget(self.power_label)
+
         self.power_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.power_slider.setRange(0, 100)
         self.power_slider.setValue(0)
@@ -129,13 +130,9 @@ class LaserControlGroup(QtWidgets.QGroupBox):
         self.power_slider.setTickInterval(10)
         self.power_slider.setSingleStep(2)  # 2% step for mouse wheel
         power_layout.addWidget(self.power_slider)
-        
-        self.power_label = QtWidgets.QLabel("0%")
-        self.power_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        power_layout.addWidget(self.power_label)
-        
+
         self.power_slider.valueChanged.connect(
-            lambda v: self.power_label.setText(f"{v}%")
+            lambda v: self.power_label.setText(f"Power (Pockels):  {v}%")
         )
         
         layout.addLayout(power_layout)
@@ -1618,38 +1615,32 @@ class PMTControlGroup(QtWidgets.QGroupBox):
         
         # PMT0 gain
         pmt0_layout = QtWidgets.QVBoxLayout()
-        pmt0_layout.addWidget(QtWidgets.QLabel("PMT0 Gain"))
-        
+        self.pmt0_label = QtWidgets.QLabel("PMT0 Gain:  0%")
+        pmt0_layout.addWidget(self.pmt0_label)
+
         self.pmt0_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.pmt0_slider.setRange(0, 100)
         self.pmt0_slider.setValue(0)
         pmt0_layout.addWidget(self.pmt0_slider)
-        
-        self.pmt0_label = QtWidgets.QLabel("0%")
-        self.pmt0_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        pmt0_layout.addWidget(self.pmt0_label)
-        
+
         self.pmt0_slider.valueChanged.connect(
-            lambda v: self.pmt0_label.setText(f"{v}%")
+            lambda v: self.pmt0_label.setText(f"PMT0 Gain:  {v}%")
         )
         
         layout.addLayout(pmt0_layout)
         
         # PMT1 gain
         pmt1_layout = QtWidgets.QVBoxLayout()
-        pmt1_layout.addWidget(QtWidgets.QLabel("PMT1 Gain"))
-        
+        self.pmt1_label = QtWidgets.QLabel("PMT1 Gain:  0%")
+        pmt1_layout.addWidget(self.pmt1_label)
+
         self.pmt1_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.pmt1_slider.setRange(0, 100)
         self.pmt1_slider.setValue(0)
         pmt1_layout.addWidget(self.pmt1_slider)
-        
-        self.pmt1_label = QtWidgets.QLabel("0%")
-        self.pmt1_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        pmt1_layout.addWidget(self.pmt1_label)
-        
+
         self.pmt1_slider.valueChanged.connect(
-            lambda v: self.pmt1_label.setText(f"{v}%")
+            lambda v: self.pmt1_label.setText(f"PMT1 Gain:  {v}%")
         )
         
         layout.addLayout(pmt1_layout)
@@ -1699,19 +1690,16 @@ class ImageDisplayControlGroup(QtWidgets.QGroupBox):
 
         # Display gain
         gain_layout = QtWidgets.QVBoxLayout()
-        gain_layout.addWidget(QtWidgets.QLabel("Gain"))
-        
+        self.gain_label = QtWidgets.QLabel("Gain:  1.0x")
+        gain_layout.addWidget(self.gain_label)
+
         self.gain_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.gain_slider.setRange(1, 100)
         self.gain_slider.setValue(10)
         gain_layout.addWidget(self.gain_slider)
-        
-        self.gain_label = QtWidgets.QLabel("1.0x")
-        self.gain_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        gain_layout.addWidget(self.gain_label)
-        
+
         self.gain_slider.valueChanged.connect(
-            lambda v: self.gain_label.setText(f"{v/10:.1f}x")
+            lambda v: self.gain_label.setText(f"Gain:  {v/10:.1f}x")
         )
         
         layout.addLayout(gain_layout)

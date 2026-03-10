@@ -124,8 +124,10 @@ class RightDisplayPanel(QtWidgets.QWidget):
     def _create_secondary_controls(self):
         """Create the secondary controls panel.
 
-        Uses a horizontal QSplitter so the user can resize individual panels.
-        Initial widths: Objective Position = 300 px; all other groups = 200 px.
+        A two-item QSplitter gives a single resize handle between Objective
+        Position (left, initially 300 px) and the remaining three panels
+        (right).  PMT Control, Image Display, and Optotune share the right
+        side equally with no handles between them.
 
         Returns:
             QSplitter containing the secondary control group boxes.
@@ -147,12 +149,21 @@ class RightDisplayPanel(QtWidgets.QWidget):
         etl_default = config_dict.get('optotune', {}).get('default_value', None)
         self.optotune_group = widgets.OptotuneGroup(default_value=etl_default)
 
+        # Left side: Objective Position (resizable via splitter handle).
         splitter.addWidget(self.position_group)
-        splitter.addWidget(self.pmt_group)
-        splitter.addWidget(self.image_display_group)
-        splitter.addWidget(self.optotune_group)
 
-        # Objective Position wider (300); remaining panels narrower (200 each).
-        splitter.setSizes([300, 200, 200, 200])
+        # Right side: PMT Control, Image Display, Optotune in a plain
+        # QHBoxLayout — equal stretch, no handles between them.
+        right_container = QtWidgets.QWidget()
+        right_layout = QtWidgets.QHBoxLayout(right_container)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(4)
+        right_layout.addWidget(self.pmt_group)
+        right_layout.addWidget(self.image_display_group)
+        right_layout.addWidget(self.optotune_group)
+        splitter.addWidget(right_container)
+
+        # Objective Position 300 px; right container takes the rest.
+        splitter.setSizes([300, 600])
 
         return splitter
