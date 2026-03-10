@@ -115,11 +115,6 @@ class RightDisplayPanel(QtWidgets.QWidget):
             self.image_display.set_channel
         )
 
-        # Wire the display mode combobox (Fluorescence / Direct).
-        self.image_display_group.display_mode_combobox.currentIndexChanged.connect(
-            self.image_display.set_display_mode
-        )
-
         # Add splitter to layout
         layout = QtWidgets.QVBoxLayout()
         layout.addWidget(splitter)

@@ -506,7 +506,7 @@ class FileStorageGroup(QtWidgets.QGroupBox):
         layout.addWidget(QtWidgets.QLabel("Save Channels:"), 5, 0)
         self.channels_combobox = QtWidgets.QComboBox()
         self.channels_combobox.addItems(["PMT0", "PMT1", "PMT0 & PMT1"])
-        self.channels_combobox.setCurrentIndex(2)
+        self.channels_combobox.setCurrentIndex(0)
         layout.addWidget(self.channels_combobox, 5, 1)
         
         self.setLayout(layout)
@@ -930,9 +930,9 @@ class ImageDisplayWidget(QtWidgets.QWidget):
             config.to_dict() if hasattr(config, 'to_dict') else (config or {})
         )
         self._display_cfg: dict = config_dict.get('display', {})
-        if 'colormap' in self._display_cfg:
-            self._colormap = self._display_cfg['colormap']
-            self._lut = _build_colormap_lut(self._colormap)
+        # Raw 14-bit frame kept so that gain/channel changes can re-render
+        # the last frame without waiting for the next acquisition.
+        self._raw_frame: np.ndarray | None = None
         self._init_ui()
 
     def _init_ui(self):
@@ -973,6 +973,20 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         """
         if frame_data is None:
             return  # stale queued signal delivered after scanner cleanup
+
+        self._raw_frame = frame_data
+        self._render_frame()
+
+    def _render_frame(self) -> None:
+        """Re-render ``_raw_frame`` with the current gain, channel and LUT.
+
+        Called by ``update_frame`` on every new frame and by ``set_gain`` /
+        ``set_channel`` so that display-setting changes take effect
+        immediately on the frozen last frame after acquisition stops.
+        """
+        frame_data = self._raw_frame
+        if frame_data is None:
+            return
 
         n_channels = frame_data.shape[0]
 
@@ -1033,26 +1047,28 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         Args:
             slider_value: Integer value from the gain slider (1–100).
                 The effective multiplier is ``slider_value / _GAIN_DIVISOR``
-                (i.e. 0.1× – 10.0×).  The change takes effect on the next
-                call to ``update_frame``.
+                (i.e. 0.1× – 10.0×).  Re-renders the last frame immediately.
         """
         self._gain = slider_value / self._GAIN_DIVISOR
+        self._render_frame()
 
     def set_channel(self, index: int) -> None:
-        """Set the PMT channel to display.
+        """Set the PMT channel to display.  Re-renders the last frame.
 
         Args:
             index: 0 = PMT0, 1 = PMT1, 2 = average of PMT0 & PMT1.
         """
         self._channel = index
+        self._render_frame()
 
     def set_display_mode(self, index: int) -> None:
         """Switch between fluorescence (inverted) and direct display modes.
 
+        Not connected to the GUI — the display is always in fluorescence mode
+        (``_invert = True``).  Kept for programmatic use or future debugging.
+
         Args:
-            index: 0 = Fluorescence (inverted, black background + bright
-                signal, matches Scanbox MATLAB display).
-                   1 = Direct (raw ADC value, high = bright, for debugging).
+            index: 0 = Fluorescence (inverted), 1 = Direct (raw ADC).
         """
         self._invert = (index == 0)
 
@@ -1676,20 +1692,10 @@ class ImageDisplayControlGroup(QtWidgets.QGroupBox):
         self.channel_combobox.setCurrentIndex(0)
         layout.addWidget(self.channel_combobox)
 
-        # Display mode selector: fluorescence (inverted) vs direct (raw ADC).
-        # "Fluorescence" matches Scanbox MATLAB display: PMT background is
-        # dark, fluorescent signal is bright.  "Direct" shows raw ADC values
-        # (high ADC = bright) and is useful for debugging signal levels.
-        layout.addWidget(QtWidgets.QLabel("Display mode:"))
-        self.display_mode_combobox = QtWidgets.QComboBox()
-        self.display_mode_combobox.addItems(["Fluorescence", "Direct (debug)"])
-        self.display_mode_combobox.setCurrentIndex(0)
-        self.display_mode_combobox.setToolTip(
-            "Fluorescence: inverted display matching Scanbox (dark background, "
-            "bright signal).\nDirect: raw ADC value (high ADC = bright, for "
-            "debugging)."
-        )
-        layout.addWidget(self.display_mode_combobox)
+        # NOTE: Display mode (Fluorescence / Direct) is intentionally not
+        # exposed in the GUI.  The display always uses fluorescence mode
+        # (inverted: dark background, bright signal).  See
+        # ImageDisplayWidget.set_display_mode() for programmatic access.
 
         # Display gain
         gain_layout = QtWidgets.QVBoxLayout()
