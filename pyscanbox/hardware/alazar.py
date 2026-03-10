@@ -171,12 +171,12 @@ class AlazarDigitizer:
         # In emulation / pre-shaped mode the buffer holds one reshaped frame:
         #   samples_per_buffer (per channel) = lines_per_frame × pixels_per_line
         # The interleaved numpy array therefore has samples_per_buffer × channels elements.
-        if config.get('alazar', {}).get('raw_mode', False):
+        if config.get('emulation', {}).get('raw_mode', False):
             lines = config['acquisition']['lines_per_frame']
             spl   = config.get('acquisition', {}).get('samples_per_line', 5000)
             raw_samples = lines * spl   # per-channel count
         else:
-            raw_samples = config['alazar']['samples_per_buffer']
+            raw_samples = config['emulation']['samples_per_buffer']
         self.samples_per_buffer = self._align_sample_count(raw_samples)
 
         if self.samples_per_buffer != raw_samples:
@@ -236,9 +236,9 @@ class AlazarDigitizer:
 
         Pre-shaped emulation mode (raw_mode=False) packs a full processed
         frame into a single record for convenience, and is only used when
-        ``emulation.enabled=True`` and ``alazar.raw_mode=False``.
+        ``emulation.enabled=True`` and ``emulation.raw_mode=False``.
         """
-        return not self.use_emulation or self.config.get('alazar', {}).get('raw_mode', False)
+        return not self.use_emulation or self.config.get('emulation', {}).get('raw_mode', False)
 
     @property
     def _bytes_per_buffer(self) -> int:
@@ -277,7 +277,7 @@ class AlazarDigitizer:
         # raw_mode=False, but always call so the mock knows samples_per_line
         # and laser parameters even in emulation mode).
         if self.use_emulation and hasattr(self.board_handle, 'set_raw_mode'):
-            raw_mode       = self.config.get('alazar', {}).get('raw_mode', False)
+            raw_mode       = self.config.get('emulation', {}).get('raw_mode', False)
             samples_per_line = self.config.get('acquisition', {}).get('samples_per_line', 5000)
             laser_freq     = self.config.get('laser', {}).get('frequency', 80_180_000)
             res_freq       = self.config.get('scanner', {}).get('resonant_freq', 7930)

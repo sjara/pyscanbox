@@ -128,13 +128,13 @@ class Scanner:
         # interleaved raw ADC samples and reshape_pmt_data_raw() is called.
         #
         # IMPORTANT: AlazarDigitizer._use_raw_mode is always True on real
-        # hardware (not emulation), regardless of alazar.raw_mode in config.
+        # hardware (not emulation), regardless of emulation.raw_mode in config.
         # Scanner must use the same logic so the correct reshape function is
         # called.  On emulation, raw_mode=False uses the pre-shaped path.
         emulation_on = config.get('emulation', {}).get('enabled', False)
         self.raw_mode: bool = (
             not emulation_on
-            or config.get('alazar', {}).get('raw_mode', False)
+            or config.get('emulation', {}).get('raw_mode', False)
         )
         self._pixel_lut: Optional[np.ndarray] = None
         if self.raw_mode:
