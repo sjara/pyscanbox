@@ -643,14 +643,24 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
     (or ``fit_to_window()``) restores fit mode.
     """
 
-    _ZOOM_FACTOR = 1.25  # scale multiplier per wheel step
+    _ZOOM_FACTOR = 1.25    # scale multiplier per wheel step
+    _MARKER_COLOR = QtGui.QColor("#80AAAA00")   # Qt uses ARGB not RGBA
+    _MARKER_SIZE = 5        # plus-arm half-length in image pixels
 
     # Nominal scene size used for the placeholder text before the first frame.
     _PLACEHOLDER_W = 512
     _PLACEHOLDER_H = 512
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, display_config=None):
         super().__init__(parent)
+        # Shadow class-level defaults with per-instance values from config.
+        cfg = display_config or {}
+        if 'zoom_factor' in cfg:
+            self._ZOOM_FACTOR = float(cfg['zoom_factor'])
+        if 'marker_color' in cfg:
+            self._MARKER_COLOR = QtGui.QColor(cfg['marker_color'])
+        if 'marker_size' in cfg:
+            self._MARKER_SIZE = int(cfg['marker_size'])
         self._scene = QtWidgets.QGraphicsScene(self)
         self.setScene(self._scene)
 
@@ -701,7 +711,7 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         # Marker state
         # ------------------------------------------------------------------
         self._marker_mode: bool = False
-        self._markers: list = []   # list of (QGraphicsEllipseItem, QGraphicsTextItem)
+        self._markers: list = []   # list of QGraphicsItemGroup (plus-sign markers)
         self._marker_count: int = 0
 
         # Small toggle button overlaid on the top-right corner of the view.
@@ -711,7 +721,7 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         self._mark_button.setCheckable(True)
         self._mark_button.setFixedSize(28, 28)
         self._mark_button.setToolTip(
-            "Marker mode — click to place numbered markers\n"
+            "Marker mode — click to place markers\n"
             "Press Esc or click again to exit"
         )
         self._mark_button.setStyleSheet(
@@ -842,21 +852,26 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
             self.unsetCursor()
 
     def _add_marker(self, scene_pos: QtCore.QPointF) -> None:
-        """Add a circular marker at *scene_pos* (image coordinates)."""
+        """Add a plus-sign marker at *scene_pos* (image coordinates)."""
         self._marker_count += 1
-        r = 5   # radius in image pixels
-        color = QtGui.QColor(255, 220, 0)   # yellow
-        pen = QtGui.QPen(color, 1.5)
+        r = self._MARKER_SIZE
+        pen = QtGui.QPen(self._MARKER_COLOR, 1.5)
 
-        ellipse = self._scene.addEllipse(
-            scene_pos.x() - r, scene_pos.y() - r, r * 2, r * 2,
-            pen,
-            QtGui.QBrush(QtCore.Qt.BrushStyle.NoBrush),
+        line_h = QtWidgets.QGraphicsLineItem(
+            scene_pos.x() - r, scene_pos.y(),
+            scene_pos.x() + r, scene_pos.y(),
         )
-        ellipse.setZValue(2)
-        self._markers.append(ellipse)
-        print(f"Marker {self._marker_count}: "
-              f"({scene_pos.x():.1f}, {scene_pos.y():.1f}) px")
+        line_v = QtWidgets.QGraphicsLineItem(
+            scene_pos.x(), scene_pos.y() - r,
+            scene_pos.x(), scene_pos.y() + r,
+        )
+        line_h.setPen(pen)
+        line_v.setPen(pen)
+        group = self._scene.createItemGroup([line_h, line_v])
+        group.setZValue(2)
+        self._markers.append(group)
+        # print(f"Marker {self._marker_count}: "
+        #       f"({scene_pos.x():.1f}, {scene_pos.y():.1f}) px")
 
     def clear_markers(self) -> None:
         """Remove all markers from the scene and reset the counter."""
@@ -891,7 +906,7 @@ class ImageDisplayWidget(QtWidgets.QWidget):
     # Maximum 14-bit value (2^14 - 1).
     _MAX_14BIT = 16383
 
-    def __init__(self):
+    def __init__(self, config=None):
         """Initialize the image display widget."""
         super().__init__()
         # Holds the current uint8 frame buffer so that the QImage's memory
@@ -909,12 +924,21 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         # still be changed at runtime via set_colormap().
         self._colormap: str = _DISPLAY_COLORMAP
         self._lut: np.ndarray = _DISPLAY_LUT
+        # Extract the display sub-section from the config (supports both plain
+        # dicts and objects with a to_dict() method such as ScanboxConfig).
+        config_dict = (
+            config.to_dict() if hasattr(config, 'to_dict') else (config or {})
+        )
+        self._display_cfg: dict = config_dict.get('display', {})
+        if 'colormap' in self._display_cfg:
+            self._colormap = self._display_cfg['colormap']
+            self._lut = _build_colormap_lut(self._colormap)
         self._init_ui()
 
     def _init_ui(self):
         """Initialize the UI components."""
         layout = QtWidgets.QVBoxLayout()
-        self._canvas = _ImageCanvas()
+        self._canvas = _ImageCanvas(display_config=self._display_cfg)
         layout.addWidget(self._canvas)
         layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)

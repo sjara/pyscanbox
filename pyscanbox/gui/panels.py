@@ -84,7 +84,7 @@ class RightDisplayPanel(QtWidgets.QWidget):
         splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
 
         # Top: Main image display
-        self.image_display = widgets.ImageDisplayWidget()
+        self.image_display = widgets.ImageDisplayWidget(config=self.config)
         splitter.addWidget(self.image_display)
 
         # Middle: Pixel-intensity histogram (full panel width, thin strip)
