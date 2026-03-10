@@ -16,10 +16,13 @@ Example:
     >>> scanner.run()
 """
 
+import logging
 import sys
 import time
 import numpy as np
 from typing import Callable, Optional
+
+logger = logging.getLogger(__name__)
 from pyscanbox.hardware import alazar
 from pyscanbox.hardware import controller
 from pyscanbox.hardware import motor
@@ -300,14 +303,16 @@ class Scanner:
         """
         try:
             # Setup
-            print("Initializing hardware...")
+            logger.info("Initializing hardware...")
+            self._notify_cmd('System', 'Initializing hardware')
             self.initialize_hardware()
 
             if not self.focus_mode:
-                print("Initializing file writers...")
+                logger.info("Initializing file writers...")
+                self._notify_cmd('System', 'Initializing file writers')
                 self.initialize_writers()
 
-            print("Configuring Pockels to zero (safe start)...")
+            logger.info("Configuring Pockels to zero (safe start)...")
             self.initialize_pockels()
             # Re-apply the Pockels level the user had on the GUI slider.
             # AppController.set_pockels() stores the hw value in
@@ -316,10 +321,10 @@ class Scanner:
             # since the last acquisition.
             desired_pockels = self.config.get('laser', {}).get('pockels_active', 0)
             if desired_pockels > 0:
-                print(f"Restoring Pockels to hw={desired_pockels} (from slider).")
+                logger.info("Restoring Pockels to hw=%d (from slider).", desired_pockels)
                 self.controller.set_pockels(base=0, active=desired_pockels)
 
-            print("Configuring scan parameters...")
+            logger.info("Configuring scan parameters...")
             self.configure_scan_params()
 
             # Start acquisition — Pockels is at zero so no laser energy
@@ -328,7 +333,8 @@ class Scanner:
             # shutter automatically via the controller's LASER SHUTTER output.
             # On rigs with a Uniblitz driven by CMD_SHUTTER (ID 16), uncomment:
             #   self.controller.set_shutter(open=True)
-            print("Starting acquisition...")
+            logger.info("Starting acquisition...")
+            self._notify_cmd('System', 'Starting acquisition')
             self.controller.start_scan()
             self.alazar.start_acquisition()
             self.is_running = True
@@ -338,9 +344,9 @@ class Scanner:
             self._acquisition_loop()
             
         except KeyboardInterrupt:
-            print("\nAcquisition interrupted by user.")
+            logger.info("Acquisition interrupted by user.")
         except Exception as e:
-            print(f"\nError during acquisition: {e}")
+            logger.error("Error during acquisition: %s", e)
             raise
         finally:
             self.cleanup()
@@ -361,7 +367,7 @@ class Scanner:
             buffer = self.alazar.read_buffer(timeout_ms=5000)
             
             if buffer is None:
-                print("Warning: Buffer timeout")
+                logger.warning("Buffer timeout")
                 continue
             
             # Reshape data (performance-critical!)
@@ -494,7 +500,7 @@ class Scanner:
         Stops acquisition, closes hardware connections, and finalizes
         data files.
         """
-        print("\nCleaning up...")
+        logger.info("Cleaning up...")
         
         # Stop acquisition
         if self.alazar is not None:
@@ -534,7 +540,7 @@ class Scanner:
                 metadata = self._create_metadata()
                 self.mat_writer.write(metadata)
             except Exception as exc:  # noqa: BLE001
-                print(f"Warning: could not write metadata .mat file: {exc}")
+                logger.warning("Could not write metadata .mat file: %s", exc)
         
         print("Acquisition complete.")
         print(f"Total frames acquired: {self.frames_acquired}")

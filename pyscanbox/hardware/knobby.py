@@ -33,7 +33,10 @@ Example:
     >>> pos_um = pyscanbox.hardware.knobby.steps_to_units(motor_id=2, steps=19843)
 """
 
+import logging
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 # Motor-to-unit conversion factors (from knobby2.ino, line 29).
@@ -228,18 +231,14 @@ class Knobby:
             timeout=self.timeout
         )
         self.is_open = True
-        
-        if self.emulation_verbose:
-            print(f"Knobby: Connected to {self.com_port} at {self.baud_rate} baud")
+        logger.info("Knobby: Connected to %s at %d baud", self.com_port, self.baud_rate)
 
     def close(self) -> None:
         """Close serial connection to Knobby."""
         if self.port is not None and self.is_open:
             self.port.close()
             self.is_open = False
-            
-            if self.emulation_verbose:
-                print(f"Knobby: Closed connection to {self.com_port}")
+            logger.info("Knobby: Closed connection to %s", self.com_port)
 
     def send_command(self, command_id: int, value: int = 0) -> bool:
         """Send command to Knobby.
@@ -278,8 +277,7 @@ class Knobby:
                 self.on_command(self.com_port, command_id, value)
             return True
         except Exception as e:
-            if self.emulation_verbose:
-                print(f"Knobby: Error sending command {command_id}: {e}")
+            logger.warning("Knobby: Error sending command %d: %s", command_id, e)
             return False
 
     CMD_NAMES = {

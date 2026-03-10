@@ -14,8 +14,11 @@ Example:
 """
 
 import ctypes
+import logging
 import numpy as np
 from typing import Tuple, Optional, List
+
+logger = logging.getLogger(__name__)
 
 def _convert_sample_rate_to_id(sample_rate_hz: int) -> int:
     """Convert sample rate in Hz to AlazarTech API constant.
@@ -180,7 +183,8 @@ class AlazarDigitizer:
         self.samples_per_buffer = self._align_sample_count(raw_samples)
 
         if self.samples_per_buffer != raw_samples:
-            print(f"Note: Aligned buffer size from {raw_samples} to {self.samples_per_buffer} samples")
+            logger.info("Aligned buffer size from %d to %d samples",
+                        raw_samples, self.samples_per_buffer)
         
         # Check if emulation is enabled
         self.use_emulation = config.get('emulation', {}).get('enabled', False)
@@ -592,7 +596,7 @@ class AlazarDigitizer:
             # still owned by the board.  The only way to reclaim them is
             # abortAsyncRead().  Do that here so the board is left in a clean
             # state and callers cannot accidentally loop on a broken session.
-            print(f"Error reading buffer: {e}")
+            logger.error("Error reading buffer: %s", e)
             try:
                 if hasattr(self.board_handle, 'abortAsyncRead'):
                     self.board_handle.abortAsyncRead()
@@ -619,7 +623,7 @@ class AlazarDigitizer:
             try:
                 self.board_handle.abortAsyncRead()
             except Exception as e:
-                print(f"Warning: Error aborting acquisition: {e}")
+                logger.warning("Error aborting acquisition: %s", e)
         
         # Clear buffer lists (actual memory cleanup handled by garbage collector
         # or SDK's DMABuffer.__exit__ when objects are destroyed)

@@ -271,6 +271,9 @@ class AppController(QtCore.QObject):
         """
         try:
             self._hw_controller.open()
+            self._log_event(
+                f'Controller connected ({self._hw_controller.com_port})'
+            )
         except Exception as exc:
             msg = f"Could not open ScanboxController: {exc}"
             logger.error(msg)
@@ -279,6 +282,9 @@ class AppController(QtCore.QObject):
 
         try:
             self._knobby.open()
+            self._log_event(
+                f'Knobby connected ({self._knobby.com_port})'
+            )
         except Exception as exc:
             # Non-fatal: GUI can run without Knobby position display.
             msg = f"Could not open Knobby (position display unavailable): {exc}"
@@ -287,6 +293,9 @@ class AppController(QtCore.QObject):
 
         try:
             self._motor.open()
+            self._log_event(
+                f'Motor connected ({self._motor.com_port})'
+            )
             # Record absolute hardware positions at startup as the origin
             # reference (stored for display/debugging; not used in move logic).
             for motor_id in range(4):
@@ -305,6 +314,7 @@ class AppController(QtCore.QObject):
         self._etl_calibration = etl_calibration.load_calibration(cal_path)
         if self._etl_calibration is not None:
             logger.info("ETL calibration loaded from %s", cal_path)
+            self._log_event(f'ETL calibration loaded ({cal_path})')
         else:
             logger.info(
                 "No ETL calibration at %s; depth label shows raw current",
@@ -316,7 +326,7 @@ class AppController(QtCore.QObject):
         logger.info("AppController: hardware open, position polling started.")
         emulation = self.config.get('emulation', {}).get('enabled', False)
         suffix = ' (emulation)' if emulation else ''
-        self._log_event(f'Hardware connected{suffix}')
+        self._log_event(f'All hardware ready{suffix}')
 
     def close(self) -> None:
         """Stop polling, stop any running acquisition, and close all hardware.
