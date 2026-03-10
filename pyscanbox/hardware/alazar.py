@@ -347,20 +347,22 @@ class AlazarDigitizer:
         # TRIG_ENGINE_OP_J = 0 (trigger on J engine only)
         # TRIG_ENGINE_J = 0 (J engine identifier)
         # TRIG_EXTERNAL = 2 (external trigger source)
-        # TRIGGER_SLOPE_POSITIVE = 1 (rising edge)
-        # Level: 128 (mid-range for external trigger)
+        # TRIGGER_SLOPE_POSITIVE = 1; trig_slope is an offset (0=positive, 1=negative)
+        # matches MATLAB: TRIGGER_SLOPE_POSITIVE + sbconfig.trig_slope (scanbox.m line 840)
         # Second engine (K): disabled with TRIG_ENGINE_K = 1, TRIG_DISABLE = 3
+        trig_level = self.config.get('alazar', {}).get('trigger_level', 160)
+        trig_slope = self.config.get('alazar', {}).get('trigger_slope', 0)
         if hasattr(self.board_handle, 'setTriggerOperation'):
             self.board_handle.setTriggerOperation(
-                0,    # TRIG_ENGINE_OP_J
-                0,    # TRIG_ENGINE_J
-                2,    # TRIG_EXTERNAL
-                1,    # TRIGGER_SLOPE_POSITIVE
-                128,  # Mid-range level
-                1,    # TRIG_ENGINE_K
-                3,    # TRIG_DISABLE
-                1,    # TRIGGER_SLOPE_POSITIVE (ignored)
-                128   # Level (ignored)
+                0,               # TRIG_ENGINE_OP_J
+                0,               # TRIG_ENGINE_J
+                2,               # TRIG_EXTERNAL
+                1 + trig_slope,  # TRIGGER_SLOPE_POSITIVE + trig_slope offset
+                trig_level,      # 0-255; sbconfig.trig_level (default 160)
+                1,               # TRIG_ENGINE_K
+                3,               # TRIG_DISABLE
+                1,               # TRIGGER_SLOPE_POSITIVE (ignored for engine K)
+                128              # Level (ignored for engine K)
             )
         
         # Configure external trigger input (DC coupling, TTL range)
