@@ -41,6 +41,8 @@ class Serial:
     CMD_MIRROR = 5
     CMD_POCKELS = 8
     CMD_SHUTTER = 16
+    CMD_UNIDIRECTIONAL = 33
+    CMD_BIDIRECTIONAL = 34
 
     def __init__(self, port: str = 'COM1', baudrate: int = 9600,
                  bytesize: int = 8, parity: str = 'N', stopbits: int = 1,
@@ -70,6 +72,7 @@ class Serial:
             'pockels': (0, 0),  # (base, active)
             'shutter': False,
             'mirror': '2p',
+            'scan_mode': 'unidirectional',
             'motor_positions': [0, 0, 0, 0],  # 4 motors
             'motor_velocities': [0, 0, 0, 0],
         }
@@ -186,6 +189,16 @@ class Serial:
             self.state['scan_running'] = bool(param2)
             if self.verbose:
                 logger.debug(f"Scan: {'started' if param2 else 'stopped'}")
+
+        elif cmd_id == self.CMD_UNIDIRECTIONAL:
+            self.state['scan_mode'] = 'unidirectional'
+            if self.verbose:
+                logger.debug("Scan mode: unidirectional")
+
+        elif cmd_id == self.CMD_BIDIRECTIONAL:
+            self.state['scan_mode'] = 'bidirectional'
+            if self.verbose:
+                logger.debug("Scan mode: bidirectional")
 
         else:
             if self.verbose:

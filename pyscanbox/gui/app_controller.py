@@ -324,6 +324,18 @@ class AppController(QtCore.QObject):
         self.is_open = True
         self._poll_timer.start()
         logger.info("AppController: hardware open, position polling started.")
+
+        # Initialize PSoC5 to the configured scan mode (mirrors the MATLAB
+        # startup sequence in scanbox.m that calls sb_unidirectional /
+        # sb_bidirectional based on sbconfig.unidirectional).
+        unidirectional = self.config.get('acquisition', {}).get('unidirectional', True)
+        try:
+            self._hw_controller.set_scan_mode(bidirectional=not unidirectional)
+        except Exception as exc:
+            msg = f"Could not set initial scan mode: {exc}"
+            logger.error(msg)
+            self.hardware_error.emit(msg)
+
         emulation = self.config.get('emulation', {}).get('enabled', False)
         suffix = ' (emulation)' if emulation else ''
         self._log_event(f'All hardware ready{suffix}')
@@ -517,11 +529,14 @@ class AppController(QtCore.QObject):
     def set_scan_mode(self, bidirectional: bool) -> None:
         """Set scan mode to unidirectional or bidirectional.
 
-        Updates ``config['acquisition']['unidirectional']`` so that both
-        the currently running scanner (if any) and the next scan pick up
-        the new mode immediately.  No hardware command is sent — the
-        Scanbox controller always delivers both forward and backward sweep
-        triggers; whether backward lines are used is a software decision.
+        Sends CMD_UNIDIRECTIONAL [33, 0, 0] or CMD_BIDIRECTIONAL [34, 0, 0]
+        to the PSoC5 controller so it triggers the Alazar on the correct
+        sweep(s), then updates ``config['acquisition']['unidirectional']``
+        so the Scanner reshape path is also switched.
+
+        Calling this while an acquisition is running is safe — the PSoC5
+        applies the new mode from the next line trigger onward, and the
+        Scanner reads the config flag each frame.
 
         Args:
             bidirectional: True for bidirectional mode, False for
@@ -530,6 +545,13 @@ class AppController(QtCore.QObject):
         self.config.setdefault('acquisition', {})['unidirectional'] = not bidirectional
         mode_str = 'bidirectional' if bidirectional else 'unidirectional'
         logger.debug("Scan mode set to %s", mode_str)
+        if self.is_open:
+            try:
+                self._hw_controller.set_scan_mode(bidirectional)
+            except Exception as exc:
+                msg = f"set_scan_mode failed: {exc}"
+                logger.error(msg)
+                self.hardware_error.emit(msg)
 
     def set_bishift(self, shift: int) -> None:
         """Set the bidirectional pixel shift for the current magnification.

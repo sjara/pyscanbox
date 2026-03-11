@@ -514,5 +514,58 @@ class TestETLCurrentControl(unittest.TestCase):
                                  f'Round-trip failed for current={current}')
 
 
+class TestScanModeControl(unittest.TestCase):
+    """Tests for set_scan_mode() and its format_command() decoders."""
+
+    def setUp(self):
+        self.config = {
+            'controller': {
+                'com_port': 'COM3',
+                'baud_rate': 1_000_000,
+                'timeout': 1.0,
+            }
+        }
+
+    # -- Packet encoding --------------------------------------------------------
+
+    @mock.patch('serial.Serial')
+    def test_set_scan_mode_unidirectional_sends_correct_packet(self, mock_serial):
+        """set_scan_mode(False) sends [33, 0, 0] (CMD_UNIDIRECTIONAL)."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        ctrl.set_scan_mode(bidirectional=False)
+        mock_port.write.assert_called_with(bytes([33, 0, 0]))
+
+    @mock.patch('serial.Serial')
+    def test_set_scan_mode_bidirectional_sends_correct_packet(self, mock_serial):
+        """set_scan_mode(True) sends [34, 0, 0] (CMD_BIDIRECTIONAL)."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        ctrl.set_scan_mode(bidirectional=True)
+        mock_port.write.assert_called_with(bytes([34, 0, 0]))
+
+    @mock.patch('serial.Serial')
+    def test_set_scan_mode_cmd_ids_are_correct(self, mock_serial):
+        """CMD_UNIDIRECTIONAL == 33 and CMD_BIDIRECTIONAL == 34."""
+        self.assertEqual(controller.ScanboxController.CMD_UNIDIRECTIONAL, 33)
+        self.assertEqual(controller.ScanboxController.CMD_BIDIRECTIONAL, 34)
+
+    # -- format_command decoders ------------------------------------------------
+
+    def test_format_command_decodes_unidirectional(self):
+        """format_command(33, 0, 0) returns 'set_scan_mode(bidirectional=False)'."""
+        result = controller.ScanboxController.format_command(33, 0, 0)
+        self.assertEqual(result, 'set_scan_mode(bidirectional=False)')
+
+    def test_format_command_decodes_bidirectional(self):
+        """format_command(34, 0, 0) returns 'set_scan_mode(bidirectional=True)'."""
+        result = controller.ScanboxController.format_command(34, 0, 0)
+        self.assertEqual(result, 'set_scan_mode(bidirectional=True)')
+
+
 if __name__ == '__main__':
     unittest.main()

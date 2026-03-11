@@ -22,6 +22,12 @@ Protocol:
                               LASER SHUTTER output), this command has no
                               effect; the shutter opens with Scan Control
                               (ID 4) instead.
+        Unidirectional (ID 33): [33, 0, 0] — PSoC5 triggers Alazar only on
+                              the forward (odd-numbered) sweep.  Default mode.
+        Bidirectional (ID 34):  [34, 0, 0] — PSoC5 triggers Alazar on both
+                              forward and return sweeps, doubling effective
+                              frame rate.  Must be combined with a per-
+                              magnification bishift correction in software.
         ETL Current (ID 48):  [48, b1, b2] (Optotune ETL current 0-1760;
                               b1/b2 encode a 16-bit word with 0b0111 prefix
                               in the upper nibble, see sb/sb_current.m)
@@ -30,7 +36,8 @@ Reference:
     Original MATLAB implementation: sb/sb_open.m, sb/sb_setframe.m,
     sb/sb_setline.m, sb/sb_setmag.m, sb/sb_pockels.m, sb/sb_deadband.m,
     sb/sb_shutter.m, sb/sb_mirror.m, sb/sb_scan.m, sb/sb_abort.m,
-    sb/sb_gain0.m, sb/sb_gain1.m, sb/sb_current.m
+    sb/sb_gain0.m, sb/sb_gain1.m, sb/sb_current.m,
+    sb/sb_unidirectional.m, sb/sb_bidirectional.m
 
 Example:
     >>> import pyscanbox.hardware.controller
@@ -85,6 +92,8 @@ class ScanboxController:
     CMD_POCKELS = 8
     CMD_DEADBAND = 9
     CMD_SHUTTER = 16
+    CMD_UNIDIRECTIONAL = 33  # Set PSoC5 to trigger on forward sweep only
+    CMD_BIDIRECTIONAL = 34   # Set PSoC5 to trigger on both forward and return sweeps
     CMD_ETL = 48  # Electrically tunable lens (Optotune) current
 
     # ETL current range (hardware units, ~61.5 µA per count).
@@ -125,6 +134,8 @@ class ScanboxController:
         CMD_POCKELS: 'set_pockels',
         CMD_DEADBAND: 'set_pockels_deadband',
         CMD_SHUTTER: 'set_shutter',
+        CMD_UNIDIRECTIONAL: 'set_scan_mode',
+        CMD_BIDIRECTIONAL: 'set_scan_mode',
         CMD_ETL: 'set_etl_current',
     }
 
@@ -189,6 +200,10 @@ class ScanboxController:
         if cmd_id == ScanboxController.CMD_SHUTTER:
             open_val = 'True' if param2 else 'False'
             return f'set_shutter(open={open_val})'
+        if cmd_id == ScanboxController.CMD_UNIDIRECTIONAL:
+            return "set_scan_mode(bidirectional=False)"
+        if cmd_id == ScanboxController.CMD_BIDIRECTIONAL:
+            return "set_scan_mode(bidirectional=True)"
         if cmd_id == ScanboxController.CMD_ETL:
             # Decode 16-bit encoded value: bits 15-12 are always 0b0111
             current = ((param1 & 0x0F) << 8) | param2
@@ -417,6 +432,30 @@ class ScanboxController:
         param2 = 1 if open else 0
         self._send_command(self.CMD_SHUTTER, 0, param2)
         self.shutter_open = open
+
+    def set_scan_mode(self, bidirectional: bool) -> None:
+        """Set the PSoC5 scan trigger mode.
+
+        Sends either CMD_UNIDIRECTIONAL [33, 0, 0] or CMD_BIDIRECTIONAL
+        [34, 0, 0] to configure whether the PSoC5 issues an Alazar line
+        trigger on the forward sweep only (unidirectional) or on both the
+        forward and return sweeps (bidirectional).
+
+        This must be called before starting acquisition whenever the scan
+        mode changes.  In MATLAB it is called once at startup from
+        ``scanbox.m`` based on ``sbconfig.unidirectional``.
+
+        Args:
+            bidirectional: True to enable bidirectional mode ([34, 0, 0]),
+                False for unidirectional ([33, 0, 0]).
+
+        Reference:
+            See ``sb/sb_unidirectional.m`` and ``sb/sb_bidirectional.m``.
+        """
+        if bidirectional:
+            self._send_command(self.CMD_BIDIRECTIONAL, 0, 0)
+        else:
+            self._send_command(self.CMD_UNIDIRECTIONAL, 0, 0)
 
     def set_pmt_gain(self, pmt_id: int, value: int) -> None:
         """Set the gain for a PMT channel.
