@@ -492,6 +492,22 @@ class MainWindow(QtWidgets.QMainWindow):
             self._on_magnification_changed
         )
 
+        # Scan mode combobox -> acquisition config
+        scanner.scan_mode_combobox.currentIndexChanged.connect(
+            self._on_scan_mode_changed
+        )
+        # Initialise enable state from current combobox selection.
+        scanner.bidir_alignment_spinbox.setEnabled(
+            scanner.scan_mode_combobox.currentIndex() == 1
+        )
+
+        # Bidirectional alignment spinbox -> per-magnification bishift
+        scanner.bidir_alignment_spinbox.valueChanged.connect(
+            self._on_bishift_changed
+        )
+        # Set the initial spinbox value from config for the default magnification.
+        self._sync_bishift_spinbox(scanner.magnification_combobox.currentIndex())
+
         # ETL slider -> hardware (spinbox is bidirectionally linked to slider
         # inside OptotuneGroup, so wiring the slider covers both widgets)
         optotune = self._right_panel.optotune_group
@@ -570,8 +586,55 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         try:
             self._ctrl.set_magnification(index)
+            # Refresh bidir alignment spinbox to show the stored shift for
+            # the newly selected magnification level.
+            self._sync_bishift_spinbox(index)
         except RuntimeError:
             pass  # hardware not open yet; silently ignore
+
+    def _on_scan_mode_changed(self, index: int):
+        """Handle scan mode combobox selection (Unidirectional / Bidirectional).
+
+        Args:
+            index: 0 = Unidirectional, 1 = Bidirectional.
+        """
+        if self._ctrl is None:
+            return
+        bidirectional = index == 1
+        self._ctrl.set_scan_mode(bidirectional)
+        # Enable the bishift spinbox only in bidirectional mode.
+        scanner = self._left_panel.scanner_group
+        scanner.bidir_alignment_spinbox.setEnabled(bidirectional)
+
+    def _on_bishift_changed(self, shift: int):
+        """Handle bidirectional alignment spinbox change.
+
+        Args:
+            shift: New pixel shift value for backward scan lines at the
+                current magnification.
+        """
+        if self._ctrl is None:
+            return
+        self._ctrl.set_bishift(shift)
+
+    def _sync_bishift_spinbox(self, mag_index: int) -> None:
+        """Update the bidir alignment spinbox to show the stored bishift.
+
+        Reads ``config['acquisition']['bishift'][mag_index]`` and
+        updates the spinbox without emitting a valueChanged signal
+        (to avoid a feedback loop).
+
+        Args:
+            mag_index: Current magnification index (0–12).
+        """
+        if self._ctrl is None:
+            return
+        bishift = self._ctrl.config.get('acquisition', {}).get('bishift', [0] * 13)
+        shift = bishift[mag_index] if 0 <= mag_index < len(bishift) else 0
+        scanner = self._left_panel.scanner_group
+        scanner.bidir_alignment_spinbox.blockSignals(True)
+        scanner.bidir_alignment_spinbox.setValue(shift)
+        scanner.bidir_alignment_spinbox.blockSignals(False)
 
     def _on_etl_current_changed(self, current: int):
         """Forward ETL slider / spinbox value to hardware and update depth label.

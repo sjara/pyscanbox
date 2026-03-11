@@ -126,6 +126,18 @@ class Scanner:
         self.frames_to_acquire = config['acquisition']['frames']
         self.magnification = config['acquisition'].get('magnification', 0)
 
+        # Bidirectional mode: False when unidirectional=True (default).
+        # Takes effect immediately; changing the config key at runtime (e.g.
+        # from AppController.set_scan_mode) updates the running scanner on
+        # the next frame because we read from the config dict each frame.
+        acq_cfg = config.get('acquisition', {})
+        self.bidirectional: bool = not acq_cfg.get('unidirectional', True)
+        # Keep a reference to the bishift list in config so that
+        # AppController.set_bishift() updates propagate to the running
+        # scanner immediately (both share the same list object).
+        acq_cfg.setdefault('bishift', [0] * 13)
+        self._bishift: list = acq_cfg['bishift']
+
         # Raw-mode acquisition: use arccosine pixel LUT instead of pre-shaped data.
         # When True, each Alazar buffer contains `lines × samples_per_line × 2`
         # interleaved raw ADC samples and reshape_pmt_data_raw() is called.
@@ -386,6 +398,17 @@ class Scanner:
                     self.lines_per_frame,
                     self.pixels_per_line,
                 )
+
+            # Bidirectional alignment: flip backward lines and apply bishift.
+            # Read bidirectional flag from config each frame so that a mode
+            # change (AppController.set_scan_mode) takes effect immediately.
+            if not self.config.get('acquisition', {}).get('unidirectional', True):
+                shift = (
+                    self._bishift[self.magnification]
+                    if self.magnification < len(self._bishift)
+                    else 0
+                )
+                data_reshape.apply_bidirectional_correction(reshaped, shift)
             
             # Write to disk, selecting only the requested channel(s).
             if self.sbx_writer is not None:

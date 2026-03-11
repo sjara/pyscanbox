@@ -241,5 +241,110 @@ class TestReshapePmtDataRaw(unittest.TestCase):
         self.assertEqual(int(out[1, 0, px]), 500)
 
 
+class TestApplyBidirectionalCorrection(unittest.TestCase):
+    """Tests for apply_bidirectional_correction()."""
+
+    def _make_frame(self, lines: int = 4, pixels: int = 8,
+                    channels: int = 2) -> np.ndarray:
+        """Return a frame filled with sequential values for easy inspection."""
+        frame = np.arange(channels * lines * pixels, dtype=np.uint16).reshape(
+            channels, lines, pixels
+        )
+        return frame
+
+    def test_output_shape_and_dtype(self):
+        """Corrected frame must have the same shape and dtype as the input."""
+        frame = self._make_frame()
+        out = reshape.apply_bidirectional_correction(frame.copy(), pixel_shift=0)
+        self.assertEqual(out.shape, frame.shape)
+        self.assertEqual(out.dtype, np.uint16)
+
+    def test_even_lines_unchanged_by_flip(self):
+        """Forward (even) lines must not be modified."""
+        frame = self._make_frame(lines=4, pixels=6)
+        orig = frame.copy()
+        reshape.apply_bidirectional_correction(frame, pixel_shift=0)
+        np.testing.assert_array_equal(frame[:, 0, :], orig[:, 0, :])
+        np.testing.assert_array_equal(frame[:, 2, :], orig[:, 2, :])
+
+    def test_odd_lines_flipped(self):
+        """Backward (odd) lines must be horizontally flipped."""
+        pixels = 6
+        frame = np.zeros((1, 4, pixels), dtype=np.uint16)
+        # Set odd line 1 to a recognisable pattern [10, 20, 30, 40, 50, 60].
+        frame[0, 1, :] = np.arange(10, pixels * 10 + 1, 10, dtype=np.uint16)
+        orig_line1 = frame[0, 1, :].copy()
+
+        reshape.apply_bidirectional_correction(frame, pixel_shift=0)
+
+        expected = orig_line1[::-1]
+        np.testing.assert_array_equal(frame[0, 1, :], expected)
+
+    def test_zero_shift_only_flips(self):
+        """With pixel_shift=0 only the flip is applied; no roll artefacts."""
+        frame = self._make_frame(lines=6, pixels=8)
+        orig = frame.copy()
+        reshape.apply_bidirectional_correction(frame, pixel_shift=0)
+
+        # Even lines must be untouched.
+        for ln in (0, 2, 4):
+            np.testing.assert_array_equal(frame[:, ln, :], orig[:, ln, :])
+
+        # Odd lines must be flipped and only flipped.
+        for ln in (1, 3, 5):
+            np.testing.assert_array_equal(
+                frame[:, ln, :], orig[:, ln, ::-1]
+            )
+
+    def test_positive_shift_rolls_right(self):
+        """pixel_shift > 0 shifts backward lines to the right; leading edge zeroed."""
+        pixels = 8
+        shift = 2
+        frame = np.zeros((1, 4, pixels), dtype=np.uint16)
+        # Line 1 after flip would be [60, 50, 40, 30, 20, 10, 0, 0] (if original
+        # was [0, 0, 10, 20, 30, 40, 50, 60]).  But we want to verify the roll
+        # independently of the flip, so we set up the frame *after* what the flip
+        # would produce and check only the shift step.
+        # Use a simpler known pattern: all ones in line 1.
+        frame[0, 1, :] = 1
+        reshape.apply_bidirectional_correction(frame, pixel_shift=shift)
+        # First `shift` pixels of the backward line must be 0 (zeroed wrap-around).
+        self.assertTrue(np.all(frame[0, 1, :shift] == 0))
+        # Remaining pixels must still be non-zero (not zeroed by the shift).
+        self.assertTrue(np.all(frame[0, 1, shift:] == 1))
+
+    def test_negative_shift_rolls_left(self):
+        """pixel_shift < 0 shifts backward lines to the left; trailing edge zeroed."""
+        pixels = 8
+        shift = -3
+        frame = np.zeros((1, 4, pixels), dtype=np.uint16)
+        frame[0, 1, :] = 1
+        reshape.apply_bidirectional_correction(frame, pixel_shift=shift)
+        # Last |shift| pixels must be zeroed.
+        self.assertTrue(np.all(frame[0, 1, shift:] == 0))
+        # Leading pixels must still be non-zero.
+        self.assertTrue(np.all(frame[0, 1, :pixels + shift] == 1))
+
+    def test_returns_same_array(self):
+        """Function must return the same object (in-place modification)."""
+        frame = self._make_frame()
+        out = reshape.apply_bidirectional_correction(frame, pixel_shift=0)
+        self.assertIs(out, frame)
+
+    def test_multichannel_both_corrected(self):
+        """Both PMT channels must receive identical flip-and-shift treatment."""
+        pixels = 6
+        frame = np.zeros((2, 4, pixels), dtype=np.uint16)
+        frame[0, 1, :] = np.arange(1, pixels + 1, dtype=np.uint16)
+        frame[1, 1, :] = np.arange(10, (pixels + 1) * 10, 10, dtype=np.uint16)
+        orig_ch0 = frame[0, 1, :].copy()
+        orig_ch1 = frame[1, 1, :].copy()
+
+        reshape.apply_bidirectional_correction(frame, pixel_shift=0)
+
+        np.testing.assert_array_equal(frame[0, 1, :], orig_ch0[::-1])
+        np.testing.assert_array_equal(frame[1, 1, :], orig_ch1[::-1])
+
+
 if __name__ == '__main__':
     unittest.main()

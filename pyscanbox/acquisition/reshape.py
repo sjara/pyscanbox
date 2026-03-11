@@ -230,6 +230,59 @@ def compute_pixel_lut(n_pixels: int, laser_freq: float,
     return lut_base
 
 
+def apply_bidirectional_correction(frame: np.ndarray,
+                                   pixel_shift: int = 0) -> np.ndarray:
+    """Apply bidirectional alignment correction to a reshaped frame.
+
+    Backward scan lines (odd-indexed lines 1, 3, 5, …) are acquired while
+    the resonant mirror sweeps in reverse, so their pixels arrive in
+    reversed spatial order.  This function corrects for that by:
+
+    1. **Flipping** each backward line horizontally (always required in
+       bidirectional mode).
+    2. **Shifting** the flipped backward lines by ``pixel_shift`` pixels
+       to compensate for residual timing offset — the ``bishift``
+       calibration parameter from ``sbconfig.bishift`` in MATLAB.
+
+    The ``pixel_shift`` value is per-magnification.  Typical values span
+    −10 (low zoom) to +58 (high zoom) and must be measured on real
+    hardware (see Milestone 3.8).  In emulation the correction is still
+    applied so alignment can be verified visually before HIL testing.
+
+    Args:
+        frame: Reshaped data array of shape ``(channels, lines, pixels)``
+            dtype uint16, as returned by ``reshape_pmt_data()`` or
+            ``reshape_pmt_data_raw()``.  Modified in-place.
+        pixel_shift: Integer pixel shift applied to backward lines after
+            flipping.  Positive = shift right, negative = shift left.
+            Zero = flip only (no timing correction).
+
+    Returns:
+        The same ``frame`` array after in-place modification.
+
+    Reference:
+        MATLAB ``pixel_lut_bi_2.m`` line
+        ``postIdx(:,:,2:2:end) = postIdx(:,end:-1:1,2:2:end);`` for the
+        flip; ``sbconfig.bishift`` for the shift calibration.
+    """
+    # Step 1: Flip odd (backward) lines horizontally to correct reverse-scan
+    # order.  np.flip returns a view; the assignment copies into the frame.
+    frame[:, 1::2, :] = frame[:, 1::2, ::-1].copy()
+
+    # Step 2: Apply sub-pixel timing correction (bishift).
+    if pixel_shift != 0:
+        backward = np.roll(frame[:, 1::2, :], pixel_shift, axis=2)
+        # Zero out the wrap-around edge introduced by np.roll so that
+        # edge pixels do not bleed from the opposite side of the image.
+        if pixel_shift > 0:
+            backward[:, :, :pixel_shift] = 0
+        else:  # pixel_shift < 0
+            backward[:, :, pixel_shift:] = 0
+        frame[:, 1::2, :] = backward
+
+    return frame
+
+
 @numba.njit(nogil=True, cache=True)
 def reshape_pmt_data_raw(buffer: np.ndarray, lines_per_frame: int,
                          pixels_per_line: int,

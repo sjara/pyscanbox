@@ -514,6 +514,44 @@ class AppController(QtCore.QObject):
             logger.error(msg)
             self.hardware_error.emit(msg)
 
+    def set_scan_mode(self, bidirectional: bool) -> None:
+        """Set scan mode to unidirectional or bidirectional.
+
+        Updates ``config['acquisition']['unidirectional']`` so that both
+        the currently running scanner (if any) and the next scan pick up
+        the new mode immediately.  No hardware command is sent — the
+        Scanbox controller always delivers both forward and backward sweep
+        triggers; whether backward lines are used is a software decision.
+
+        Args:
+            bidirectional: True for bidirectional mode, False for
+                unidirectional.
+        """
+        self.config.setdefault('acquisition', {})['unidirectional'] = not bidirectional
+        mode_str = 'bidirectional' if bidirectional else 'unidirectional'
+        logger.debug("Scan mode set to %s", mode_str)
+
+    def set_bishift(self, shift: int) -> None:
+        """Set the bidirectional pixel shift for the current magnification.
+
+        Stores ``shift`` in ``config['acquisition']['bishift'][mag_index]``.
+        Because the running scanner holds a reference to the same list
+        object, the correction takes effect on the very next frame without
+        restarting the acquisition.
+
+        Args:
+            shift: Pixel shift for backward scan lines at the current
+                magnification.  Positive = shift right, negative = shift
+                left.  Corresponds to ``sbconfig.bishift[mag]`` in MATLAB.
+        """
+        acq = self.config.setdefault('acquisition', {})
+        acq.setdefault('bishift', [0] * 13)
+        bishift = acq['bishift']
+        mag_index = acq.get('magnification', 0)
+        if 0 <= mag_index < len(bishift):
+            bishift[mag_index] = shift
+        logger.debug("Bishift[%d] set to %d", mag_index, shift)
+
     # ------------------------------------------------------------------
     # ETL / Optotune
     # ------------------------------------------------------------------
