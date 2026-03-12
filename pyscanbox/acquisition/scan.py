@@ -259,6 +259,12 @@ class Scanner:
 
         self.controller.set_magnification(self.magnification)
 
+        # Configure TTL interrupt mask so the PSoC5 knows which external
+        # TTL inputs to monitor.  imask=0 disables both (safe default).
+        # Reference: sb_imask.m; original scanbox.m line 251.
+        imask = self.config.get('external_events', {}).get('interrupt_mask', 0)
+        self.controller.set_ttl_mask(imask)
+
     def initialize_pockels(self) -> None:
         """Set Pockels cell to zero power as a safe starting state.
 
@@ -351,7 +357,13 @@ class Scanner:
             self.alazar.start_acquisition()
             self.is_running = True
             self.start_time = time.time()
-            
+
+            # Clear any residual TTL events from a previous session and
+            # start the background reader that collects 5-byte event
+            # packets sent by the PSoC5 over the controller serial port.
+            self.controller.clear_ttl_events()
+            self.controller.start_ttl_reader()
+
             # Main acquisition loop
             self._acquisition_loop()
             
@@ -532,6 +544,10 @@ class Scanner:
 
         # Stop scanner and close controller
         if self.controller is not None:
+            # Stop the TTL reader before blanking the laser so any final
+            # events that arrive while the scanner is still running are
+            # captured before the port is closed.
+            self.controller.stop_ttl_reader()
             self.zero_pockels()          # blank laser before stopping scanner
             # On rigs with a Uniblitz driven by CMD_SHUTTER (ID 16), uncomment:
             #   self.controller.set_shutter(open=False)
@@ -584,6 +600,21 @@ class Scanner:
         # Channels actually written to disk: 1 when a single channel was
         # selected in the GUI (save_channels 0 or 1), 2 for both.
         saved_channels = 1 if self.save_channels in (0, 1) else 2
+
+        # Collect TTL event arrays.  Format mirrors the original MATLAB
+        # info.frame / info.line / info.event_id arrays produced by
+        # sb_timestamps() — saved as int32 column vectors (or empty
+        # arrays when no events were recorded).
+        events = self.controller.get_ttl_events()
+        if events:
+            ttl_frame = np.array([e[0] for e in events], dtype=np.int32)
+            ttl_line  = np.array([e[1] for e in events], dtype=np.int32)
+            ttl_event_id = np.array([e[2] for e in events], dtype=np.int32)
+        else:
+            ttl_frame    = np.array([], dtype=np.int32)
+            ttl_line     = np.array([], dtype=np.int32)
+            ttl_event_id = np.array([], dtype=np.int32)
+
         return {
             'frames': self.frames_acquired,
             'lines_per_frame': self.lines_per_frame,
@@ -593,4 +624,8 @@ class Scanner:
             'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
             'pockels_base': pockels.get('base', 0),
             'pockels_active': pockels.get('active', 0),
+            # TTL event timestamps (MATLAB-compatible field names)
+            'frame': ttl_frame,
+            'line': ttl_line,
+            'event_id': ttl_event_id,
         }

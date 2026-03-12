@@ -6,7 +6,21 @@ All notable changes to this project are documented here. This file is append-onl
 
 ---
 
-## v0.4.6 - March 11, 2026 (Current)
+## v0.4.7 - March 11, 2026 (Current)
+- **External TTL event recording (Milestone 1.3.4)**
+- Added `CMD_TTL_MASK = 64` constant and `set_ttl_mask(imask)` to `ScanboxController`; sends `[64, 0, imask]` to PSoC5 (mirrors `sb/sb_imask.m`); imask 0=disabled, 1=TTL0, 2=TTL1, 3=both.
+- Added background daemon thread `TTLEventReader` to `ScanboxController` (started/stopped via `start_ttl_reader()` / `stop_ttl_reader()`): polls `in_waiting` every 5 ms, reads complete 5-byte event packets `[frame_low, frame_high, line_low, line_high, event_id]` sent by PSoC5, discards `event_id=255` acquisition-complete sentinel, stores the rest as `(frame, line, event_id)` tuples in a thread-safe list.
+- Added `get_ttl_events()` and `clear_ttl_events()` to `ScanboxController`.
+- `Scanner.configure_scan_params()` now calls `set_ttl_mask()` from `config['external_events']['interrupt_mask']` (default 0).
+- `Scanner.run()` calls `clear_ttl_events()` + `start_ttl_reader()` after `start_acquisition()`; `cleanup()` calls `stop_ttl_reader()` before `stop_scan()`.
+- `Scanner._create_metadata()` saves TTL events as int32 numpy arrays `frame`, `line`, `event_id` in the `.mat` file (MATLAB-compatible field names matching `sb_timestamps.m`).
+- `mock_serial.Serial` handles `CMD_TTL_MASK` (records `state['ttl_mask']`) and gains `inject_ttl_event(frame, line, event_id)` helper for tests.
+- Updated `CMD_NAMES`, `format_command()` for `CMD_TTL_MASK`.
+- Added `TestTtlMaskCommand` and `TestTtlEventReader` test classes to `tests/test_controller.py` (11 new tests).
+- Updated `devel/protocols/scanbox_controller.md`: replaced stub "Input Mask" section with "TTL Interrupt Mask" + "TTL Event Packet" protocol reference; updated command summary table.
+- **Clarification documented:** The 2 LSBs of each Alazar ADC sample carry hardware sync signals (frame-sync on AUX_IN[0], line-sync on AUX_IN[1]) from the PSoC5 — these are NOT external TTL events. Full explanation in `examples/check_lsb_sync_bits.py`.
+
+## v0.4.6 - March 11, 2026
 - **Per-channel histogram, PMT1 red colourmap, config-driven red_boost, UX refinements (Milestone 2.3.2)**
 - **PMT1 colourmap (`red_white`):** Added `red` and `red_white` colormaps to `_build_colormap_lut()`; the `red_white` ramp uses a configurable `red_boost` exponent so the red channel appears visually as bright as the green one despite the eye's lower red sensitivity. `_DISPLAY_COLORMAP_PMT1 = 'red_white'` and `_RED_BOOST = 1.963` added as module-level constants.
 - **Config-driven `red_boost`:** Added `display.red_boost: 1.963` to `default_config.yaml`. `ScanboxConfig.__init__` now stores `self.display` and `to_dict()` exports it (both were previously missing). `ImageDisplayWidget.__init__` reads `display.red_boost` from config and builds `_lut_pmt1` per-widget so the config value is respected rather than the module-level default.

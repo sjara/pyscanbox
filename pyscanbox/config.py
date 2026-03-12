@@ -61,7 +61,7 @@ class ScanboxConfig:
         self.alignment = config_dict.get('alignment', {})
         self.auxiliary = config_dict.get('auxiliary', {})
         self.external_events = config_dict.get('external_events', {})
-        self.trigger = config_dict.get('trigger', {})
+        self.ni_events = config_dict.get('ni_events', {})
         self.quadrature = config_dict.get('quadrature', {})
         self.display = config_dict.get('display', {})
 
@@ -152,7 +152,7 @@ class ScanboxConfig:
             'alignment': self.alignment,
             'auxiliary': self.auxiliary,
             'external_events': self.external_events,
-            'trigger': self.trigger,
+            'ni_events': self.ni_events,
             'quadrature': self.quadrature,
             'display': self.display,
         }

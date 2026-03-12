@@ -31,13 +31,25 @@ Protocol:
         ETL Current (ID 48):  [48, b1, b2] (Optotune ETL current 0-1760;
                               b1/b2 encode a 16-bit word with 0b0111 prefix
                               in the upper nibble, see sb/sb_current.m)
+        TTL Mask (ID 64):     [64, 0, imask] — selects which external TTL
+                              inputs generate timestamped events.
+                              imask=0: both disabled; 1: TTL0 only;
+                              2: TTL1 only; 3: both.
+                              When a TTL event fires the PSoC5 sends a 5-byte
+                              packet back on the same serial port:
+                              [frame_low, frame_high, line_low, line_high,
+                               event_id], where event_id encodes which input
+                              triggered (1=TTL0, 2=TTL1, 3=both).
+                              event_id=255 is a sentinel meaning
+                              "acquisition complete".
 
 Reference:
     Original MATLAB implementation: sb/sb_open.m, sb/sb_setframe.m,
     sb/sb_setline.m, sb/sb_setmag.m, sb/sb_pockels.m, sb/sb_deadband.m,
     sb/sb_shutter.m, sb/sb_mirror.m, sb/sb_scan.m, sb/sb_abort.m,
     sb/sb_gain0.m, sb/sb_gain1.m, sb/sb_current.m,
-    sb/sb_unidirectional.m, sb/sb_bidirectional.m
+    sb/sb_unidirectional.m, sb/sb_bidirectional.m, sb/sb_imask.m,
+    core/serialcb.m, core/scanbox.m (sb_callback function)
 
 Example:
     >>> import pyscanbox.hardware.controller
@@ -47,8 +59,9 @@ Example:
     >>> controller.set_shutter(open=True)
 """
 
+import threading
 import time
-from typing import Optional
+from typing import List, Optional, Tuple
 
 
 def _get_serial_module(use_emulation: bool):
@@ -95,6 +108,16 @@ class ScanboxController:
     CMD_UNIDIRECTIONAL = 33  # Set PSoC5 to trigger on forward sweep only
     CMD_BIDIRECTIONAL = 34   # Set PSoC5 to trigger on both forward and return sweeps
     CMD_ETL = 48  # Electrically tunable lens (Optotune) current
+    CMD_TTL_MASK = 64  # TTL interrupt mask (which external TTL inputs fire events)
+
+    # Number of bytes in one TTL event packet returned by the PSoC5 over serial.
+    # Packet layout: [frame_low, frame_high, line_low, line_high, event_id]
+    # event_id: 1=TTL0, 2=TTL1, 3=both, 255=acquisition-complete sentinel.
+    # Reference: core/serialcb.m and core/scanbox.m (sb_callback function).
+    TTL_EVENT_BYTES = 5
+
+    # Poll interval (seconds) for the background TTL-event reader thread.
+    _TTL_POLL_INTERVAL = 0.005  # 5 ms — fine-grained at ~125 µs line period
 
     # ETL current range (hardware units, ~61.5 µA per count).
     # These are the single source of truth for the ETL range used by
@@ -137,6 +160,7 @@ class ScanboxController:
         CMD_UNIDIRECTIONAL: 'set_scan_mode',
         CMD_BIDIRECTIONAL: 'set_scan_mode',
         CMD_ETL: 'set_etl_current',
+        CMD_TTL_MASK: 'set_ttl_mask',
     }
 
     @staticmethod
@@ -208,6 +232,8 @@ class ScanboxController:
             # Decode 16-bit encoded value: bits 15-12 are always 0b0111
             current = ((param1 & 0x0F) << 8) | param2
             return f'set_etl_current(current={current})'
+        if cmd_id == ScanboxController.CMD_TTL_MASK:
+            return f'set_ttl_mask(imask={param2})'
         name = ScanboxController.CMD_NAMES.get(cmd_id, f'cmd_{cmd_id}')
         return f'{name}(param1={param1}, param2={param2})'
 
@@ -245,6 +271,13 @@ class ScanboxController:
         self.scan_running = False
         self.pmt_gains = [0, 0]  # hardware gain values (0-255) for PMT0 and PMT1
         self.etl_current = 0  # ETL current (0-1760)
+        self.ttl_mask = 0  # interrupt mask (0=disabled)
+
+        # TTL event reader thread state
+        self._ttl_events: List[Tuple[int, int, int]] = []
+        self._ttl_events_lock = threading.Lock()
+        self._ttl_thread: Optional[threading.Thread] = None
+        self._ttl_stop_event: Optional[threading.Event] = None
 
     def open(self) -> None:
         """Open serial connection to controller.
@@ -588,3 +621,132 @@ class ScanboxController:
         b2 = encoded & 0xFF
         self._send_command(self.CMD_ETL, b1, b2)
         self.etl_current = current
+    def set_ttl_mask(self, imask: int) -> None:
+        """Set the interrupt mask that controls which TTL inputs fire events.
+
+        Tells the PSoC5 which of its two external TTL input lines (TTL0 and
+        TTL1) should be monitored and generate timestamped event packets.
+        When an enabled TTL input transitions, the PSoC5 sends a 5-byte
+        packet back over the same serial port::
+
+            [frame_low, frame_high, line_low, line_high, event_id]
+
+        The packet encodes the current frame and line at which the event
+        occurred.  ``event_id`` values: 1 = TTL0, 2 = TTL1, 3 = both
+        fired within the same frame/line.  ``event_id = 255`` is a sentinel
+        that signals acquisition-complete (not a user TTL event).
+
+        Args:
+            imask: Interrupt mask value.
+                0 = both inputs disabled.
+                1 = TTL0 only (rising edge).
+                2 = TTL1 only (rising and falling edges).
+                3 = both TTL0 and TTL1.
+
+        Reference:
+            See sb/sb_imask.m: ``fwrite(sb, uint8([64 0 v]))``.
+
+        Raises:
+            ValueError: If imask is not 0–3.
+        """
+        if imask not in (0, 1, 2, 3):
+            raise ValueError(f'imask must be 0, 1, 2, or 3, got {imask}')
+        self._send_command(self.CMD_TTL_MASK, 0, imask)
+        self.ttl_mask = imask
+
+    # ------------------------------------------------------------------
+    # TTL event reader
+    # ------------------------------------------------------------------
+
+    def start_ttl_reader(self) -> None:
+        """Start the background thread that collects TTL event packets.
+
+        The PSoC5 sends unsolicited 5-byte packets back on the controller
+        serial port whenever a TTL event fires (see ``set_ttl_mask()``).
+        This method starts a daemon thread that polls ``in_waiting``,
+        reads complete 5-byte packets, and appends them to an internal
+        list protected by a thread lock.
+
+        Call ``stop_ttl_reader()`` before closing the serial port.
+        Events can be retrieved with ``get_ttl_events()``.
+
+        Note:
+            Use ``clear_ttl_events()`` before each acquisition so events
+            from a previous run are not mixed with the current one.
+        """
+        if self._ttl_thread is not None and self._ttl_thread.is_alive():
+            return  # Reader already running
+        self._ttl_stop_event = threading.Event()
+        self._ttl_thread = threading.Thread(
+            target=self._ttl_reader_loop,
+            daemon=True,
+            name='TTLEventReader',
+        )
+        self._ttl_thread.start()
+
+    def stop_ttl_reader(self) -> None:
+        """Stop the background TTL event reader thread.
+
+        Signals the reader thread to exit and waits for it to finish
+        (up to 1 second).  Safe to call even if the reader was never
+        started.
+        """
+        if self._ttl_stop_event is not None:
+            self._ttl_stop_event.set()
+        if self._ttl_thread is not None:
+            self._ttl_thread.join(timeout=1.0)
+            self._ttl_thread = None
+        self._ttl_stop_event = None
+
+    def _ttl_reader_loop(self) -> None:
+        """Background loop: read 5-byte TTL event packets from serial port.
+
+        Runs until ``_ttl_stop_event`` is set.  Packets with
+        ``event_id == 255`` are silently discarded (acquisition-complete
+        sentinel).  All other complete packets are appended to
+        ``_ttl_events``.
+        """
+        while not self._ttl_stop_event.is_set():
+            try:
+                if self.port is not None and self.is_open:
+                    n_available = self.port.in_waiting
+                    n_packets = n_available // self.TTL_EVENT_BYTES
+                    if n_packets > 0:
+                        raw = self.port.read(n_packets * self.TTL_EVENT_BYTES)
+                        for i in range(n_packets):
+                            chunk = raw[i * self.TTL_EVENT_BYTES:
+                                        (i + 1) * self.TTL_EVENT_BYTES]
+                            frame_num = chunk[0] + chunk[1] * 256
+                            line_num = chunk[2] + chunk[3] * 256
+                            event_id = chunk[4]
+                            # 255 is the acquisition-complete sentinel —
+                            # not a user TTL event; discard silently.
+                            if event_id != 255:
+                                with self._ttl_events_lock:
+                                    self._ttl_events.append(
+                                        (frame_num, line_num, event_id)
+                                    )
+            except Exception:  # noqa: BLE001 — best-effort background thread
+                pass
+            self._ttl_stop_event.wait(self._TTL_POLL_INTERVAL)
+
+    def get_ttl_events(self) -> List[Tuple[int, int, int]]:
+        """Return a snapshot of collected TTL events.
+
+        Returns:
+            List of ``(frame, line, event_id)`` tuples in arrival order.
+            ``frame`` and ``line`` are the PSoC5 frame/line counters at the
+            moment the event fired.  ``event_id`` is 1 (TTL0), 2 (TTL1),
+            or 3 (both).
+        """
+        with self._ttl_events_lock:
+            return list(self._ttl_events)
+
+    def clear_ttl_events(self) -> None:
+        """Discard all previously collected TTL events.
+
+        Call this at the start of each acquisition so events from a prior
+        run (e.g., a focus session) are not included in the saved metadata.
+        """
+        with self._ttl_events_lock:
+            self._ttl_events.clear()

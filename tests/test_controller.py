@@ -567,5 +567,155 @@ class TestScanModeControl(unittest.TestCase):
         self.assertEqual(result, 'set_scan_mode(bidirectional=True)')
 
 
+class TestTtlMaskCommand(TestScanboxController):
+    """Tests for set_ttl_mask() and the CMD_TTL_MASK constant."""
+
+    def test_cmd_ttl_mask_value(self):
+        """CMD_TTL_MASK constant must be 64 (matches sb_imask.m fwrite([64 0 v]))."""
+        self.assertEqual(controller.ScanboxController.CMD_TTL_MASK, 64)
+
+    @mock.patch('serial.Serial')
+    def test_set_ttl_mask_sends_correct_packet(self, mock_serial):
+        """set_ttl_mask(2) sends bytes [64, 0, 2]."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        ctrl.set_ttl_mask(2)
+        mock_port.write.assert_called_with(bytes([64, 0, 2]))
+
+    @mock.patch('serial.Serial')
+    def test_set_ttl_mask_all_valid_values(self, mock_serial):
+        """set_ttl_mask accepts 0, 1, 2, 3 and sends the right packet."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        for imask in (0, 1, 2, 3):
+            ctrl.set_ttl_mask(imask)
+            mock_port.write.assert_called_with(bytes([64, 0, imask]))
+            self.assertEqual(ctrl.ttl_mask, imask)
+
+    @mock.patch('serial.Serial')
+    def test_set_ttl_mask_invalid_raises(self, mock_serial):
+        """set_ttl_mask with value outside 0-3 raises ValueError."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.config)
+        ctrl.open()
+        with self.assertRaises(ValueError):
+            ctrl.set_ttl_mask(4)
+
+    def test_format_command_decodes_ttl_mask(self):
+        """format_command(64, 0, 2) returns 'set_ttl_mask(imask=2)'."""
+        result = controller.ScanboxController.format_command(64, 0, 2)
+        self.assertEqual(result, 'set_ttl_mask(imask=2)')
+
+    def test_cmd_ttl_mask_in_cmd_names(self):
+        """CMD_TTL_MASK appears in CMD_NAMES."""
+        self.assertIn(
+            controller.ScanboxController.CMD_TTL_MASK,
+            controller.ScanboxController.CMD_NAMES,
+        )
+
+
+class TestTtlEventReader(unittest.TestCase):
+    """Tests for the background TTL event reader thread.
+
+    Uses the mock_serial.Serial directly so we can call inject_ttl_event()
+    to simulate packets arriving from the PSoC5.
+    """
+
+    def _make_emulated_controller(self):
+        """Return an open ScanboxController using mock_serial."""
+        config = {
+            'controller': {
+                'com_port': 'COM3',
+                'baud_rate': 1_000_000,
+                'timeout': 1.0,
+            },
+            'emulation': {'enabled': True, 'verbose': False},
+        }
+        ctrl = controller.ScanboxController(config)
+        ctrl.open()
+        return ctrl
+
+    def test_reader_collects_injected_events(self):
+        """TTL reader appends packets injected into the mock port."""
+        ctrl = self._make_emulated_controller()
+        ctrl.start_ttl_reader()
+
+        # Inject two synthetic TTL event packets via the mock serial port.
+        ctrl.port.inject_ttl_event(frame=10, line=200, event_id=2)
+        ctrl.port.inject_ttl_event(frame=11, line=5, event_id=1)
+
+        # Give the reader thread time to process both packets.
+        import time as _time
+        _time.sleep(0.05)
+
+        ctrl.stop_ttl_reader()
+        events = ctrl.get_ttl_events()
+
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0], (10, 200, 2))
+        self.assertEqual(events[1], (11, 5, 1))
+
+    def test_reader_ignores_sentinel_255(self):
+        """event_id == 255 (acquisition-complete sentinel) is discarded."""
+        ctrl = self._make_emulated_controller()
+        ctrl.start_ttl_reader()
+
+        ctrl.port.inject_ttl_event(frame=0, line=0, event_id=255)
+        ctrl.port.inject_ttl_event(frame=5, line=100, event_id=2)
+
+        import time as _time
+        _time.sleep(0.05)
+
+        ctrl.stop_ttl_reader()
+        events = ctrl.get_ttl_events()
+
+        # Only the non-sentinel event should be present.
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0], (5, 100, 2))
+
+    def test_clear_ttl_events_empties_list(self):
+        """clear_ttl_events() discards all previously collected events."""
+        ctrl = self._make_emulated_controller()
+        ctrl.start_ttl_reader()
+
+        ctrl.port.inject_ttl_event(frame=3, line=50, event_id=1)
+
+        import time as _time
+        _time.sleep(0.05)
+
+        ctrl.stop_ttl_reader()
+        ctrl.clear_ttl_events()
+        events = ctrl.get_ttl_events()
+        self.assertEqual(len(events), 0)
+
+    def test_reader_start_stop_idempotent(self):
+        """Starting and stopping the reader multiple times does not crash."""
+        ctrl = self._make_emulated_controller()
+        ctrl.start_ttl_reader()
+        ctrl.start_ttl_reader()  # second call should be a no-op
+        ctrl.stop_ttl_reader()
+        ctrl.stop_ttl_reader()   # second call should be a no-op
+
+    def test_get_ttl_events_returns_copy(self):
+        """get_ttl_events() returns a copy; mutating it does not affect storage."""
+        ctrl = self._make_emulated_controller()
+        ctrl.start_ttl_reader()
+
+        ctrl.port.inject_ttl_event(frame=1, line=1, event_id=1)
+
+        import time as _time
+        _time.sleep(0.05)
+
+        ctrl.stop_ttl_reader()
+        snapshot = ctrl.get_ttl_events()
+        snapshot.clear()  # mutate the returned list
+        self.assertEqual(len(ctrl.get_ttl_events()), 1)
+
+
 if __name__ == '__main__':
     unittest.main()

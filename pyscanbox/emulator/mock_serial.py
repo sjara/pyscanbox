@@ -43,6 +43,7 @@ class Serial:
     CMD_SHUTTER = 16
     CMD_UNIDIRECTIONAL = 33
     CMD_BIDIRECTIONAL = 34
+    CMD_TTL_MASK = 64
 
     def __init__(self, port: str = 'COM1', baudrate: int = 9600,
                  bytesize: int = 8, parity: str = 'N', stopbits: int = 1,
@@ -75,6 +76,7 @@ class Serial:
             'scan_mode': 'unidirectional',
             'motor_positions': [0, 0, 0, 0],  # 4 motors
             'motor_velocities': [0, 0, 0, 0],
+            'ttl_mask': 0,  # interrupt mask for external TTL inputs
         }
 
         # Buffer for responses
@@ -200,6 +202,11 @@ class Serial:
             if self.verbose:
                 logger.debug("Scan mode: bidirectional")
 
+        elif cmd_id == self.CMD_TTL_MASK:
+            self.state['ttl_mask'] = param2
+            if self.verbose:
+                logger.debug(f"TTL mask set: imask={param2}")
+
         else:
             if self.verbose:
                 logger.debug(f"Unknown command: {cmd_id}")
@@ -294,6 +301,32 @@ class Serial:
         response[8] = sum(response[0:8]) % 256
 
         return bytes(response)
+
+    def inject_ttl_event(self, frame: int, line: int, event_id: int) -> None:
+        """Inject a synthetic TTL event packet into the input buffer.
+
+        This is a test/emulation helper that simulates a 5-byte TTL event
+        packet that the real PSoC5 would send when an external TTL input
+        fires.  Calling this with ``event_id=255`` simulates the
+        acquisition-complete sentinel.
+
+        Packet layout (matches ``core/serialcb.m``):
+            ``[frame_low, frame_high, line_low, line_high, event_id]``
+
+        Args:
+            frame: Frame number at which the event occurred (0-65535).
+            line:  Line number at which the event occurred (0-65535).
+            event_id: Which TTL input fired: 1=TTL0, 2=TTL1, 3=both,
+                255=acquisition-complete sentinel.
+        """
+        packet = bytes([
+            frame & 0xFF,
+            (frame >> 8) & 0xFF,
+            line & 0xFF,
+            (line >> 8) & 0xFF,
+            event_id & 0xFF,
+        ])
+        self._response_buffer.extend(packet)
 
     def __enter__(self):
         """Context manager entry."""
