@@ -790,6 +790,23 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         self._mark_button.toggled.connect(self._on_mark_toggled)
         self._reposition_mark_button()
 
+        # Small zoom-level label overlaid on the bottom-right corner.
+        self._zoom_label = QtWidgets.QLabel("100%", self)
+        self._zoom_label.setStyleSheet(
+            "QLabel {"
+            "  background: rgba(30,30,30,160);"
+            "  color: #cccccc;"
+            "  border: 1px solid #555;"
+            "  border-radius: 3px;"
+            "  padding: 2px 5px;"
+            "  font-size: 11px;"
+            "}"
+        )
+        self._zoom_label.setAttribute(
+            QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents
+        )
+        self._reposition_zoom_label()
+
     # ------------------------------------------------------------------
     # Public interface
     # ------------------------------------------------------------------
@@ -822,6 +839,7 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         if self._is_fit:
             self._fit_in_view()
         self._reposition_mark_button()
+        self._reposition_zoom_label()
 
     def wheelEvent(self, event: QtGui.QWheelEvent) -> None:
         """Zoom in or out centred on the cursor position."""
@@ -831,6 +849,7 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
             factor = 1.0 / self._ZOOM_FACTOR
         self._is_fit = False
         self.scale(factor, factor)
+        self._update_zoom_label()
 
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
         """Place a marker on left-click when marker mode is active."""
@@ -864,12 +883,15 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         elif action == zoom_in_action:
             self._is_fit = False
             self.scale(self._ZOOM_FACTOR, self._ZOOM_FACTOR)
+            self._update_zoom_label()
         elif action == zoom_out_action:
             self._is_fit = False
             self.scale(1.0 / self._ZOOM_FACTOR, 1.0 / self._ZOOM_FACTOR)
+            self._update_zoom_label()
         elif action == actual_action:
             self._is_fit = False
             self.resetTransform()
+            self._update_zoom_label()
         elif action == clear_action:
             self.clear_markers()
 
@@ -881,6 +903,7 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         rect = self._pixmap_item.boundingRect()
         if not rect.isNull():
             self.fitInView(rect, QtCore.Qt.AspectRatioMode.KeepAspectRatio)
+            self._update_zoom_label()
 
     def _reposition_mark_button(self) -> None:
         """Keep the Mark button in the top-right corner of the viewport."""
@@ -888,6 +911,21 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         btn = self._mark_button
         btn.move(self.width() - btn.width() - margin, margin)
         btn.raise_()
+
+    def _reposition_zoom_label(self) -> None:
+        """Keep the zoom label in the bottom-right corner of the viewport."""
+        margin = 6
+        lbl = self._zoom_label
+        lbl.adjustSize()
+        lbl.move(self.width() - lbl.width() - margin,
+                 self.height() - lbl.height() - margin)
+        lbl.raise_()
+
+    def _update_zoom_label(self) -> None:
+        """Refresh the zoom label text to reflect the current transform."""
+        scale = self.transform().m11()
+        self._zoom_label.setText(f"{scale * 100:.0f}%")
+        self._reposition_zoom_label()
 
     def _on_mark_toggled(self, enabled: bool) -> None:
         """Switch between marker mode and normal pan mode."""

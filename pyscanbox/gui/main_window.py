@@ -360,14 +360,13 @@ class MainWindow(QtWidgets.QMainWindow):
             frame_data = self._sbx_reader.get_frame(index)
         except IndexError:
             return
-        # .sbx files store wire-format uint16 values: the 14-bit PMT sample
-        # sits in bits 15:2 and the two LSBs carry Alazar sync flags.
-        # Right-shift by 2 to obtain the 14-bit range (0–16383) expected by
-        # ImageDisplayWidget and HistogramWidget — the same conversion that
-        # reshape_pmt_data() performs on live-acquisition buffers.
-        frame_14bit = frame_data >> 2
-        self._right_panel.image_display.update_frame(frame_14bit)
-        self._right_panel.histogram.force_update_frame(frame_14bit)
+        # SbxWriter stores data that has already been processed by
+        # reshape_pmt_data(), which extracts the 14-bit PMT sample and shifts
+        # right by 2.  Values on disk are already in the 0–16383 range
+        # expected by ImageDisplayWidget and HistogramWidget.  No further
+        # shift is needed here.
+        self._right_panel.image_display.update_frame(frame_data)
+        self._right_panel.histogram.force_update_frame(frame_data)
 
     def _on_display_gain_changed(self, slider_value: int) -> None:
         """Re-render the current loaded frame when the display gain changes.
