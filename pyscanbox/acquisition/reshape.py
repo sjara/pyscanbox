@@ -172,6 +172,47 @@ def reshape_for_display(reshaped_data: np.ndarray) -> np.ndarray:
     return scaled
 
 
+def extract_raw_sync_bits(buffer: np.ndarray, lines_per_frame: int,
+                          samples_per_line: int) -> np.ndarray:
+    """Extract frame- and line-sync bits from a raw Alazar line buffer.
+
+    The Alazar card embeds two hardware sync signals in the two LSBs of each
+    acquired sample (see ``configure_lsb_outputs()``).  These bits are only
+    meaningful in the raw interleaved buffer — they are lost during the
+    four-sample averaging performed by ``reshape_pmt_data_raw()``.
+
+    Sync bits are read from the **very first interleaved sample** of each
+    line (``buffer[line_start]``, which is channel-A sample 0 of that line).
+    The PSoC5 line-trigger fires at the beginning of each acquisition window,
+    so the sync flags are reliably present at sample index 0.
+
+    Note: the first ``lut_base[0]`` raw samples of each line (≈ 112 for
+    standard parameters) are in the "dead zone" before the leftmost output
+    pixel.  These samples are discarded by ``reshape_pmt_data_raw()`` but
+    they carry the sync markers, which is why this function reads them
+    directly from the raw buffer.
+
+    Args:
+        buffer: Raw uint16 buffer from the Alazar, 1-D, length
+            ``lines_per_frame × samples_per_line × 2`` (channels
+            interleaved, line-major order).
+        lines_per_frame: Number of scan lines per frame (e.g. 512).
+        samples_per_line: Raw ADC samples per channel per line (e.g. 10112).
+
+    Returns:
+        uint8 array of shape ``(lines_per_frame, 2)`` where column 0 is
+        LSB0 (frame-sync, AUX_IN[0]) and column 1 is LSB1 (line-sync,
+        AUX_IN[1]), extracted from sample 0 of each line.
+    """
+    sync = np.empty((lines_per_frame, 2), dtype=np.uint8)
+    stride = samples_per_line * 2   # interleaved samples per line
+    for line in range(lines_per_frame):
+        first_sample = int(buffer[line * stride])
+        sync[line, 0] = first_sample & 0x01   # bit 0 — LSB0 / frame-sync
+        sync[line, 1] = (first_sample >> 1) & 0x01  # bit 1 — LSB1 / line-sync
+    return sync
+
+
 def validate_buffer_size(buffer: np.ndarray, lines_per_frame: int,
                         pixels_per_line: int, channels: int = 2) -> bool:
     """Validate that buffer size matches expected dimensions.
@@ -311,9 +352,10 @@ def reshape_pmt_data_raw(buffer: np.ndarray, lines_per_frame: int,
 
     Returns:
         uint16 array of shape ``(2, lines_per_frame, pixels_per_line)``.
-        Values are in the same 16-bit wire encoding as the input (14-bit ADC
-        data in bits 15:2; 2 LSB sync bits are NOT stripped).  This exactly
-        matches ``alazarReshapeCData2.c``'s ``(unsigned short)(tmp >> 2)``.
+        Values are in wire format: bits 15:2 carry the averaged 14-bit ADC
+        value, but bits 1:0 are **not** reliable sync flags — they reflect the
+        low-order arithmetic bits of the four-sample sum and should be ignored.
+        See ``extract_raw_sync_bits()`` if you need sync information.
 
     Note:
         This function is JIT-compiled with Numba.  Pass ``lut_base`` as a
@@ -341,8 +383,13 @@ def reshape_pmt_data_raw(buffer: np.ndarray, lines_per_frame: int,
                      + np.uint32(buffer[line_start + 2 * (s + 3) + 1]))
             # >> 2 averages 4 samples (divide by 4), matching alazarReshapeCData2.c
             # which does exactly `(unsigned short int)(tmp >>2)`.
-            # The 2 LSB sync bits are NOT stripped here; the output retains the
-            # same 16-bit wire encoding as the input (14-bit ADC data in bits 15:2).
+            # NOTE: The hardware sync bits (bits 1:0) from the raw samples are
+            # NOT preserved by this operation.  Each raw sample is
+            # (ADC_14bit << 2) | sync_2bit.  Summing 4 such values and shifting
+            # right by 2 produces bits 1:0 that reflect the low-order ADC bits
+            # of the sum, NOT the original sync flags.  Sync information must be
+            # extracted from the raw buffer BEFORE calling this function (e.g.
+            # from buffer[line_start] for the first sample of each line).
             output[0, line, px] = np.uint16(sum_a >> 2)
             output[1, line, px] = np.uint16(sum_b >> 2)
 

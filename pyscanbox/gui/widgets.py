@@ -88,7 +88,6 @@ def _build_colormap_lut(name: str, red_boost: float | None = None) -> np.ndarray
         white = np.clip(2.0 * v - 255.0, 0.0, 255.0).astype(np.uint8)
         lut[:, 1] = white
         lut[:, 2] = white
-        print(f"Building 'red_white' LUT with red_boost={boost:.3f}")
     elif name == 'red':
         lut[:, 0] = v.astype(np.uint8)
     elif name == 'gray':
@@ -981,9 +980,7 @@ class ImageDisplayWidget(QtWidgets.QWidget):
             config.to_dict() if hasattr(config, 'to_dict') else (config or {})
         )
         self._display_cfg: dict = config_dict.get('display', {})
-        print(f"Display configuration: {self._display_cfg}")
         _cfg_red_boost = self._display_cfg.get('red_boost', None)
-        print(f"Initializing PMT1 colormap with red_boost={_cfg_red_boost}")
         self._lut_pmt1: np.ndarray = _build_colormap_lut(
             _DISPLAY_COLORMAP_PMT1,
             red_boost=_cfg_red_boost,
