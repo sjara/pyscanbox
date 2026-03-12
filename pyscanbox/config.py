@@ -63,6 +63,7 @@ class ScanboxConfig:
         self.external_events = config_dict.get('external_events', {})
         self.trigger = config_dict.get('trigger', {})
         self.quadrature = config_dict.get('quadrature', {})
+        self.display = config_dict.get('display', {})
 
     def __getitem__(self, key: str) -> Any:
         """Get configuration value by key (dictionary-like access).
@@ -153,6 +154,7 @@ class ScanboxConfig:
             'external_events': self.external_events,
             'trigger': self.trigger,
             'quadrature': self.quadrature,
+            'display': self.display,
         }
 
 

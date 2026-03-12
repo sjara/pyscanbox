@@ -490,8 +490,9 @@ class Board:
 
         Generates self._n_test_frames frames, each containing ~15 Gaussian
         spots (simulated neurons) whose intensities vary sinusoidally across
-        the frame bank — mimicking calcium fluorescence dynamics.  Channel 0
-        (PMT0) is bright; channel 1 (PMT1) is ~40 % of channel 0 intensity.
+        the frame bank — mimicking calcium fluorescence dynamics.  Both
+        channels are generated with the same signal magnitude so the two
+        display colormaps can be tuned for equal apparent brightness.
 
         The results are stored as Alazar wire-format buffers in self._test_frames
         (interleaved channels, values left-shifted by 2 into bits 15:2).
@@ -533,7 +534,7 @@ class Board:
 
                 # Subtract signal (bright spots are dips in PMT signal)
                 imgs[0] -= signal_strength[i] * activity * gauss
-                imgs[1] -= signal_strength[i] * activity * 0.4 * gauss   # ch1 weaker
+                imgs[1] -= signal_strength[i] * activity * gauss   # ch1 same magnitude as ch0
 
             imgs = np.clip(imgs, 0, 16383)
 
@@ -618,7 +619,7 @@ class Board:
                 activity = 0.7 + 0.3 * np.sin(phase)
                 # Subtract signal (bright spots are dips in PMT signal)
                 imgs[0] -= signal_strength[i] * activity * gauss
-                imgs[1] -= signal_strength[i] * activity * 0.4 * gauss
+                imgs[1] -= signal_strength[i] * activity * gauss
 
             imgs = np.clip(imgs, 0, 16383)
 

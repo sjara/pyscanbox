@@ -114,6 +114,9 @@ class RightDisplayPanel(QtWidgets.QWidget):
         self.image_display_group.channel_combobox.currentIndexChanged.connect(
             self.image_display.set_channel
         )
+        self.image_display_group.channel_combobox.currentIndexChanged.connect(
+            self.histogram.set_channel
+        )
 
         # Add splitter to layout
         layout = QtWidgets.QVBoxLayout()

@@ -26,14 +26,14 @@ from pyscanbox.hardware import controller as hw_controller
 import PyQt6.QtGui as QtGui
 
 
-def _build_colormap_lut(name: str) -> np.ndarray:
+def _build_colormap_lut(name: str, red_boost: float | None = None) -> np.ndarray:
     """Return a 256×3 uint8 lookup table for the named display colormap.
 
     Colormaps available:
 
     ``'green'``
-        Black → green.  The current default: only the G channel is set.
-        Matches the original Scanbox MATLAB display convention.
+        Black → green.  Only the G channel is set.
+        Matches the original Scanbox MATLAB display convention for PMT0.
 
     ``'green_white'``
         Black → green → white.  Intensity 0=black, ~128=pure green,
@@ -41,11 +41,26 @@ def _build_colormap_lut(name: str) -> np.ndarray:
         but using green as the midpoint colour.  Useful when bright
         fluorescence should saturate to white rather than stay green.
 
+    ``'red'``
+        Black → red.  Only the R channel is set.
+        Mirrors ``'green'`` but for PMT1 (tdTomato, RFP, …).
+
+    ``'red_white'``
+        Black → red → white.  Mirrors ``'green_white'`` but using the
+        R channel as the primary ramp.  Default colormap for PMT1.
+        The R ramp speed is controlled by ``red_boost`` (or the module-level
+        ``_RED_BOOST`` constant when not supplied).  The white onset is
+        always fixed at v=128, independent of ``red_boost``.
+
     ``'gray'``
         Black → white.  Grayscale reference colormap.
 
     Args:
-        name: One of ``'green'``, ``'green_white'``, ``'gray'``.
+        name: One of ``'green'``, ``'green_white'``, ``'red'``,
+            ``'red_white'``, ``'gray'``.
+        red_boost: Override for the R-channel ramp multiplier used by
+            ``'red_white'``.  Defaults to the module-level ``_RED_BOOST``
+            constant when ``None``.
 
     Returns:
         numpy array of shape (256, 3), dtype uint8 (R, G, B columns).
@@ -60,6 +75,22 @@ def _build_colormap_lut(name: str) -> np.ndarray:
         white = np.clip(2.0 * v - 255.0, 0.0, 255.0).astype(np.uint8)
         lut[:, 0] = white
         lut[:, 2] = white
+    elif name == 'red_white':
+        # R ramps 0→255 scaled by the module-level _RED_BOOST constant.
+        # Tune _RED_BOOST to adjust perceived brightness independently of the
+        # white blend.  The white onset is fixed at v=128 (same fraction as
+        # green_white) so changing _RED_BOOST never shifts when the colour
+        # saturates to white.
+        boost = red_boost if red_boost is not None else _RED_BOOST
+        r = np.clip(v * boost, 0.0, 255.0).astype(np.uint8)
+        lut[:, 0] = r
+        # White blend: G and B kick in at v=128, independent of boost.
+        white = np.clip(2.0 * v - 255.0, 0.0, 255.0).astype(np.uint8)
+        lut[:, 1] = white
+        lut[:, 2] = white
+        print(f"Building 'red_white' LUT with red_boost={boost:.3f}")
+    elif name == 'red':
+        lut[:, 0] = v.astype(np.uint8)
     elif name == 'gray':
         lut[:, 0] = v.astype(np.uint8)
         lut[:, 1] = v.astype(np.uint8)
@@ -73,16 +104,28 @@ def _build_colormap_lut(name: str) -> np.ndarray:
 # Module-level display configuration
 # ---------------------------------------------------------------------------
 
-# Colormap used for both the image display and the histogram colourbar.
+# Colormap used for PMT0 display and the histogram colourbar.
 # Allowed values: 'green', 'green_white', 'gray'  (see _build_colormap_lut).
 _DISPLAY_COLORMAP: str = 'green_white'
+
+# Colormap used for PMT1 display.
+# Allowed values: 'red', 'red_white', 'gray'  (see _build_colormap_lut).
+_DISPLAY_COLORMAP_PMT1: str = 'red_white'
+
+# Perceptual brightness boost for the red_white colormap.
+# Controls how quickly the R channel ramps up — increase to make red brighter,
+# decrease to dim it.  The white saturation point (v=128) is fixed and does
+# NOT move when you change this value, so you can tune brightness freely.
+# ITU-R theoretical value: 0.587/0.299 ≈ 1.963.  Adjust to taste.
+_RED_BOOST: float = 1.963
 
 # Fraction (0.0–1.0) of the colormap range used for the histogram bar colour.
 # 0.80 → the bar is drawn with the LUT colour at index int(0.80 × 255) = 204.
 _HISTOGRAM_COLOR_LEVEL: float = 0.4
 
-# Precomputed lookup table for _DISPLAY_COLORMAP.  Used by both
-# ImageDisplayWidget and HistogramWidget so derived colours stay consistent.
+# Precomputed lookup table for PMT0 / histogram.  The PMT1 LUT is built
+# per-widget in ImageDisplayWidget.__init__ so that the config-file red_boost
+# value (display.red_boost) is applied correctly.
 _DISPLAY_LUT: np.ndarray = _build_colormap_lut(_DISPLAY_COLORMAP)
 
 
@@ -278,16 +321,19 @@ class PositionDisplayGroup(QtWidgets.QGroupBox):
         self.world_x_edit = QtWidgets.QLineEdit("0.00")
         self.world_x_edit.setReadOnly(True)
         self.world_x_edit.setMaximumWidth(70)
+        self.world_x_edit.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self.world_x_edit, 1, 1)
 
         self.world_y_edit = QtWidgets.QLineEdit("0.00")
         self.world_y_edit.setReadOnly(True)
         self.world_y_edit.setMaximumWidth(70)
+        self.world_y_edit.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self.world_y_edit, 1, 2)
 
         self.world_z_edit = QtWidgets.QLineEdit("0.00")
         self.world_z_edit.setReadOnly(True)
         self.world_z_edit.setMaximumWidth(70)
+        self.world_z_edit.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self.world_z_edit, 1, 3)
 
         # Row 2: Absolute motor hardware positions (polled from Trinamic board)
@@ -295,16 +341,19 @@ class PositionDisplayGroup(QtWidgets.QGroupBox):
         self.abs_x_edit = QtWidgets.QLineEdit("0.00")
         self.abs_x_edit.setReadOnly(True)
         self.abs_x_edit.setMaximumWidth(70)
+        self.abs_x_edit.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self.abs_x_edit, 2, 1)
 
         self.abs_y_edit = QtWidgets.QLineEdit("0.00")
         self.abs_y_edit.setReadOnly(True)
         self.abs_y_edit.setMaximumWidth(70)
+        self.abs_y_edit.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self.abs_y_edit, 2, 2)
 
         self.abs_z_edit = QtWidgets.QLineEdit("0.00")
         self.abs_z_edit.setReadOnly(True)
         self.abs_z_edit.setMaximumWidth(70)
+        self.abs_z_edit.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self.abs_z_edit, 2, 3)
 
         # Row 3: Rotated coordinates (reserved — angle-compensated, future)
@@ -312,16 +361,19 @@ class PositionDisplayGroup(QtWidgets.QGroupBox):
         self.rotated_x_edit = QtWidgets.QLineEdit("0.00")
         self.rotated_x_edit.setReadOnly(True)
         self.rotated_x_edit.setMaximumWidth(70)
+        self.rotated_x_edit.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self.rotated_x_edit, 3, 1)
 
         self.rotated_y_edit = QtWidgets.QLineEdit("0.00")
         self.rotated_y_edit.setReadOnly(True)
         self.rotated_y_edit.setMaximumWidth(70)
+        self.rotated_y_edit.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self.rotated_y_edit, 3, 2)
 
         self.rotated_z_edit = QtWidgets.QLineEdit("0.00")
         self.rotated_z_edit.setReadOnly(True)
         self.rotated_z_edit.setMaximumWidth(70)
+        self.rotated_z_edit.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight)
         grid.addWidget(self.rotated_z_edit, 3, 3)
 
         outer.addLayout(grid)
@@ -921,12 +973,21 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         # still be changed at runtime via set_colormap().
         self._colormap: str = _DISPLAY_COLORMAP
         self._lut: np.ndarray = _DISPLAY_LUT
+        # Separate LUT for PMT1 (red_white by default).
+        # red_boost can be overridden via the 'display.red_boost' config key.
         # Extract the display sub-section from the config (supports both plain
         # dicts and objects with a to_dict() method such as ScanboxConfig).
         config_dict = (
             config.to_dict() if hasattr(config, 'to_dict') else (config or {})
         )
         self._display_cfg: dict = config_dict.get('display', {})
+        print(f"Display configuration: {self._display_cfg}")
+        _cfg_red_boost = self._display_cfg.get('red_boost', None)
+        print(f"Initializing PMT1 colormap with red_boost={_cfg_red_boost}")
+        self._lut_pmt1: np.ndarray = _build_colormap_lut(
+            _DISPLAY_COLORMAP_PMT1,
+            red_boost=_cfg_red_boost,
+        )
         # Raw 14-bit frame kept so that gain/channel changes can re-render
         # the last frame without waiting for the next acquisition.
         self._raw_frame: np.ndarray | None = None
@@ -1014,9 +1075,9 @@ class ImageDisplayWidget(QtWidgets.QWidget):
             rgb[:, :, 0] = r
             rgb[:, :, 1] = g
         elif self._channel == 1:
-            # PMT1 → apply colormap (intensity maps as per selected LUT).
+            # PMT1 → apply the PMT1-specific colormap (red_white by default).
             v = _scale(frame_data[min(1, n_channels - 1)])
-            rgb = self._lut[v]  # fancy indexing: (H, W) → (H, W, 3)
+            rgb = self._lut_pmt1[v]  # fancy indexing: (H, W) → (H, W, 3)
         else:
             # PMT0 (default) → apply colormap.
             v = _scale(frame_data[0])
@@ -1179,22 +1240,34 @@ class HistogramWidget(QtWidgets.QWidget):
         """Initialize the histogram widget."""
         super().__init__()
         self._counts: np.ndarray | None = None
+        self._counts1: np.ndarray | None = None   # PMT1 counts (overlay mode)
+        self._channel: int = 0
         self._frame_counter: int = 0
         self.setMinimumHeight(80)
         self.setMaximumHeight(120)
         self.setMinimumWidth(100)
         self.setToolTip(
-            "Pixel intensity histogram (channel 0, 256 bins, 14-bit range)\n"
-            "X-axis: display value 0 = dark background (left) → 16383 = max signal (right)"
+            "Pixel intensity histogram (256 bins, 14-bit range)\n"
+            "X-axis: display value 0 = dark background (left) → 16383 = max signal (right)\n"
+            "Tracks the channel selected in Image Display > Channel."
         )
 
-        # Bar and border colours derived from the module-level display colormap.
+        # PMT0 bar/border colours (derived from _DISPLAY_LUT / green_white).
         _bar_idx = int(_HISTOGRAM_COLOR_LEVEL * 255)
         _bar_rgb = _DISPLAY_LUT[_bar_idx]
         self._bar_color = QtGui.QColor(
             int(_bar_rgb[0]), int(_bar_rgb[1]), int(_bar_rgb[2])
         )
         self._border_color = self._bar_color.lighter(130)
+
+        # PMT1 bar/border colours and LUT (red_white, module-level _RED_BOOST).
+        _lut1 = _build_colormap_lut(_DISPLAY_COLORMAP_PMT1)
+        _bar_rgb1 = _lut1[_bar_idx]
+        self._bar_color1 = QtGui.QColor(
+            int(_bar_rgb1[0]), int(_bar_rgb1[1]), int(_bar_rgb1[2])
+        )
+        self._border_color1 = self._bar_color1.lighter(130)
+        self._lut_pmt1 = _lut1
 
     def update_frame(self, frame_data: np.ndarray) -> None:
         """Recompute the histogram from a newly acquired frame.
@@ -1232,40 +1305,51 @@ class HistogramWidget(QtWidgets.QWidget):
             return
         self._compute_histogram(frame_data)
 
+    def set_channel(self, index: int) -> None:
+        """Set the channel shown in the histogram to match the image display.
+
+        Args:
+            index: 0 = PMT0 (green colormap), 1 = PMT1 (red colormap),
+                2 = both channels overlaid with semi-transparency and a
+                vertically split colourbar.
+        """
+        self._channel = index
+        self.update()
+
     def _compute_histogram(self, frame_data: np.ndarray) -> None:
         """Compute bin counts from *frame_data* and schedule a repaint.
+
+        Always computes counts for both channels so the display can switch
+        channel without waiting for the next frame.
 
         Args:
             frame_data: Shape ``(channels, lines_per_frame, pixels_per_line)``,
                 dtype ``uint16``, values 0–16383 (14-bit).
         """
-        # Subsample then bin-count.  bincount on integer data is ~4× faster
-        # than np.histogram and requires no range argument.
-        ch0 = frame_data[0].ravel()[::self.SUBSAMPLE]
-        # Clamp to valid 14-bit range so bincount index is always in-bounds.
-        ch0 = np.clip(ch0, 0, self._ADC_MAX)
-        full_counts = np.bincount(ch0, minlength=self._ADC_MAX + 1)
-        # Fold 16 384 fine bins into NUM_BINS coarse bins by summing groups.
-        self._counts = (
-            full_counts.reshape(self.NUM_BINS, self._VALUES_PER_BIN).sum(axis=1)
-        )
-        self.update()  # schedule a repaint
+        def _bincount(ch_data: np.ndarray) -> np.ndarray:
+            flat = ch_data.ravel()[::self.SUBSAMPLE]
+            flat = np.clip(flat, 0, self._ADC_MAX)
+            full = np.bincount(flat, minlength=self._ADC_MAX + 1)
+            return full.reshape(self.NUM_BINS, self._VALUES_PER_BIN).sum(axis=1)
+
+        n_ch = frame_data.shape[0]
+        self._counts = _bincount(frame_data[0])
+        self._counts1 = _bincount(frame_data[min(1, n_ch - 1)]) if n_ch >= 2 else None
+        self.update()
 
     def paintEvent(self, event) -> None:  # noqa: N802  (Qt naming convention)
         """Paint the histogram bars and axis labels using QPainter.
 
-        The x-axis has a fixed scale: bin 0 (raw value 0) on the left,
-        bin 255 (raw value 16383) on the right.  The y-axis auto-scales to
-        the maximum count across bins 1–255; bin 0 is excluded from the
-        scaling reference so a dominant zero-pixel spike does not compress
-        the rest of the chart.  When the "zeros" checkbox is unchecked, bin 0
-        is drawn as zero.
+        Rendering depends on the active channel:
 
-        All per-bin coordinate arithmetic is fully vectorised with numpy;
-        no Python loop iterates over individual bins.
+        * **PMT0 (channel 0)**: green bars, green_white colourbar.
+        * **PMT1 (channel 1)**: red bars, red_white colourbar.
+        * **Both (channel 2)**: both histograms drawn at 60 % opacity over
+          each other; colourbar split vertically (green_white left, red_white
+          right).
 
         Args:
-            event: QPaintEvent from Qt (unused; we always repaint fully).
+            event: QPaintEvent from Qt (unused; full repaint every time).
         """
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, False)
@@ -1288,94 +1372,122 @@ class HistogramWidget(QtWidgets.QWidget):
             painter.end()
             return
 
-        # Flip so that high raw ADC values (dark background) sit on the left
-        # and low raw ADC values (bright signal) sit on the right.  After the
-        # flip, index 0 corresponds to raw ≈ 16383 (display value ≈ 0, dark).
-        disp_counts = self._counts[::-1].copy()
+        # --- Select which counts / colours to use ---
+        ch = self._channel
+        use_both = (ch == 2 and self._counts1 is not None)
+        if ch == 1 and self._counts1 is not None:
+            counts_a   = self._counts1[::-1].copy()
+            bar_col_a  = self._bar_color1
+            brd_col_a  = self._border_color1
+            lut_a      = self._lut_pmt1
+            counts_b   = None
+        elif use_both:
+            counts_a   = self._counts[::-1].copy()
+            bar_col_a  = self._bar_color
+            brd_col_a  = self._border_color
+            lut_a      = _DISPLAY_LUT
+            counts_b   = self._counts1[::-1].copy()
+        else:  # PMT0 (default)
+            counts_a   = self._counts[::-1].copy()
+            bar_col_a  = self._bar_color
+            brd_col_a  = self._border_color
+            lut_a      = _DISPLAY_LUT
+            counts_b   = None
 
-        # Chart area sits above the label strip.
-        chart_bottom = h - lh          # leave lh px for axis labels
+        # --- Chart geometry ---
+        chart_bottom = h - lh
         draw_w = w - 2 * p
-        draw_h = chart_bottom - p      # chart top = p (top padding)
-        n = len(disp_counts)           # always NUM_BINS = 256
+        draw_h = chart_bottom - p
+        n = self.NUM_BINS
 
-        # Y auto-scale: bin 0 is always excluded from the reference maximum
-        # so a large zero-pixel spike never compresses the signal bars.
-        max_count = int(disp_counts[1:].max()) if n > 1 else 1
-        if max_count == 0:
-            max_count = 1
+        # Shared y-scale: exclude bin 0 (dark background spike).
+        max_a = int(counts_a[1:].max()) if n > 1 else 1
+        if counts_b is not None:
+            max_b = int(counts_b[1:].max()) if n > 1 else 1
+            max_count = max(max_a, max_b, 1)
+        else:
+            max_count = max(max_a, 1)
 
-        # --- Vectorised coordinate computation ---
-        indices = np.arange(n)
-        xs_left = (p + indices * draw_w // n).astype(np.int32)
+        # --- Vectorised x coordinates (shared for both channels) ---
+        indices  = np.arange(n)
+        xs_left  = (p + indices       * draw_w // n).astype(np.int32)
         xs_right = (p + (indices + 1) * draw_w // n).astype(np.int32)
         xs_right = np.maximum(xs_right, xs_left + 1)
-        clamped = np.minimum(disp_counts, max_count)
-        bar_heights = (clamped * draw_h // max_count).astype(np.int32)
-        y_tops = (chart_bottom - bar_heights).astype(np.int32)
 
-        # --- Filled polygon ---
-        # Vertices: left-top and right-top of each bar, then two closing
-        # points along the baseline.
-        pts = np.empty((2 * n + 2, 2), dtype=np.int32)
-        pts[0:2 * n:2, 0] = xs_left
-        pts[1:2 * n:2, 0] = xs_right
-        pts[0:2 * n:2, 1] = y_tops
-        pts[1:2 * n:2, 1] = y_tops
-        pts[2 * n] = [w - p, chart_bottom]
-        pts[2 * n + 1] = [p, chart_bottom]
+        def _draw_bars(
+            cnt: np.ndarray,
+            bar_color: QtGui.QColor,
+            border_color: QtGui.QColor,
+        ) -> None:
+            """Draw one set of histogram bars at the current painter opacity."""
+            clamped     = np.minimum(cnt, max_count)
+            bar_heights = (clamped * draw_h // max_count).astype(np.int32)
+            y_tops      = (chart_bottom - bar_heights).astype(np.int32)
 
-        poly_pts = [QtCore.QPoint(x, y) for x, y in pts.tolist()]
-        poly = QtGui.QPolygon(poly_pts)
+            pts = np.empty((2 * n + 2, 2), dtype=np.int32)
+            pts[0:2*n:2, 0] = xs_left
+            pts[1:2*n:2, 0] = xs_right
+            pts[0:2*n:2, 1] = y_tops
+            pts[1:2*n:2, 1] = y_tops
+            pts[2*n]     = [w - p, chart_bottom]
+            pts[2*n + 1] = [p, chart_bottom]
 
-        painter.setPen(QtCore.Qt.PenStyle.NoPen)
-        painter.setBrush(QtGui.QBrush(self._bar_color))
-        painter.drawPolygon(poly)
+            poly = QtGui.QPolygon([QtCore.QPoint(x, y) for x, y in pts.tolist()])
+            painter.setPen(QtCore.Qt.PenStyle.NoPen)
+            painter.setBrush(QtGui.QBrush(bar_color))
+            painter.drawPolygon(poly)
 
-        # --- Thin bright border along the top of each bar ---
-        xs_l = xs_left.tolist()
-        xs_r = xs_right.tolist()
-        yt = y_tops.tolist()
-        painter.setPen(QtGui.QPen(self._border_color, 1))
-        border_lines = [
-            QtCore.QLine(x1, y, x2, y)
-            for x1, y, x2 in zip(xs_l, yt, xs_r)
-        ]
-        painter.drawLines(border_lines)
+            painter.setPen(QtGui.QPen(border_color, 1))
+            painter.drawLines([
+                QtCore.QLine(x1, y, x2, y)
+                for x1, y, x2 in zip(xs_left.tolist(), y_tops.tolist(), xs_right.tolist())
+            ])
+
+        if use_both:
+            painter.setOpacity(0.6)
+            _draw_bars(counts_a, bar_col_a, brd_col_a)
+            _draw_bars(counts_b, self._bar_color1, self._border_color1)
+            painter.setOpacity(1.0)
+        else:
+            _draw_bars(counts_a, bar_col_a, brd_col_a)
 
         # --- Baseline ---
         painter.setPen(QtGui.QPen(self._AXIS_COLOR, 1))
         painter.drawLine(p, chart_bottom, w - p, chart_bottom)
 
-        # --- Colourbar + axis labels in the label strip ---
-        # Render the full display colormap as a scaled 1-row image, then
-        # overlay "0" (left) and "16383" (right) with luminance-based text
-        # colours so labels are readable against the gradient.
-        cb_data = np.ascontiguousarray(_DISPLAY_LUT)  # (256, 3) uint8
-        cb_img = QtGui.QImage(
-            cb_data.data, 256, 1, 256 * 3,
-            QtGui.QImage.Format.Format_RGB888,
-        )
-        painter.drawImage(QtCore.QRect(p, chart_bottom, draw_w, lh), cb_img)
+        # --- Colourbar in the label strip ---
+        if use_both:
+            # Top half: PMT0 (green_white), bottom half: PMT1 (red_white).
+            half_h = lh // 2
+            cb0 = np.ascontiguousarray(_DISPLAY_LUT)
+            cb1 = np.ascontiguousarray(self._lut_pmt1)
+            img0 = QtGui.QImage(cb0.data, 256, 1, 256*3, QtGui.QImage.Format.Format_RGB888)
+            img1 = QtGui.QImage(cb1.data, 256, 1, 256*3, QtGui.QImage.Format.Format_RGB888)
+            painter.drawImage(QtCore.QRect(p, chart_bottom,          draw_w, half_h),       img0)
+            painter.drawImage(QtCore.QRect(p, chart_bottom + half_h, draw_w, lh - half_h),  img1)
+        else:
+            cb = np.ascontiguousarray(lut_a)
+            cb_img = QtGui.QImage(cb.data, 256, 1, 256*3, QtGui.QImage.Format.Format_RGB888)
+            painter.drawImage(QtCore.QRect(p, chart_bottom, draw_w, lh), cb_img)
 
-        def _label_pen(lut_idx: int) -> QtGui.QPen:
-            r = int(_DISPLAY_LUT[lut_idx, 0])
-            g = int(_DISPLAY_LUT[lut_idx, 1])
-            b = int(_DISPLAY_LUT[lut_idx, 2])
+        # --- Axis labels: "0" (left) and "16383" (right) ---
+        def _label_pen(lut: np.ndarray, idx: int) -> QtGui.QPen:
+            r, g, b = int(lut[idx, 0]), int(lut[idx, 1]), int(lut[idx, 2])
             lum = 0.299 * r + 0.587 * g + 0.114 * b
-            color = QtGui.QColor(0, 0, 0) if lum > 128 else QtGui.QColor(255, 255, 255)
-            return QtGui.QPen(color)
+            c = QtGui.QColor(0, 0, 0) if lum > 128 else QtGui.QColor(255, 255, 255)
+            return QtGui.QPen(c)
 
         font = painter.font()
         font.setPointSize(7)
         painter.setFont(font)
-        painter.setPen(_label_pen(0))   # left edge — LUT[0] (darkest)
+        painter.setPen(_label_pen(lut_a, 0))
         painter.drawText(
             QtCore.QRect(p, chart_bottom, draw_w // 2, lh),
             QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter,
             "0",
         )
-        painter.setPen(_label_pen(255))  # right edge — LUT[255] (brightest)
+        right_lut = self._lut_pmt1 if use_both else lut_a
+        painter.setPen(_label_pen(right_lut, 255))
         painter.drawText(
             QtCore.QRect(p + draw_w // 2, chart_bottom, draw_w // 2, lh),
             QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter,
