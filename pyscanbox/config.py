@@ -241,7 +241,7 @@ def load_config(filepath: Optional[str] = None) -> ScanboxConfig:
     if not os.path.exists(filepath):
         raise FileNotFoundError(f"Configuration file not found: {filepath}")
     
-    with open(filepath, 'r') as f:
+    with open(filepath, 'r', encoding='utf-8') as f:
         config_dict = yaml.safe_load(f)
     
     return ScanboxConfig(config_dict)
@@ -256,5 +256,5 @@ def save_config(config: ScanboxConfig, filepath: str) -> None:
     """
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
     
-    with open(filepath, 'w') as f:
+    with open(filepath, 'w', encoding='utf-8') as f:
         yaml.dump(config.to_dict(), f, default_flow_style=False)
