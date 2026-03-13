@@ -550,11 +550,6 @@ class Scanner:
             # captured before the port is closed.
             self.controller.stop_ttl_reader()
             self.zero_pockels()          # blank laser before stopping scanner
-            try:                         # zero PMT gains for detector safety
-                self.controller.set_pmt_gain(0, 0)
-                self.controller.set_pmt_gain(1, 0)
-            except Exception:  # noqa: BLE001 — best-effort safety call
-                pass
             # On rigs with a Uniblitz driven by CMD_SHUTTER (ID 16), uncomment:
             #   self.controller.set_shutter(open=False)
             # On this rig stop_scan() (CMD_SCAN, ID 4) closes the shutter automatically.
