@@ -1283,6 +1283,7 @@ class HistogramWidget(QtWidgets.QWidget):
         self._counts1: np.ndarray | None = None   # PMT1 counts (overlay mode)
         self._channel: int = 0
         self._frame_counter: int = 0
+        self._last_frame: np.ndarray | None = None  # last received frame (used on show)
         self.setMinimumHeight(80)
         self.setMaximumHeight(120)
         self.setMinimumWidth(100)
@@ -1309,6 +1310,20 @@ class HistogramWidget(QtWidgets.QWidget):
         self._border_color1 = self._bar_color1.lighter(130)
         self._lut_pmt1 = _lut1
 
+    def setVisible(self, visible: bool) -> None:  # noqa: N802 (Qt naming)
+        """Show or hide the histogram; render the last frame immediately on show.
+
+        When the widget is made visible after being hidden (e.g. via the View
+        menu toggle), the histogram is populated with the most recently
+        received frame so it never appears empty after acquisition has stopped.
+
+        Args:
+            visible: True to show, False to hide.
+        """
+        super().setVisible(visible)
+        if visible and self._last_frame is not None:
+            self._compute_histogram(self._last_frame)
+
     def update_frame(self, frame_data: np.ndarray) -> None:
         """Recompute the histogram from a newly acquired frame.
 
@@ -1323,7 +1338,10 @@ class HistogramWidget(QtWidgets.QWidget):
             frame_data: Shape ``(channels, lines_per_frame, pixels_per_line)``,
                 dtype ``uint16``, values 0–65535 (16-bit wire format).
         """
-        if frame_data is None or not self.isVisible():
+        if frame_data is None:
+            return
+        self._last_frame = frame_data  # always cache for on-show rendering
+        if not self.isVisible():
             return
         self._frame_counter += 1
         if self._frame_counter % self.UPDATE_EVERY != 0:
@@ -1691,12 +1709,12 @@ class CameraPathGroup(QtWidgets.QGroupBox):
 
         self._twop_button = QtWidgets.QPushButton("2p")
         self._twop_button.setCheckable(True)
-        self._twop_button.setChecked(False)
+        self._twop_button.setChecked(True)   # default: 2p (hardware starts in 2p mode)
         self._twop_button.setToolTip("Two-photon imaging path")
 
         self._epi_button = QtWidgets.QPushButton("Epi")
         self._epi_button.setCheckable(True)
-        self._epi_button.setChecked(True)   # default: Epi (can't read hardware state)
+        self._epi_button.setChecked(False)
         self._epi_button.setToolTip("Epifluorescence path (camera active)")
 
         # Exclusive toggle: only one button checked at a time.

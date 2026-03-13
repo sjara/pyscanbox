@@ -21,6 +21,7 @@ import sys
 import time
 import numpy as np
 from typing import Callable, Optional
+import pyscanbox
 
 logger = logging.getLogger(__name__)
 from pyscanbox.hardware import alazar
@@ -549,6 +550,11 @@ class Scanner:
             # captured before the port is closed.
             self.controller.stop_ttl_reader()
             self.zero_pockels()          # blank laser before stopping scanner
+            try:                         # zero PMT gains for detector safety
+                self.controller.set_pmt_gain(0, 0)
+                self.controller.set_pmt_gain(1, 0)
+            except Exception:  # noqa: BLE001 — best-effort safety call
+                pass
             # On rigs with a Uniblitz driven by CMD_SHUTTER (ID 16), uncomment:
             #   self.controller.set_shutter(open=False)
             # On this rig stop_scan() (CMD_SCAN, ID 4) closes the shutter automatically.
@@ -587,45 +593,120 @@ class Scanner:
     def _create_metadata(self) -> dict:
         """Create metadata dictionary for .mat file.
 
-        Only scalar / simple values are included because
-        ``scipy.io.savemat`` cannot serialize nested Python dicts that
-        contain ``None`` (which YAML ``null`` values become).  If the
-        full config is needed it should be serialised separately (e.g.
-        as JSON or YAML alongside the .mat file).
+        Field names mirror the original MATLAB Scanbox ``info`` struct so
+        that downstream tools (Suite2p, sbxread.m, etc.) can read pyscanbox
+        files without modification.  Extra pyscanbox-only fields are added
+        after the MATLAB-compatible block.
+
+        Only scalar / plain-array values are written because
+        ``scipy.io.savemat`` cannot serialise nested Python dicts that
+        contain ``None`` (from YAML ``null``).
 
         Returns:
-            Dictionary with acquisition metadata for Suite2p compatibility.
+            Dictionary with acquisition metadata.
         """
         pockels = self.controller.get_current_pockels()
-        # Channels actually written to disk: 1 when a single channel was
-        # selected in the GUI (save_channels 0 or 1), 2 for both.
-        saved_channels = 1 if self.save_channels in (0, 1) else 2
+        acq_cfg = self.config.get('acquisition', {})
+        scanner_cfg = self.config.get('scanner', {})
+        alazar_cfg  = self.config.get('alazar', {})
 
-        # Collect TTL event arrays.  Format mirrors the original MATLAB
-        # info.frame / info.line / info.event_id arrays produced by
-        # sb_timestamps() — saved as int32 column vectors (or empty
-        # arrays when no events were recorded).
+        # ----------------------------------------------------------------
+        # channels bitmask — mirrors the original MATLAB encoding:
+        #   1 = both PMT0 & PMT1,  2 = PMT0 only,  3 = PMT1 only
+        # ----------------------------------------------------------------
+        if self.save_channels == 0:
+            channels_mask = 2       # PMT0 only
+        elif self.save_channels == 1:
+            channels_mask = 3       # PMT1 only
+        else:
+            channels_mask = 1       # both (default)
+        # nchan: number of channels actually saved (used by pyscanbox SbxReader)
+        nchan = 1 if self.save_channels in (0, 1) else 2
+
+        # ----------------------------------------------------------------
+        # Alazar timing parameters
+        # ----------------------------------------------------------------
+        unidirectional = acq_cfg.get('unidirectional', True)
+        scanmode = 1 if unidirectional else 0     # 1 = unidirectional (MATLAB convention)
+        # postTriggerSamples: raw ADC samples per scan line per buffer record.
+        # Matches the value passed to AlazarSetRecordSize.
+        post_trigger = alazar_cfg.get('samples_per_line',
+                                      alazar_cfg.get('postTriggerSamples', 5000))
+        # recordsPerBuffer: scan lines per DMA buffer.
+        #   unidirectional: lines_per_frame
+        #   bidirectional:  lines_per_frame / 2  (each buffer covers half a frame)
+        records_per_buffer = (self.lines_per_frame if unidirectional
+                              else self.lines_per_frame // 2)
+        samples_per_buffer = post_trigger * records_per_buffer * nchan
+        bytes_per_buffer   = samples_per_buffer * 2   # uint16 = 2 bytes
+
+        # ----------------------------------------------------------------
+        # TTL event arrays — mirrors MATLAB sb_timestamps() output
+        # ----------------------------------------------------------------
         events = self.controller.get_ttl_events()
         if events:
-            ttl_frame = np.array([e[0] for e in events], dtype=np.int32)
-            ttl_line  = np.array([e[1] for e in events], dtype=np.int32)
+            ttl_frame    = np.array([e[0] for e in events], dtype=np.int32)
+            ttl_line     = np.array([e[1] for e in events], dtype=np.int32)
             ttl_event_id = np.array([e[2] for e in events], dtype=np.int32)
         else:
             ttl_frame    = np.array([], dtype=np.int32)
             ttl_line     = np.array([], dtype=np.int32)
             ttl_event_id = np.array([], dtype=np.int32)
 
+        # ----------------------------------------------------------------
+        # Objective label
+        # ----------------------------------------------------------------
+        obj_cfg = self.config.get('objective', {})
+        obj_list = obj_cfg.get('objectives', [])
+        obj_index = acq_cfg.get('magnification', 0)  # placeholder; GUI passes mag index
+        # Use the configured objective name if available, otherwise empty string.
+        objective_str = obj_cfg.get('current', '') or (obj_list[0] if obj_list else '')
+
+        # ----------------------------------------------------------------
+        # Metadata dict — MATLAB-compatible fields listed first
+        # ----------------------------------------------------------------
         return {
-            'frames': self.frames_acquired,
+            # --- MATLAB info struct fields (original Scanbox) ---
+            'resfreq': scanner_cfg.get('resonant_freq', 7930),
+            'postTriggerSamples': post_trigger,
+            'recordsPerBuffer': records_per_buffer,
+            'bytesPerBuffer': bytes_per_buffer,
+            # channels bitmask: 1=both, 2=PMT0 only, 3=PMT1 only
+            'channels': channels_mask,
+            'ballmotion': np.array([], dtype=np.uint8),
+            'abort_bit': 0,
+            'scanbox_version': 2,
+            'scanmode': scanmode,
+            # sz: [lines_per_frame, pixels_per_line] — matches size(chA') in MATLAB
+            'sz': np.array([self.lines_per_frame, self.pixels_per_line],
+                           dtype=np.uint16),
+            'fold_lines': 0,
+            'otwave':      np.array([], dtype=np.uint8),
+            'otwave_um':   np.array([], dtype=np.uint8),
+            'otparam':     np.array([], dtype=np.uint8),
+            'otwavestyle': 1,
+            'volscan': 0,
+            'power_depth_link': 0,
+            'opto2pow': np.array([], dtype=np.uint8),
+            'area_line': 1,
+            'objective': objective_str,
+            'messages': np.array([], dtype=object),
+            'usernotes': '',
+            # nchan is derived in sbxread.m from channels bitmask; we store it
+            # explicitly for direct use by SbxReader without re-deriving.
+            'nchan': nchan,
+            # TTL event timestamps (mirrors sb_timestamps() field names)
+            'frame':    ttl_frame,
+            'line':     ttl_line,
+            'event_id': ttl_event_id,
+            # --- pyscanbox-specific fields (not in original MATLAB info) ---
+            'frames': self.frames_acquired,    # total frames acquired
             'lines_per_frame': self.lines_per_frame,
             'pixels_per_line': self.pixels_per_line,
-            'sample_rate': self.config['alazar']['sample_rate'],
-            'channels': saved_channels,
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'pockels_base': pockels.get('base', 0),
+            'sample_rate': alazar_cfg.get('sample_rate', 125000000),
+            'magnification': self.magnification,
+            'pockels_base':   pockels.get('base', 0),
             'pockels_active': pockels.get('active', 0),
-            # TTL event timestamps (MATLAB-compatible field names)
-            'frame': ttl_frame,
-            'line': ttl_line,
-            'event_id': ttl_event_id,
+            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
+            'pyscanbox_version': pyscanbox.__version__,
         }

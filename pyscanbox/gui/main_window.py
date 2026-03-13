@@ -567,9 +567,21 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_camera_path_changed(self, mode: str):
         """Toggle epi/2P mirror when the Light Path toggle changes.
 
+        Disables Focus and Grab in Epi mode (scanning is not available on
+        the epifluorescence path) and re-enables them when returning to 2p.
+        The enabled state is only changed when no acquisition is currently
+        running; if a scan is active the buttons are already managed by the
+        acquisition start/stop logic.
+
         Args:
             mode: ``'epi'`` or ``'2p'`` as emitted by CameraPathGroup.
         """
+        in_2p = (mode == '2p')
+        acq = self._left_panel.acquisition_group
+        # Only update enabled state when no scan is active (buttons unchecked).
+        if not (acq.focus_button.isChecked() or acq.grab_button.isChecked()):
+            acq.focus_button.setEnabled(in_2p)
+            acq.grab_button.setEnabled(in_2p)
         if self._ctrl is None:
             return
         self._ctrl.set_mirror(mode)
@@ -824,8 +836,10 @@ class MainWindow(QtWidgets.QMainWindow):
         acq.focus_button.setText("Focus")
         acq.grab_button.setChecked(False)
         acq.grab_button.setText("Grab")
-        acq.focus_button.setEnabled(True)
-        acq.grab_button.setEnabled(True)
+        # Re-enable scan buttons only when in 2p mode; Epi keeps them disabled.
+        in_2p = (self._left_panel.camera_group.current_path == '2p')
+        acq.focus_button.setEnabled(in_2p)
+        acq.grab_button.setEnabled(in_2p)
         # Advance the session ID only after a data-saving Grab, not Focus.
         if self._grab_active:
             self._left_panel.file_group.increment_session_id()

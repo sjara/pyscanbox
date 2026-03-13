@@ -98,17 +98,38 @@ class SbxReader:
 
     @property
     def num_channels(self) -> int:
-        """Number of PMT channels."""
+        """Number of PMT channels saved (1 or 2).
+
+        Uses the opened memory-map shape when available (file size is the
+        ground truth), otherwise reads ``nchan`` (new format) or ``channels``
+        (old format where the value was the raw count, not the MATLAB bitmask).
+        """
+        if self._mmap is not None:
+            return self._mmap.shape[1]
+        if 'nchan' in self.metadata:
+            return int(self.metadata['nchan'])
         return int(self.metadata['channels'])
 
     @property
     def lines_per_frame(self) -> int:
-        """Number of lines per frame."""
+        """Number of lines per frame.
+
+        Reads ``sz[0]`` if present (new format), otherwise ``lines_per_frame``.
+        """
+        if 'sz' in self.metadata:
+            sz = self.metadata['sz']
+            return int(sz[0] if hasattr(sz, '__len__') else sz)
         return int(self.metadata['lines_per_frame'])
 
     @property
     def pixels_per_line(self) -> int:
-        """Number of pixels per line."""
+        """Number of pixels per line.
+
+        Reads ``sz[1]`` if present (new format), otherwise ``pixels_per_line``.
+        """
+        if 'sz' in self.metadata:
+            sz = self.metadata['sz']
+            return int(sz[1] if hasattr(sz, '__len__') else sz)
         return int(self.metadata['pixels_per_line'])
 
     # ------------------------------------------------------------------
@@ -157,21 +178,39 @@ class SbxReader:
             ValueError: If the file size does not match expected shape.
         """
         frames = int(self.metadata['frames'])
-        channels = int(self.metadata['channels'])
-        lines = int(self.metadata['lines_per_frame'])
-        pixels = int(self.metadata['pixels_per_line'])
+        lines = self.lines_per_frame   # resolves sz[0] / lines_per_frame
+        pixels = self.pixels_per_line  # resolves sz[1] / pixels_per_line
 
-        expected_elements = frames * channels * lines * pixels
-        expected_bytes = expected_elements * np.dtype(np.uint16).itemsize
         actual_bytes = os.path.getsize(self.sbx_path)
+        bytes_per_frame_per_ch = lines * pixels * np.dtype(np.uint16).itemsize
 
-        if actual_bytes != expected_bytes:
+        # Channels are derived from file size (ground truth).  Metadata may
+        # lag behind if a previous .mat was reused after the .sbx was replaced.
+        if actual_bytes == frames * 2 * bytes_per_frame_per_ch:
+            channels = 2
+        elif actual_bytes == frames * 1 * bytes_per_frame_per_ch:
+            channels = 1
+        else:
             raise ValueError(
                 f"File size mismatch for {self.sbx_path}: "
-                f"expected {expected_bytes} bytes "
-                f"({frames} frames × {channels} ch × {lines} lines × "
-                f"{pixels} px × 2 bytes) but got {actual_bytes} bytes."
+                f"{actual_bytes} bytes is not consistent with "
+                f"{frames} frames × 1 or 2 channels × {lines} lines × "
+                f"{pixels} px × 2 bytes."
             )
+
+        # Warn if the file-derived channel count disagrees with metadata.
+        # Only `nchan` is unambiguous (the MATLAB `channels` bitmask and the
+        # old pyscanbox raw count both use overlapping values).
+        if 'nchan' in self.metadata:
+            meta_nchan = int(self.metadata['nchan'])
+            if meta_nchan != channels:
+                import warnings
+                warnings.warn(
+                    f"{self.sbx_path}: metadata reports {meta_nchan} channel(s) "
+                    f"but file size implies {channels}. "
+                    "Using file-size-derived value.",
+                    stacklevel=3,
+                )
 
         shape = (frames, channels, lines, pixels)
         self._mmap = np.memmap(self.sbx_path, dtype=np.uint16, mode='r',
