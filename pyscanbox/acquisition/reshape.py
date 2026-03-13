@@ -14,10 +14,10 @@ Two acquisition modes are supported:
 
 **Emulation mode (raw_mode=False, default):**
   The mock Alazar pre-delivers already-shaped data at
-  ``samples_per_buffer = lines × pixels × 2``.  ``reshape_pmt_data()`` simply
+  ``samples_per_buffer = lines × pixels × 2``.  ``reshape_pmt_data_emulation()``
   de-interleaves the two channels, preserving the 16-bit wire format of
   each sample (range 0–65532).  Output is byte-compatible with
-  ``reshape_pmt_data_raw()``.
+  ``reshape_pmt_data()``.
 
 **Raw hardware mode (raw_mode=True):**
   The real Alazar (and raw-mode mock) delivers ``samples_per_line`` raw ADC
@@ -28,7 +28,7 @@ Two acquisition modes are supported:
 
   ``compute_pixel_lut()`` computes the arccosine pixel LUT that maps each of
   the ``pixels_per_line`` (796) output pixels to a base raw-sample index.
-  ``reshape_pmt_data_raw()`` then averages 4 consecutive raw samples per
+  ``reshape_pmt_data()`` then averages 4 consecutive raw samples per
   output pixel for both PMT channels.
 
   This matches the MATLAB pipeline in ``pixel_lut_2.m`` +
@@ -45,11 +45,11 @@ Example:
     >>> from pyscanbox.acquisition import reshape
     >>> # Emulation mode (pre-shaped buffer):
     >>> buf = np.zeros(512 * 796 * 2, dtype=np.uint16)
-    >>> frame = reshape.reshape_pmt_data(buf, 512, 796)
+    >>> frame = reshape.reshape_pmt_data_emulation(buf, 512, 796)
     >>> # Raw hardware mode:
     >>> lut = reshape.compute_pixel_lut(796, laser_freq=80180000, res_freq=7930)
     >>> buf_raw = np.zeros(512 * 5000 * 2, dtype=np.uint16)
-    >>> frame = reshape.reshape_pmt_data_raw(buf_raw, 512, 796, lut)
+    >>> frame = reshape.reshape_pmt_data(buf_raw, 512, 796, lut)
 """
 
 import numpy as np
@@ -57,8 +57,8 @@ import numba
 
 
 @numba.njit(nogil=True, cache=True)
-def reshape_pmt_data(buffer: np.ndarray, lines_per_frame: int,
-                     pixels_per_line: int) -> np.ndarray:
+def reshape_pmt_data_emulation(buffer: np.ndarray, lines_per_frame: int,
+                               pixels_per_line: int) -> np.ndarray:
     """De-interleave pre-shaped PMT data (emulation / non-raw mode).
 
     Used in emulation mode where the mock Alazar delivers one already-shaped
@@ -81,7 +81,7 @@ def reshape_pmt_data(buffer: np.ndarray, lines_per_frame: int,
     Returns:
         uint16 array of shape ``(2, lines_per_frame, pixels_per_line)``.
         Values are in 16-bit wire format (0–65532), identical in range and
-        encoding to the output of ``reshape_pmt_data_raw()``.
+        encoding to the output of ``reshape_pmt_data()``.
 
     Note:
         This function is JIT-compiled with Numba for maximum performance.
@@ -161,7 +161,7 @@ def reshape_for_display(reshaped_data: np.ndarray) -> np.ndarray:
     Averages channels and scales to 8-bit for visualization.
 
     Args:
-        reshaped_data: Reshaped data from reshape_pmt_data()
+        reshaped_data: Reshaped data from reshape_pmt_data_emulation() or reshape_pmt_data()
 
     Returns:
         2D array ready for display (lines x pixels), uint8.
@@ -185,7 +185,7 @@ def extract_raw_sync_bits(buffer: np.ndarray, lines_per_frame: int,
     The Alazar card embeds two hardware sync signals in the two LSBs of each
     acquired sample (see ``configure_lsb_outputs()``).  These bits are only
     meaningful in the raw interleaved buffer — they are lost during the
-    four-sample averaging performed by ``reshape_pmt_data_raw()``.
+    four-sample averaging performed by ``reshape_pmt_data()``.
 
     Sync bits are read from the **very first interleaved sample** of each
     line (``buffer[line_start]``, which is channel-A sample 0 of that line).
@@ -194,7 +194,7 @@ def extract_raw_sync_bits(buffer: np.ndarray, lines_per_frame: int,
 
     Note: the first ``lut_base[0]`` raw samples of each line (≈ 112 for
     standard parameters) are in the "dead zone" before the leftmost output
-    pixel.  These samples are discarded by ``reshape_pmt_data_raw()`` but
+    pixel.  These samples are discarded by ``reshape_pmt_data()`` but
     they carry the sync markers, which is why this function reads them
     directly from the raw buffer.
 
@@ -298,8 +298,8 @@ def apply_bidirectional_correction(frame: np.ndarray,
 
     Args:
         frame: Reshaped data array of shape ``(channels, lines, pixels)``
-            dtype uint16, as returned by ``reshape_pmt_data()`` or
-            ``reshape_pmt_data_raw()``.  Modified in-place.
+            dtype uint16, as returned by ``reshape_pmt_data_emulation()`` or
+            ``reshape_pmt_data()``.  Modified in-place.
         pixel_shift: Integer pixel shift applied to backward lines after
             flipping.  Positive = shift right, negative = shift left.
             Zero = flip only (no timing correction).
@@ -331,7 +331,7 @@ def apply_bidirectional_correction(frame: np.ndarray,
 
 
 @numba.njit(nogil=True, cache=True)
-def reshape_pmt_data_raw(buffer: np.ndarray, lines_per_frame: int,
+def reshape_pmt_data(buffer: np.ndarray, lines_per_frame: int,
                          pixels_per_line: int,
                          lut_base: np.ndarray) -> np.ndarray:
     """Reshape raw Alazar buffer using the arccosine pixel LUT.

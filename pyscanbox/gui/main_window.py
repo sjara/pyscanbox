@@ -361,10 +361,9 @@ class MainWindow(QtWidgets.QMainWindow):
         except IndexError:
             return
         # SbxWriter stores data that has already been processed by
-        # reshape_pmt_data(), which extracts the 14-bit PMT sample and shifts
-        # right by 2.  Values on disk are already in the 0–16383 range
-        # expected by ImageDisplayWidget and HistogramWidget.  No further
-        # shift is needed here.
+        # reshape_pmt_data() or reshape_pmt_data_emulation(), which produce
+        # 16-bit wire-format values (0–65532) as expected by
+        # ImageDisplayWidget and HistogramWidget.  No further shift is needed.
         self._right_panel.image_display.update_frame(frame_data)
         self._right_panel.histogram.force_update_frame(frame_data)
 

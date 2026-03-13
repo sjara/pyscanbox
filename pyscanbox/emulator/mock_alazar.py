@@ -213,7 +213,7 @@ class Board:
         ``lines_per_frame × samples_per_line × 2`` interleaved uint16 raw ADC
         samples (channels A and B interleaved per sample, lines sequential).
         Spot images are pre-warped using the inverse of the arccosine pixel LUT
-        so that after ``reshape_pmt_data_raw()`` the spots appear at the correct
+        so that after ``reshape_pmt_data()`` the spots appear at the correct
         display positions.
 
         Must be called **after** ``set_frame_shape()`` and **before**

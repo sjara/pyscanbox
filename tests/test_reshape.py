@@ -11,31 +11,31 @@ from pyscanbox.acquisition import reshape
 class TestReshape(unittest.TestCase):
     """Test cases for data reshaping functions."""
 
-    def test_reshape_pmt_data_basic(self):
-        """Test basic reshaping with known data."""
+    def test_reshape_pmt_data_emulation_basic(self):
+        """Test basic reshaping with known data (emulation mode)."""
         lines = 2
         pixels = 4
         channels = 2
-        
+
         # Create test buffer (interleaved)
         buffer = np.arange(lines * pixels * channels, dtype=np.uint16)
-        
+
         # Shift left by 2 to simulate 14-bit data in upper bits
         buffer = buffer << 2
-        
+
         # Reshape
-        reshaped = reshape.reshape_pmt_data(buffer, lines, pixels)
+        reshaped = reshape.reshape_pmt_data_emulation(buffer, lines, pixels)
         
         # Verify output shape
         self.assertEqual(reshaped.shape, (channels, lines, pixels))
         self.assertEqual(reshaped.dtype, np.uint16)
 
-    def test_reshape_pmt_data_wire_format_preserved(self):
-        """Test that wire-format values pass through unchanged."""
+    def test_reshape_pmt_data_emulation_wire_format_preserved(self):
+        """Test that wire-format values pass through unchanged (emulation mode)."""
         # Wire-format input: 14-bit max (16383) left-shifted by 2 = 0xFFFC
         buffer = np.array([0xFFFC, 0xFFFC], dtype=np.uint16)
 
-        reshaped = reshape.reshape_pmt_data(buffer, 1, 1)
+        reshaped = reshape.reshape_pmt_data_emulation(buffer, 1, 1)
 
         # Wire format is preserved: 0xFFFC passes through unchanged
         self.assertEqual(reshaped[0, 0, 0], 0xFFFC)
@@ -152,8 +152,8 @@ class TestComputePixelLut(unittest.TestCase):
         self.assertTrue(np.all(lut + 3 < nsamp // 2 + 10))
 
 
-class TestReshapePmtDataRaw(unittest.TestCase):
-    """Tests for reshape_pmt_data_raw()."""
+class TestReshapePmtData(unittest.TestCase):
+    """Tests for reshape_pmt_data() (real hardware / raw ADC path)."""
 
     LASER_FREQ   = 80_180_000
     RES_FREQ     = 7_930
@@ -172,21 +172,21 @@ class TestReshapePmtDataRaw(unittest.TestCase):
         """Output must be (2, lines, pixels)."""
         lut = self._make_lut()
         buf = self._make_zero_buffer()
-        out = reshape.reshape_pmt_data_raw(buf, self.N_LINES, self.N_PIXELS, lut)
+        out = reshape.reshape_pmt_data(buf, self.N_LINES, self.N_PIXELS, lut)
         self.assertEqual(out.shape, (2, self.N_LINES, self.N_PIXELS))
 
     def test_output_dtype(self):
         """Output dtype must be uint16."""
         lut = self._make_lut()
         buf = self._make_zero_buffer()
-        out = reshape.reshape_pmt_data_raw(buf, self.N_LINES, self.N_PIXELS, lut)
+        out = reshape.reshape_pmt_data(buf, self.N_LINES, self.N_PIXELS, lut)
         self.assertEqual(out.dtype, np.uint16)
 
     def test_zero_buffer_gives_zero_output(self):
         """All-zero input must give all-zero output."""
         lut = self._make_lut()
         buf = self._make_zero_buffer()
-        out = reshape.reshape_pmt_data_raw(buf, self.N_LINES, self.N_PIXELS, lut)
+        out = reshape.reshape_pmt_data(buf, self.N_LINES, self.N_PIXELS, lut)
         self.assertTrue(np.all(out == 0))
 
     def test_uniform_buffer_value(self):
@@ -197,9 +197,9 @@ class TestReshapePmtDataRaw(unittest.TestCase):
         # Wire format: value left-shifted by 2
         wire_val = np.uint16(value_14bit << np.uint16(2))
         buf = np.full(self.N_LINES * self.SAMPLES_PER_LINE * 2, wire_val, dtype=np.uint16)
-        out = reshape.reshape_pmt_data_raw(buf, self.N_LINES, self.N_PIXELS, lut)
+        out = reshape.reshape_pmt_data(buf, self.N_LINES, self.N_PIXELS, lut)
         # Each sample is wire_val; the 4-sample sum >> 2 = wire_val.
-        # But reshape_pmt_data_raw does NOT strip the 2 LSBs — it averages
+        # But reshape_pmt_data does NOT strip the 2 LSBs — it averages
         # the raw wire values directly.  So expected = (4 * wire_val) >> 2 = wire_val.
         np.testing.assert_array_equal(out, wire_val)
 
@@ -218,7 +218,7 @@ class TestReshapePmtDataRaw(unittest.TestCase):
         for k, v in enumerate(raw_vals_a):
             buf[line_start + 2 * (s + k)] = np.uint16(v)
 
-        out = reshape.reshape_pmt_data_raw(buf, self.N_LINES, self.N_PIXELS, lut)
+        out = reshape.reshape_pmt_data(buf, self.N_LINES, self.N_PIXELS, lut)
         expected_a = np.uint16((raw_vals_a.sum()) >> 2)
         self.assertEqual(int(out[0, line, px]), int(expected_a))
         # chB should still be zero
@@ -236,7 +236,7 @@ class TestReshapePmtDataRaw(unittest.TestCase):
             buf[2 * (s + k)]     = np.uint16(1000)   # chA (even)
             buf[2 * (s + k) + 1] = np.uint16(500)    # chB (odd)
 
-        out = reshape.reshape_pmt_data_raw(buf, self.N_LINES, self.N_PIXELS, lut)
+        out = reshape.reshape_pmt_data(buf, self.N_LINES, self.N_PIXELS, lut)
         self.assertEqual(int(out[0, 0, px]), 1000)   # average of [1000,1000,1000,1000]
         self.assertEqual(int(out[1, 0, px]), 500)
 

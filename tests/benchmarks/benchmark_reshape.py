@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark script for reshape_pmt_data performance.
+"""Benchmark script for reshape_pmt_data_emulation performance.
 
 Tests the high-speed data reshaping operation to verify it can handle
 the target 500 MB/s throughput (125 MS/s × 2 bytes × 2 channels).
@@ -78,7 +78,7 @@ def benchmark_single_frame(lines_per_frame, pixels_per_line, num_iterations=100)
     # Cold start (first run includes JIT compilation)
     print("\n[Cold Start - includes JIT compilation]")
     start_time = time.perf_counter()
-    result_cold = reshape.reshape_pmt_data(buffer, lines_per_frame, pixels_per_line)
+    result_cold = reshape.reshape_pmt_data_emulation(buffer, lines_per_frame, pixels_per_line)
     cold_time = time.perf_counter() - start_time
     
     print(f"  Time: {cold_time*1000:.2f} ms")
@@ -94,7 +94,7 @@ def benchmark_single_frame(lines_per_frame, pixels_per_line, num_iterations=100)
     
     for i in range(num_iterations):
         start_time = time.perf_counter()
-        result = reshape.reshape_pmt_data(buffer, lines_per_frame, pixels_per_line)
+        result = reshape.reshape_pmt_data_emulation(buffer, lines_per_frame, pixels_per_line)
         elapsed = time.perf_counter() - start_time
         times.append(elapsed)
     
@@ -171,13 +171,13 @@ def benchmark_continuous_acquisition(lines_per_frame, pixels_per_line,
     buffer_size_mb = buffer.nbytes / (1024 * 1024)
     
     # Warmup
-    reshape.reshape_pmt_data(buffer, lines_per_frame, pixels_per_line)
-    
+    reshape.reshape_pmt_data_emulation(buffer, lines_per_frame, pixels_per_line)
+
     # Process frames
     start_time = time.perf_counter()
-    
+
     for i in range(num_frames):
-        result = reshape.reshape_pmt_data(buffer, lines_per_frame, pixels_per_line)
+        result = reshape.reshape_pmt_data_emulation(buffer, lines_per_frame, pixels_per_line)
     
     total_time = time.perf_counter() - start_time
     

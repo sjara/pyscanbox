@@ -140,7 +140,7 @@ class Scanner:
 
         # Raw-mode acquisition: use arccosine pixel LUT instead of pre-shaped data.
         # When True, each Alazar buffer contains `lines × samples_per_line × 2`
-        # interleaved raw ADC samples and reshape_pmt_data_raw() is called.
+        # interleaved raw ADC samples and reshape_pmt_data() is called.
         #
         # IMPORTANT: AlazarDigitizer._use_raw_mode is always True on real
         # hardware (not emulation), regardless of emulation.raw_mode in config.
@@ -163,7 +163,7 @@ class Scanner:
             # is a one-time cost (a few seconds on first run, ~0 ms thereafter).
             _dummy_buf = np.zeros(4 * 2, dtype=np.uint16)   # 1 line, 4 samples
             _dummy_lut = np.zeros(1, dtype=np.int32)
-            data_reshape.reshape_pmt_data_raw(_dummy_buf, 1, 1, _dummy_lut)
+            data_reshape.reshape_pmt_data(_dummy_buf, 1, 1, _dummy_lut)
 
         # Acquisition mode flags.
         self.focus_mode = focus_mode
@@ -397,7 +397,7 @@ class Scanner:
             # Reshape data (performance-critical!)
             if self.raw_mode and self._pixel_lut is not None:
                 # Raw hardware mode: apply arccosine pixel LUT.
-                reshaped = data_reshape.reshape_pmt_data_raw(
+                reshaped = data_reshape.reshape_pmt_data(
                     buffer,
                     self.lines_per_frame,
                     self.pixels_per_line,
@@ -405,7 +405,7 @@ class Scanner:
                 )
             else:
                 # Emulation / pre-shaped mode.
-                reshaped = data_reshape.reshape_pmt_data(
+                reshaped = data_reshape.reshape_pmt_data_emulation(
                     buffer,
                     self.lines_per_frame,
                     self.pixels_per_line,

@@ -137,7 +137,8 @@ Coordinates hardware and manages acquisition.
 High-speed data reshaping (Numba-optimized).
 
 **Functions:**
-- `reshape_pmt_data(buffer, lines, pixels)` - Reshape PMT data (JIT compiled)
+- `reshape_pmt_data(buffer, lines, pixels, lut)` - Reshape raw hardware PMT data using arccosine pixel LUT (JIT compiled)
+- `reshape_pmt_data_emulation(buffer, lines, pixels)` - De-interleave pre-shaped emulation data (JIT compiled)
 - `extract_sync_bits(buffer)` - Extract LSB sync bits (JIT compiled)
 - `bit_shift_14_to_16(data)` - Shift to 16-bit range (JIT compiled)
 - `reshape_for_display(data)` - Prepare for display (uint8)

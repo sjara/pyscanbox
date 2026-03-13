@@ -1260,7 +1260,7 @@ class HistogramWidget(QtWidgets.QWidget):
     # Number of histogram bins.  256 gives one bin per 8-bit equivalent level.
     NUM_BINS = 256
     # Full-scale value of the 16-bit wire-format data (2^16 - 1).
-    # Data from reshape_pmt_data_raw() is in 0–65535 range, matching MATLAB.
+    # Data from reshape_pmt_data() is in 0–65535 range, matching MATLAB.
     _ADC_MAX = 65535
     # Recompute the histogram only once every this many frames.
     UPDATE_EVERY = 5

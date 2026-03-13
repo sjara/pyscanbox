@@ -6,7 +6,20 @@ All notable changes to this project are documented here. This file is append-onl
 
 ---
 
-## v0.4.7 - March 11, 2026 (Current)
+## v0.4.8 - March 13, 2026 (Current)
+- **Reshape function renaming for clarity (Milestone 1.3.1/1.3.3)**
+- Renamed `reshape_pmt_data_raw()` → `reshape_pmt_data()`: real-hardware Numba JIT path (sums 4 raw ADC samples per pixel, `>> 2`, 16-bit wire format output); now the canonical function name for the hardware path.
+- Renamed `reshape_pmt_data()` → `reshape_pmt_data_emulation()`: emulation-only shortcut that de-interleaves a pre-shaped buffer with no bit operations.
+- Fixed `reshape_pmt_data_emulation()` body: was incorrectly applying `(buffer >> 2) & 0x3FFF` (14-bit output, 0–16383); now correctly de-interleaves without bit ops, preserving full 16-bit wire format (0–65532), consistent with the real hardware path.
+- Updated all call sites: `scan.py` warmup JIT call, `benchmark_reshape.py`, `main_window.py`, `widgets.py`, `mock_alazar.py`. Test class renamed `TestReshapePmtDataRaw` → `TestReshapePmtData`; test assertion corrected `0x3FFF` → `0xFFFC`.
+- **LSB bit description corrected (docs/alazar_digitizer.md, mock_alazar.py)**
+- **Correction to v0.4.7 clarification:** LSB bits are NOT frame/line sync. `configureLsb9440(boardHandle, 0, 3)` in `scanbox.m` sets LSB[0]=disabled (always 0), LSB[1]=AUX_IN[1] (external TTL behavioral/trial event). Frame boundaries are tracked in software; the line trigger arrives at Alazar `TRIG IN`, not via LSB bits.
+- Fixed display formula in docs: `(16383 - ch) * gain / 64` → `(65535 - ch) * gain / 256` (16-bit wire format throughout).
+- Updated `configureLSB` docstring in `mock_alazar.py` to document correct LSB assignment.
+- **Numba debug log suppression (examples/gui_example.py)**
+- Added `logging.getLogger('numba').setLevel(logging.WARNING)` under `--verbose` flag to suppress JIT compilation bytecode traces at DEBUG level (these are not errors).
+
+## v0.4.7 - March 11, 2026
 - **External TTL event recording (Milestone 1.3.4)**
 - Added `CMD_TTL_MASK = 64` constant and `set_ttl_mask(imask)` to `ScanboxController`; sends `[64, 0, imask]` to PSoC5 (mirrors `sb/sb_imask.m`); imask 0=disabled, 1=TTL0, 2=TTL1, 3=both.
 - Added background daemon thread `TTLEventReader` to `ScanboxController` (started/stopped via `start_ttl_reader()` / `stop_ttl_reader()`): polls `in_waiting` every 5 ms, reads complete 5-byte event packets `[frame_low, frame_high, line_low, line_high, event_id]` sent by PSoC5, discards `event_id=255` acquisition-complete sentinel, stores the rest as `(frame, line, event_id)` tuples in a thread-safe list.
