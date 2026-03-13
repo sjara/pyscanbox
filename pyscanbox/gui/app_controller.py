@@ -222,9 +222,15 @@ class AppController(QtCore.QObject):
         # a 5-byte position packet arrives from the Knobby.
         self._positions = {i: 0.0 for i in range(4)}
 
-        # Last Knobby dpos in raw steps, used to compute per-packet deltas
-        # so we can forward relative moves to the motor controller.
+        # Last Knobby dpos in raw steps, used to compute per-packet deltas.
         self._knobby_dpos_steps = {i: 0 for i in range(4)}
+
+        # PC-side desired absolute motor position in hardware steps.
+        # Accumulated from Knobby deltas; used to drive move_absolute() so
+        # that a correctly-targeted command is always sent to the motor even
+        # when knobs are turned faster than the motor can settle.
+        # Seeded from actual motor positions in open().
+        self._desired_steps = {i: 0 for i in range(4)}
 
         # Absolute motor positions: motor_id → position in physical units,
         # polled from the Trinamic board every timer tick.
@@ -296,11 +302,13 @@ class AppController(QtCore.QObject):
             self._log_event(
                 f'Motor connected ({self._motor.com_port})'
             )
-            # Record absolute hardware positions at startup as the origin
-            # reference (stored for display/debugging; not used in move logic).
+            # Seed desired_steps and origin reference from actual hardware
+            # positions so the first move_absolute() targets a sensible value.
             for motor_id in range(4):
                 pos = self._motor.get_position(motor_id)
-                self._motor_origin_steps[motor_id] = pos if pos is not None else 0
+                steps = pos if pos is not None else 0
+                self._motor_origin_steps[motor_id] = steps
+                self._desired_steps[motor_id] = steps
         except Exception as exc:
             # Non-fatal: GUI can run without motor control.
             msg = f"Could not open motor controller (motor control unavailable): {exc}"
@@ -626,12 +634,20 @@ class AppController(QtCore.QObject):
 
         Called every POSITION_POLL_INTERVAL_MS by _poll_timer.
 
-        For each Knobby packet received:
+        For each normal axis packet (motor_id 0-3):
           - Compute the delta since the last known dpos value.
-          - Forward that delta to the matching motor axis as a relative
-            (MVP Type 1) move.  Startup packets from the Knobby firmware
-            always carry dpos=0 (delta=0) so they produce no motor movement.
+          - Accumulate the delta into _desired_steps[motor_id] and issue
+            move_absolute() to that target.  Using move_absolute() instead
+            of move_relative() is smoother: even when knobs are turned faster
+            than the motor can settle, every command targets the correct final
+            position rather than compounding errors from intermediate ones.
+          - Startup packets (dpos=0) produce delta=0 — safe no-ops.
           - Update the cached Knobby relative position.
+
+        For zero-button packets (motor_id 10 = zero XYZ, 11 = zero XYZA):
+          - Reset _knobby_dpos_steps to 0 so subsequent deltas are computed
+            from the new Knobby origin.
+          - Leave _desired_steps unchanged so motors do NOT move.
 
         After draining all pending Knobby packets, query all four motors for
         their current absolute step positions.  At 57600 baud each TMCL
@@ -651,23 +667,41 @@ class AppController(QtCore.QObject):
                     if result is None:
                         break
                     motor_id, new_dpos_steps = result
-                    if 0 <= motor_id <= 3:
-                        delta = new_dpos_steps - self._knobby_dpos_steps[motor_id]
-                        self._knobby_dpos_steps[motor_id] = new_dpos_steps
-                        self._positions[motor_id] = hw_knobby.steps_to_units(
-                            motor_id, new_dpos_steps
-                        )
-                        knobby_changed = True
-                        # Forward the delta as a relative move.  delta=0 for
-                        # firmware startup packets — safe no-op.
-                        if self._motor.is_open and delta != 0:
-                            try:
-                                self._motor.move_relative(motor_id, delta)
-                            except Exception as exc:
-                                logger.warning(
-                                    "move_relative(motor=%d, delta=%d) failed: %s",
-                                    motor_id, delta, exc,
-                                )
+                    # Zero-button packets: motor_id=10 (XYZ) or 11 (XYZA).
+                    # Reset dpos tracking so deltas are relative to the new
+                    # Knobby origin; leave _desired_steps so motors hold still.
+                    if motor_id == 10:
+                        for _i in (0, 1, 2):
+                            self._knobby_dpos_steps[_i] = 0
+                        logger.debug("Knobby zero XYZ — motor positions held")
+                        continue
+                    if motor_id == 11:
+                        for _i in range(4):
+                            self._knobby_dpos_steps[_i] = 0
+                        logger.debug("Knobby zero XYZA — motor positions held")
+                        continue
+                    if not (0 <= motor_id <= 3):
+                        logger.warning("Knobby: unexpected motor_id=%d, skipping", motor_id)
+                        continue
+                    delta = new_dpos_steps - self._knobby_dpos_steps[motor_id]
+                    self._knobby_dpos_steps[motor_id] = new_dpos_steps
+                    self._positions[motor_id] = hw_knobby.steps_to_units(
+                        motor_id, new_dpos_steps
+                    )
+                    knobby_changed = True
+                    # Accumulate delta and drive motor to the absolute target.
+                    # delta=0 for firmware startup packets — safe no-op.
+                    if self._motor.is_open and delta != 0:
+                        self._desired_steps[motor_id] += delta
+                        try:
+                            self._motor.move_absolute(
+                                motor_id, self._desired_steps[motor_id]
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "move_absolute(motor=%d, pos=%d) failed: %s",
+                                motor_id, self._desired_steps[motor_id], exc,
+                            )
             except Exception as exc:
                 logger.warning("Knobby poll error: %s", exc)
 
