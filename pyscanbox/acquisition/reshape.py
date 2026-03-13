@@ -4,15 +4,20 @@ This module contains optimized functions for reshaping interleaved 16-bit
 PMT data from the Alazar digitizer. The reshaping must handle ~500 MB/s
 throughput, so performance is critical.
 
-The data from Alazar is interleaved 14-bit samples packed into 16-bit words.
-The LSB bits contain frame/line sync information that must be extracted.
+The data from Alazar is interleaved 14-bit samples packed into 16-bit words
+(wire format: ``adc_14bit << 2 | lsb_bits``).  In Scanbox, LSB[0] (bit 0) is
+always zero (disabled) and LSB[1] (bit 1) carries an external TTL event signal
+on AUX_IN[1].  Both LSB bits are preserved in the output, exactly as MATLAB's
+``alazarReshapeCData2.c`` does — they are never stripped.
 
 Two acquisition modes are supported:
 
 **Emulation mode (raw_mode=False, default):**
   The mock Alazar pre-delivers already-shaped data at
   ``samples_per_buffer = lines × pixels × 2``.  ``reshape_pmt_data()`` simply
-  de-interleaves the two channels and strips the 2 LSB bits.
+  de-interleaves the two channels, preserving the 16-bit wire format of
+  each sample (range 0–65532).  Output is byte-compatible with
+  ``reshape_pmt_data_raw()``.
 
 **Raw hardware mode (raw_mode=True):**
   The real Alazar (and raw-mode mock) delivers ``samples_per_line`` raw ADC
@@ -54,30 +59,32 @@ import numba
 @numba.njit(nogil=True, cache=True)
 def reshape_pmt_data(buffer: np.ndarray, lines_per_frame: int,
                      pixels_per_line: int) -> np.ndarray:
-    """Reshape interleaved PMT data from Alazar digitizer.
+    """De-interleave pre-shaped PMT data (emulation / non-raw mode).
 
-    Takes raw 16-bit interleaved data from Alazar and reshapes it into
-    a proper frame structure, extracting PMT data and sync signals.
+    Used in emulation mode where the mock Alazar delivers one already-shaped
+    wire-format sample per output pixel per channel (buffer size =
+    ``lines × pixels × 2``).  De-interleaves channel A (even indices) and
+    channel B (odd indices), preserving the full 16-bit wire format of each
+    sample.
 
-    The Alazar outputs 16-bit words where:
-        - Bits 15:2 contain 14-bit PMT data
-        - Bits 1:0 contain LSB sync signals (frame/line timing)
+    Wire format: ``bits 15:2 = 14-bit ADC value; bit 1 = LSB[1] (TTL event);
+    bit 0 = LSB[0] (always 0 in Scanbox)``.  Neither LSB bit is stripped,
+    matching the behaviour of ``alazarReshapeCData2.c`` and
+    ``reshape_pmt_data_raw()``.
 
     Args:
-        buffer: Raw uint16 buffer from Alazar (interleaved channels)
-        lines_per_frame: Number of lines per frame
-        pixels_per_line: Number of pixels per line
+        buffer: uint16 buffer from mock Alazar (interleaved channels, one
+            sample per output pixel).  Shape: ``(lines × pixels × 2,)``.
+        lines_per_frame: Number of lines per frame.
+        pixels_per_line: Number of pixels per line.
 
     Returns:
-        Reshaped numpy array with dimensions (channels, lines, pixels).
-        For 2-channel acquisition: shape is (2, lines_per_frame, pixels_per_line)
+        uint16 array of shape ``(2, lines_per_frame, pixels_per_line)``.
+        Values are in 16-bit wire format (0–65532), identical in range and
+        encoding to the output of ``reshape_pmt_data_raw()``.
 
     Note:
         This function is JIT-compiled with Numba for maximum performance.
-        It must handle ~500 MB/s throughput without dropping frames.
-
-    Reference:
-        See core/alazarReshapeCData2.c for bit-shifting logic.
     """
     # Get dimensions
     total_samples = len(buffer)
@@ -88,20 +95,19 @@ def reshape_pmt_data(buffer: np.ndarray, lines_per_frame: int,
     output = np.zeros((channels, lines_per_frame, pixels_per_line),
                      dtype=np.uint16)
     
-    # De-interleave channels and extract 14-bit PMT data
-    # Channel A at even indices, Channel B at odd indices
+    # De-interleave channels, preserving 16-bit wire format.
+    # Channel A at even indices, Channel B at odd indices.
     sample_idx = 0
-    
+
     for line in range(lines_per_frame):
         for pixel in range(pixels_per_line):
             if sample_idx < samples_per_channel:
-                # Extract channel A (even index)
-                # Shift right by 2 to get 14-bit PMT data
-                output[0, line, pixel] = (buffer[sample_idx * 2] >> 2) & 0x3FFF
-                
-                # Extract channel B (odd index)
-                output[1, line, pixel] = (buffer[sample_idx * 2 + 1] >> 2) & 0x3FFF
-                
+                # Channel A (even index) — preserve wire format, no bit-stripping
+                output[0, line, pixel] = buffer[sample_idx * 2]
+
+                # Channel B (odd index)
+                output[1, line, pixel] = buffer[sample_idx * 2 + 1]
+
                 sample_idx += 1
     
     return output

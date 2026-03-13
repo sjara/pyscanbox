@@ -986,11 +986,12 @@ class ImageDisplayWidget(QtWidgets.QWidget):
 
     # Slider range is 1–100; gain = slider_value / 10  (0.1x … 10.0x).
     # Default slider value is 10, giving gain = 1.0 which preserves the
-    # original >> 6 behaviour (14-bit → 8-bit with no clipping).
+    # original >> 8 behaviour (16-bit wire format → 8-bit with no clipping).
     _GAIN_DIVISOR = 10.0
 
-    # Maximum 14-bit value (2^14 - 1).
-    _MAX_14BIT = 16383
+    # Maximum 16-bit value (2^16 - 1).  Data is stored in wire format
+    # (0–65535) matching MATLAB alazarReshapeCData2.c (see alazar_digitizer.md).
+    _MAX_VALUE = 65535
 
     def __init__(self, config=None):
         """Initialize the image display widget."""
@@ -1023,7 +1024,7 @@ class ImageDisplayWidget(QtWidgets.QWidget):
             _DISPLAY_COLORMAP_PMT1,
             red_boost=_cfg_red_boost,
         )
-        # Raw 14-bit frame kept so that gain/channel changes can re-render
+        # Raw 16-bit frame kept so that gain/channel changes can re-render
         # the last frame without waiting for the next acquisition.
         self._raw_frame: np.ndarray | None = None
         self._init_ui()
@@ -1039,8 +1040,8 @@ class ImageDisplayWidget(QtWidgets.QWidget):
     def update_frame(self, frame_data: np.ndarray) -> None:
         """Update the display with a newly acquired frame.
 
-        Converts the selected PMT channel(s) of the 14-bit frame array to an
-        8-bit RGB QPixmap coloured by channel convention:
+        Converts the selected PMT channel(s) of the 16-bit wire-format frame
+        array to an 8-bit RGB QPixmap coloured by channel convention:
 
         - **PMT0** → green pixels  (R=0, G=intensity, B=0)
         - **PMT1** → red pixels    (R=intensity, G=0, B=0)
@@ -1048,10 +1049,11 @@ class ImageDisplayWidget(QtWidgets.QWidget):
 
         In **fluorescence mode** (default) the display is *inverted*: a PMT
         produces a current that *decreases* the ADC value when light is
-        present (the raw offset-binary background sits near 16383 with no
-        light).  We compensate with ``(16383 - ch) * gain / 64`` so that the
+        present (the raw offset-binary background sits near 65535 with no
+        light).  We compensate with ``(65535 - ch) * gain / 256`` so that the
         dark background maps to 0 (black) and bright fluorescence maps to the
-        channel colour, matching the original Scanbox display.
+        channel colour, matching the original Scanbox display (which takes the
+        high byte of the stored 16-bit value and inverts it).
 
         In **direct mode** the raw ADC value is shown without inversion
         (high ADC value = bright / saturated colour).  Useful for debugging.
@@ -1062,7 +1064,7 @@ class ImageDisplayWidget(QtWidgets.QWidget):
 
         Args:
             frame_data: Shape ``(channels, lines_per_frame, pixels_per_line)``,
-                dtype ``uint16``, values 0-16383 (14-bit).
+                dtype ``uint16``, values 0–65535 (16-bit wire format).
         """
         if frame_data is None:
             return  # stale queued signal delivered after scanner cleanup
@@ -1084,16 +1086,17 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         n_channels = frame_data.shape[0]
 
         def _scale(ch: np.ndarray) -> np.ndarray:
-            """Map a 14-bit channel array to uint8, applying inversion + gain."""
+            """Map a 16-bit wire-format channel array to uint8, applying inversion + gain."""
             c = ch.astype(np.float32)
             if self._invert:
-                # Fluorescence mode: background (high ADC) → 0 (black),
-                # signal (low ADC) → 255.  Matches Scanbox MATLAB display.
+                # Fluorescence mode: background (high ADC ≈ 65535) → 0 (black),
+                # signal (low ADC ≈ 0) → 255.  Matches Scanbox MATLAB display
+                # which takes 255 - high_byte(v), i.e. (65535 - v) / 256.
                 return np.clip(
-                    (self._MAX_14BIT - c) * self._gain / 64.0, 0, 255
+                    (self._MAX_VALUE - c) * self._gain / 256.0, 0, 255
                 ).astype(np.uint8)
             # Direct mode: high ADC → bright (for debugging).
-            return np.clip(c * self._gain / 64.0, 0, 255).astype(np.uint8)
+            return np.clip(c * self._gain / 256.0, 0, 255).astype(np.uint8)
 
         # Build a 3-channel RGB array coloured by PMT channel convention.
         # PMT0 = green (typical fluorescence ch1: GFP, FITC, …)
@@ -1221,15 +1224,16 @@ class ImageDisplayWidget(QtWidgets.QWidget):
 class HistogramWidget(QtWidgets.QWidget):
     """Pixel-intensity histogram for the current frame.
 
-    Displays a 256-bin histogram of the raw 14-bit pixel values from
+    Displays a 256-bin histogram of the raw 16-bit pixel values from
     channel 0 (PMT0) of the most recently acquired frame.
 
     Display conventions
     -------------------
-    * The x-axis spans the full 14-bit range with a **fixed scale**: raw
-      value 0 on the left, 16383 on the right.  This makes it easy to see
-      how the distribution shifts when PMT gain or Pockels power changes.
-    * Fixed axis labels "0" and "16383" are painted at the bottom corners.
+    * The x-axis spans the full 16-bit wire-format range with a **fixed
+      scale**: raw value 0 on the left, 65535 on the right.  This makes it
+      easy to see how the distribution shifts when PMT gain or Pockels power
+      changes.
+    * Fixed axis labels "0" and "65535" are painted at the bottom corners.
     * A small "zeros" checkbox in the top-right corner controls whether bin 0
       (pixels at raw value 0) is included in the display and the y-scale.
       Bin 0 is often dominated by the zero-padding / sync pixels and can
@@ -1246,7 +1250,7 @@ class HistogramWidget(QtWidgets.QWidget):
     * Data reduction: only every 4th pixel is sampled (``SUBSAMPLE``).
       At 512×512 this reduces the working set from 262 K to 65 K elements
       with no perceptible change in histogram shape.
-    * Bin counts use ``np.bincount`` on 14-bit integers, which is 3–5× faster
+    * Bin counts use ``np.bincount`` on 16-bit integers, which is 3–5× faster
       than ``np.histogram`` for integer data.
     * ``paintEvent`` uses fully vectorised numpy arithmetic; no per-bin Python
       loop remains.  The polygon and border lines are built from numpy arrays
@@ -1255,8 +1259,9 @@ class HistogramWidget(QtWidgets.QWidget):
 
     # Number of histogram bins.  256 gives one bin per 8-bit equivalent level.
     NUM_BINS = 256
-    # Full-scale value of the 14-bit ADC.
-    _ADC_MAX = 16383
+    # Full-scale value of the 16-bit wire-format data (2^16 - 1).
+    # Data from reshape_pmt_data_raw() is in 0–65535 range, matching MATLAB.
+    _ADC_MAX = 65535
     # Recompute the histogram only once every this many frames.
     UPDATE_EVERY = 5
     # Stride for pixel subsampling (every Nth pixel used for the histogram).
@@ -1268,7 +1273,7 @@ class HistogramWidget(QtWidgets.QWidget):
     _PADDING = 4        # px inside the widget edges (left / right / top)
     _LABEL_HEIGHT = 11  # px reserved at the bottom for axis tick labels
 
-    # Number of 14-bit values per histogram bin (16384 / 256 = 64).
+    # Number of 16-bit values per histogram bin (65536 / 256 = 256).
     _VALUES_PER_BIN = (_ADC_MAX + 1) // NUM_BINS
 
     def __init__(self):
@@ -1282,8 +1287,8 @@ class HistogramWidget(QtWidgets.QWidget):
         self.setMaximumHeight(120)
         self.setMinimumWidth(100)
         self.setToolTip(
-            "Pixel intensity histogram (256 bins, 14-bit range)\n"
-            "X-axis: display value 0 = dark background (left) → 16383 = max signal (right)\n"
+            "Pixel intensity histogram (256 bins, 16-bit wire-format range)\n"
+            "X-axis: 0 = dark background (left) → 65535 = max signal (right)\n"
             "Tracks the channel selected in Image Display > Channel."
         )
 
@@ -1316,7 +1321,7 @@ class HistogramWidget(QtWidgets.QWidget):
 
         Args:
             frame_data: Shape ``(channels, lines_per_frame, pixels_per_line)``,
-                dtype ``uint16``, values 0–16383 (14-bit).
+                dtype ``uint16``, values 0–65535 (16-bit wire format).
         """
         if frame_data is None or not self.isVisible():
             return
@@ -1334,7 +1339,7 @@ class HistogramWidget(QtWidgets.QWidget):
 
         Args:
             frame_data: Shape ``(channels, lines_per_frame, pixels_per_line)``,
-                dtype ``uint16``, values 0–16383 (14-bit).
+                dtype ``uint16``, values 0–65535 (16-bit wire format).
         """
         if frame_data is None or not self.isVisible():
             return
@@ -1359,7 +1364,7 @@ class HistogramWidget(QtWidgets.QWidget):
 
         Args:
             frame_data: Shape ``(channels, lines_per_frame, pixels_per_line)``,
-                dtype ``uint16``, values 0–16383 (14-bit).
+                dtype ``uint16``, values 0–65535 (16-bit wire format).
         """
         def _bincount(ch_data: np.ndarray) -> np.ndarray:
             flat = ch_data.ravel()[::self.SUBSAMPLE]
@@ -1505,7 +1510,7 @@ class HistogramWidget(QtWidgets.QWidget):
             cb_img = QtGui.QImage(cb.data, 256, 1, 256*3, QtGui.QImage.Format.Format_RGB888)
             painter.drawImage(QtCore.QRect(p, chart_bottom, draw_w, lh), cb_img)
 
-        # --- Axis labels: "0" (left) and "16383" (right) ---
+        # --- Axis labels: "0" (left) and "65535" (right) ---
         def _label_pen(lut: np.ndarray, idx: int) -> QtGui.QPen:
             r, g, b = int(lut[idx, 0]), int(lut[idx, 1]), int(lut[idx, 2])
             lum = 0.299 * r + 0.587 * g + 0.114 * b

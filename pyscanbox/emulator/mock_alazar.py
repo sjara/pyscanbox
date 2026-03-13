@@ -174,11 +174,15 @@ class Board:
         logger.debug("External trigger configured")
 
     def configureLSB(self, valueLSB0: int, valueLSB1: int) -> None:
-        """Configure LSB output bits for frame/line sync.
+        """Configure LSB output bits embedded in the data stream.
+
+        In Scanbox, called as configureLsb9440(boardHandle, 0, 3):
+        LSB[0] = 0 (disabled/always zero) and LSB[1] = AUX_IN[1]
+        (external TTL event signal).
 
         Args:
-            valueLSB0: Value for LSB[0]
-            valueLSB1: Value for LSB[1]
+            valueLSB0: Source for LSB[0] (0=low, 1=ext_trig, 2=AUX_IN[0], 3=AUX_IN[1])
+            valueLSB1: Source for LSB[1] (0=low, 1=ext_trig, 2=AUX_IN[0], 3=AUX_IN[1])
         """
         logger.debug(f"LSB configured: LSB0={valueLSB0}, LSB1={valueLSB1}")
         self.is_configured = True

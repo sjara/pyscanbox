@@ -30,16 +30,16 @@ class TestReshape(unittest.TestCase):
         self.assertEqual(reshaped.shape, (channels, lines, pixels))
         self.assertEqual(reshaped.dtype, np.uint16)
 
-    def test_reshape_pmt_data_14bit_extraction(self):
-        """Test that 14-bit data is correctly extracted."""
-        # Create buffer with known pattern
-        buffer = np.array([0xFFFC, 0xFFFC], dtype=np.uint16)  # All 14 bits set
-        
+    def test_reshape_pmt_data_wire_format_preserved(self):
+        """Test that wire-format values pass through unchanged."""
+        # Wire-format input: 14-bit max (16383) left-shifted by 2 = 0xFFFC
+        buffer = np.array([0xFFFC, 0xFFFC], dtype=np.uint16)
+
         reshaped = reshape.reshape_pmt_data(buffer, 1, 1)
-        
-        # After shifting right by 2, should be 0x3FFF (14 bits)
-        self.assertEqual(reshaped[0, 0, 0], 0x3FFF)
-        self.assertEqual(reshaped[1, 0, 0], 0x3FFF)
+
+        # Wire format is preserved: 0xFFFC passes through unchanged
+        self.assertEqual(reshaped[0, 0, 0], 0xFFFC)
+        self.assertEqual(reshaped[1, 0, 0], 0xFFFC)
 
     def test_extract_sync_bits(self):
         """Test sync bit extraction."""
