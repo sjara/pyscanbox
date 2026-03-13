@@ -103,6 +103,11 @@ class Board:
         self.samples_per_line: int = 5000   # postTriggerSamples (real hardware)
         self._pixel_lut: np.ndarray | None = None  # (pixels,) int32 base indices
 
+        # Bidirectional scan mode: odd lines are acquired right-to-left.
+        # When True, _prepare_test_frames*() reverses odd-line pixels in the
+        # packed buffer to faithfully simulate real hardware output.
+        self.bidirectional: bool = False
+
         logger.info(f"Mock Alazar board initialized: System {system_id}, Board {board_id}")
 
     def setCaptureClock(self, source: int, rate: int,
@@ -254,6 +259,29 @@ class Board:
             "Mock Alazar raw mode %s (samples_per_line=%d)",
             "enabled" if raw_mode else "disabled",
             samples_per_line,
+        )
+
+    def set_scan_mode(self, bidirectional: bool) -> None:
+        """Configure bidirectional scan mode for test frame generation.
+
+        In bidirectional mode, odd scan lines are acquired right-to-left
+        (backward sweep), so their pixels arrive in reversed order in the
+        hardware buffer.  Setting this flag causes the pre-computed test
+        frames to faithfully replicate that reversed layout so that
+        ``apply_bidirectional_correction()`` can recover a correct image.
+
+        Must be called before ``startCapture()``.
+
+        Args:
+            bidirectional: True to simulate bidirectional hardware output;
+                False (default) for unidirectional output.
+        """
+        if self.bidirectional != bidirectional:
+            self.bidirectional = bidirectional
+            self._test_frames = None  # force regeneration on next call
+        logger.info(
+            "Mock Alazar scan mode: %s",
+            "bidirectional" if bidirectional else "unidirectional",
         )
 
     def beforeAsyncRead(self, channels: int, transferOffset: int,
@@ -542,6 +570,13 @@ class Board:
 
             imgs = np.clip(imgs, 0, 16383)
 
+            # In bidirectional mode, odd (backward) scan lines are acquired
+            # right-to-left, so their pixels arrive in reversed order in the
+            # hardware buffer.  Reverse those rows now to faithfully simulate
+            # real hardware output before apply_bidirectional_correction().
+            if self.bidirectional:
+                imgs[:, 1::2, :] = imgs[:, 1::2, ::-1]
+
             # Pack into Alazar wire format:
             # interleaved [chA_px0, chB_px0, chA_px1, chB_px1, …],
             # each sample left-shifted by 2 (14-bit value in bits 15:2).
@@ -632,8 +667,19 @@ class Board:
             bg = 16383.0
             raw_ch0 = np.full((lines, n_samp), bg, dtype=np.float32)
             raw_ch1 = np.full((lines, n_samp), bg, dtype=np.float32)
-            raw_ch0[:, valid_samples] = imgs[0][:, mapped_pixels]
-            raw_ch1[:, valid_samples] = imgs[1][:, mapped_pixels]
+            # In bidirectional mode, odd (backward) scan lines are acquired
+            # right-to-left: raw sample lut[px] corresponds to display pixel
+            # (pixels-1-px) instead of px.  Use reversed pixel indices for
+            # odd lines so the raw buffer matches real hardware output.
+            if self.bidirectional:
+                rev_pixels = pixels - 1 - mapped_pixels
+                raw_ch0[0::2, valid_samples] = imgs[0, 0::2, :][:, mapped_pixels]
+                raw_ch1[0::2, valid_samples] = imgs[1, 0::2, :][:, mapped_pixels]
+                raw_ch0[1::2, valid_samples] = imgs[0, 1::2, :][:, rev_pixels]
+                raw_ch1[1::2, valid_samples] = imgs[1, 1::2, :][:, rev_pixels]
+            else:
+                raw_ch0[:, valid_samples] = imgs[0][:, mapped_pixels]
+                raw_ch1[:, valid_samples] = imgs[1][:, mapped_pixels]
 
             # Add noise to fill sparse gaps between LUT samples.
             raw_ch0 += rng.normal(0, _BACKGROUND_NOISE_SIGMA, raw_ch0.shape).astype(np.float32)

@@ -288,6 +288,14 @@ class AlazarDigitizer:
             self.board_handle.set_raw_mode(raw_mode, samples_per_line,
                                            laser_freq, res_freq)
 
+        # Inform the mock board of the scan mode so that odd (backward) lines
+        # are generated with reversed pixel order, matching real hardware.
+        if self.use_emulation and hasattr(self.board_handle, 'set_scan_mode'):
+            bidirectional = not self.config.get('acquisition', {}).get(
+                'unidirectional', True
+            )
+            self.board_handle.set_scan_mode(bidirectional)
+
     def configure(self) -> None:
         """Configure Alazar board for PMT acquisition.
 
