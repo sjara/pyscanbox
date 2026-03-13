@@ -670,14 +670,20 @@ class AppController(QtCore.QObject):
                     # Zero-button packets: motor_id=10 (XYZ) or 11 (XYZA).
                     # Reset dpos tracking so deltas are relative to the new
                     # Knobby origin; leave _desired_steps so motors hold still.
+                    # Update _positions to 0 and flag knobby_changed so the
+                    # GUI refreshes immediately to show the new zero values.
                     if motor_id == 10:
                         for _i in (0, 1, 2):
                             self._knobby_dpos_steps[_i] = 0
+                            self._positions[_i] = 0.0
+                        knobby_changed = True
                         logger.debug("Knobby zero XYZ — motor positions held")
                         continue
                     if motor_id == 11:
                         for _i in range(4):
                             self._knobby_dpos_steps[_i] = 0
+                            self._positions[_i] = 0.0
+                        knobby_changed = True
                         logger.debug("Knobby zero XYZA — motor positions held")
                         continue
                     if not (0 <= motor_id <= 3):
