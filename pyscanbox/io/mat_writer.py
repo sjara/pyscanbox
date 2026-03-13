@@ -133,7 +133,7 @@ def create_suite2p_metadata(config: Dict[str, Any], frames_acquired: int) -> Dic
         'nchannels': config['alazar']['channels'],
         'nplanes': 1,
         'nrois': 0,
-        'scanmode': 0,
+        'scanmode': 1 if config.get('acquisition', {}).get('unidirectional', True) else 0,
         'ballmotion': [],
         'cam1': [],
         'cam2': [],

@@ -719,6 +719,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.statusBar.showMessage(str(exc))
                 return
             acq.grab_button.setEnabled(False)
+            self._left_panel.scanner_group.scan_mode_combobox.setEnabled(False)
             self._acq_start_time = time.monotonic()
             self._elapsed_timer.start()
             self.statusBar.showMessage("Focus mode active")
@@ -755,6 +756,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.statusBar.showMessage(str(exc))
                 return
             acq.focus_button.setEnabled(False)
+            self._left_panel.scanner_group.scan_mode_combobox.setEnabled(False)
             self._acq_start_time = time.monotonic()
             self._elapsed_timer.start()
             self.statusBar.showMessage(f"Grabbing: {output_path}")
@@ -840,6 +842,7 @@ class MainWindow(QtWidgets.QMainWindow):
         in_2p = (self._left_panel.camera_group.current_path == '2p')
         acq.focus_button.setEnabled(in_2p)
         acq.grab_button.setEnabled(in_2p)
+        self._left_panel.scanner_group.scan_mode_combobox.setEnabled(True)
         # Advance the session ID only after a data-saving Grab, not Focus.
         if self._grab_active:
             self._left_panel.file_group.increment_session_id()
