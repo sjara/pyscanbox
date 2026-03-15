@@ -4,7 +4,7 @@ Coordinate transformation utilities for objective angle compensation.
 
 import math
 
-DEFAULT_POSITIVE_ANGLE_INCREASES_X = True
+DEFAULT_POSITIVE_ANGLE_INCREASES_X = False
 
 def world_to_rotated(x, y, z, angle_deg, positive_angle_increases_x=DEFAULT_POSITIVE_ANGLE_INCREASES_X):
     """

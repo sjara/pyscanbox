@@ -517,6 +517,10 @@ class MainWindow(QtWidgets.QMainWindow):
         acq.grab_button.clicked.connect(self._on_grab_clicked)
         acq.snapshot_button.clicked.connect(self._on_snapshot_clicked)
 
+        # Zero-angle button -> AppController
+        pos_grp = self._right_panel.position_group
+        pos_grp.zero_angle_button.clicked.connect(self._on_zero_angle_clicked)
+
         # AppController -> GUI
         self._ctrl.position_updated.connect(self._on_position_updated)
         self._ctrl.frame_acquired.connect(self._on_frame_acquired)
@@ -787,6 +791,27 @@ class MainWindow(QtWidgets.QMainWindow):
     # ------------------------------------------------------------------
     # AppController signal handlers
     # ------------------------------------------------------------------
+
+    def _on_zero_angle_clicked(self):
+        """Ask for confirmation, then move the angle motor to absolute zero."""
+        import PyQt6.QtWidgets as _QtW
+        reply = _QtW.QMessageBox.question(
+            self,
+            "Zero Angle Motor",
+            "Move the objective angle motor to absolute step 0 (0°)?\n\n"
+            "This will physically rotate the objective and may be dangerous "
+            "if the sample or objective is in a position where such movement "
+            "could cause damage.\n\n"
+            "The Knobby display for X, Y, and Z will also be reset to 0 — "
+            "those axes will NOT move.\n\nProceed?",
+            _QtW.QMessageBox.StandardButton.Yes | _QtW.QMessageBox.StandardButton.No,
+            _QtW.QMessageBox.StandardButton.No,
+        )
+        if reply == _QtW.QMessageBox.StandardButton.Yes:
+            try:
+                self._ctrl.zero_angle()
+            except Exception as exc:
+                _QtW.QMessageBox.warning(self, "Zero Angle Failed", str(exc))
 
     def _on_position_updated(self, pos):
         """Update the position display group from hardware position data.

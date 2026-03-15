@@ -626,6 +626,66 @@ class AppController(QtCore.QObject):
         return etl_calibration.etl_to_depth(current, self._etl_calibration)
 
     # ------------------------------------------------------------------
+    # Angle motor
+    # ------------------------------------------------------------------
+
+    def zero_angle(self) -> bool:
+        """Move the angle motor (A-axis, motor 3) to absolute step 0.
+
+        Issues an MVP Type 0 (absolute) command targeting step 0, then
+        resets the PC-side Knobby and desired-step tracking for motor 3
+        so that subsequent Knobby packets are interpreted correctly from
+        the new zero reference.
+
+        Also sends the Knobby ``zero_xyza`` command (cmd 31) so the Knobby
+        display resets its A-axis counter to 0.  As a side effect the Knobby
+        display will also show 0 for X, Y, and Z — those motors are NOT
+        moved; only the Knobby's internal ``dpos`` counters are cleared.
+
+        Returns:
+            True if the motor command was sent successfully, False otherwise.
+
+        Raises:
+            RuntimeError: If hardware is not open.
+        """
+        if not self.is_open:
+            raise RuntimeError("AppController is not open. Call open() first.")
+
+        success = False
+        if self._motor.is_open:
+            try:
+                success = self._motor.move_absolute(3, 0)
+            except Exception as exc:
+                msg = f"zero_angle: move_absolute(motor=3, pos=0) failed: {exc}"
+                logger.error(msg)
+                self.hardware_error.emit(msg)
+                return False
+        else:
+            logger.warning("zero_angle: motor controller not open.")
+
+        # Send zero_xyza to Knobby so its display resets A (and X/Y/Z) to 0.
+        # The X/Y/Z motors are NOT moved — only the Knobby dpos counters are
+        # cleared, so subsequent knob-turn deltas start from the new origin.
+        if self._knobby.is_open:
+            try:
+                self._knobby.zero_xyza()
+            except Exception as exc:
+                logger.warning("zero_angle: zero_xyza command failed: %s", exc)
+
+        # Reset PC-side dpos tracking for all axes so that deltas from
+        # subsequent Knobby packets are computed from the new Knobby origin.
+        for _i in range(4):
+            self._knobby_dpos_steps[_i] = 0
+            self._positions[_i] = 0.0
+        # Keep _desired_steps for X/Y/Z unchanged so those motors hold position.
+        self._desired_steps[3] = 0
+
+        self._emit_positions()
+        self._log_event('zero_angle(): A-axis motor → step 0')
+        logger.info("zero_angle: motor 3 commanded to step 0.")
+        return success
+
+    # ------------------------------------------------------------------
     # Position polling (internal)
     # ------------------------------------------------------------------
 
