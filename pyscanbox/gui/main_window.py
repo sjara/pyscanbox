@@ -148,15 +148,15 @@ class MainWindow(QtWidgets.QMainWindow):
         # File menu
         file_menu = menubar.addMenu("&File")
         
-        load_action = QtGui.QAction("&Load Configuration...", self)
-        load_action.setShortcut("Ctrl+O")
-        file_menu.addAction(load_action)
+        # load_action = QtGui.QAction("&Load Configuration...", self)
+        # load_action.setShortcut("Ctrl+O")
+        # file_menu.addAction(load_action)
         
-        save_action = QtGui.QAction("&Save Configuration...", self)
-        save_action.setShortcut("Ctrl+S")
-        file_menu.addAction(save_action)
+        # save_action = QtGui.QAction("&Save Configuration...", self)
+        # save_action.setShortcut("Ctrl+S")
+        # file_menu.addAction(save_action)
         
-        file_menu.addSeparator()
+        # file_menu.addSeparator()
 
         open_data_action = QtGui.QAction("Open &Data...", self)
         open_data_action.setShortcut("Ctrl+D")
@@ -648,9 +648,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_etl_current_changed(self, current: int):
         """Forward ETL slider / spinbox value to hardware and update depth label.
 
-        The depth label shows the raw ETL current value (4 digits) when no
-        calibration is loaded, or depth in µm once a calibration file is
-        present (loaded by AppController.open from optotune.calibration_file).
+        The depth label shows depth in µm once a calibration file is loaded
+        (via AppController.open from optotune.calibration_file); it is left
+        empty when no calibration is available (the raw ETL value is already
+        visible in the spinbox).
 
         Args:
             current: ETL current level (0–1760 hardware units).
@@ -663,7 +664,7 @@ class MainWindow(QtWidgets.QMainWindow):
             else None
         )
         optotune.set_depth_display(
-            f'{depth} \u00b5m' if depth is not None else f'{current:04d}'
+            f'{depth} \u00b5m' if depth is not None else ''
         )
         # Forward to hardware (no-op if not yet connected).
         if self._ctrl is not None:

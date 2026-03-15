@@ -6,7 +6,18 @@ All notable changes to this project are documented here. This file is append-onl
 
 ---
 
-## v0.5.0 - March 15, 2026 (Current)
+## v0.6.0 - March 15, 2026 (Current)
+- **Rolling average display in Image Display widget**
+- Added `ImageDisplayWidget.set_rolling_avg(tau)`: exponential rolling average `avg = delta * avg + (1-delta) * frame` (delta = exp(-1/tau)); tau=0 disables; accumulator resets on tau change or frame-shape change.
+- Added "Rolling avg" combobox to `ImageDisplayControlGroup` with "Off" and configurable tau choices.
+- `ImageDisplayControlGroup` now accepts `config` parameter; reads `display.rolling_avg_taus` list (defaults: 5, 10, 20 frames).
+- Added `rolling_avg_taus: [5, 10, 20]` to `display:` section of `default_config.yaml`.
+- Wired combobox → `ImageDisplayWidget.set_rolling_avg()` in `panels.py`.
+- **Optotune depth label: only show when calibration is loaded**
+- `OptotuneGroup.depth_label` is now empty when no ETL calibration file is loaded (raw ETL value is already shown in the spinbox; the label is redundant).
+- `MainWindow._on_etl_current_changed` passes `''` instead of `f'{current:04d}'` when `etl_to_depth` returns None.
+
+## v0.5.0 - March 15, 2026
 - **Fixed polarity bug in mock data saving (scan.py, sbx_writer.py, sbx_reader.py)**
 - `ScanboxOriginalWriter.write_frame()` previously applied `65535 − frame_data` before writing, expecting signal-convention input (low = dark). The acquisition loop delivered wire-format data (high = dark), causing a double-inversion: dark pixels were stored as low values on disk and appeared inverted when loaded back.
 - Writer now accepts **wire-format convention** (high = dark) directly and writes values to disk as-is, matching the original MATLAB `fwrite` output with zero extra operations in the save path.

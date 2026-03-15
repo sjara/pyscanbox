@@ -16,6 +16,7 @@ This module defines individual control groups and display widgets:
 """
 
 import glob
+import math
 import os
 
 import numpy as np
@@ -1027,6 +1028,12 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         # Raw 16-bit frame kept so that gain/channel changes can re-render
         # the last frame without waiting for the next acquisition.
         self._raw_frame: np.ndarray | None = None
+        # Rolling average state.  tau=0 means disabled.
+        # _rolling_avg holds the float32 exponential accumulator;
+        # _rolling_tau=0 bypasses averaging entirely.
+        self._rolling_tau: int = 0
+        self._rolling_delta: float = 0.0
+        self._rolling_avg: np.ndarray | None = None
         self._init_ui()
 
     def _init_ui(self):
@@ -1070,6 +1077,13 @@ class ImageDisplayWidget(QtWidgets.QWidget):
             return  # stale queued signal delivered after scanner cleanup
 
         self._raw_frame = frame_data
+        if self._rolling_tau > 0:
+            f = frame_data.astype(np.float32)
+            if self._rolling_avg is None or self._rolling_avg.shape != f.shape:
+                self._rolling_avg = f.copy()
+            else:
+                delta = self._rolling_delta
+                self._rolling_avg = delta * self._rolling_avg + (1.0 - delta) * f
         self._render_frame()
 
     def _render_frame(self) -> None:
@@ -1079,7 +1093,12 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         ``set_channel`` so that display-setting changes take effect
         immediately on the frozen last frame after acquisition stops.
         """
-        frame_data = self._raw_frame
+        if self._rolling_tau > 0 and self._rolling_avg is not None:
+            frame_data = np.clip(self._rolling_avg, 0, self._MAX_VALUE).astype(
+                np.uint16
+            )
+        else:
+            frame_data = self._raw_frame
         if frame_data is None:
             return
 
@@ -1167,6 +1186,28 @@ class ImageDisplayWidget(QtWidgets.QWidget):
             index: 0 = Fluorescence (inverted), 1 = Direct (raw ADC).
         """
         self._invert = (index == 0)
+
+    def set_rolling_avg(self, tau: int) -> None:
+        """Enable or disable the rolling average display.
+
+        When enabled, each new frame passed to ``update_frame`` is blended
+        with the exponential accumulator:
+
+            avg = delta * avg + (1 - delta) * frame,  delta = exp(-1/tau)
+
+        The rendered image comes from the averaged data rather than the raw
+        frame, smoothing out shot noise over several consecutive frames.
+        Changing tau resets the accumulator so the display responds
+        immediately with the new setting.
+
+        Args:
+            tau: Time constant in frames.  0 disables averaging (default).
+        """
+        self._rolling_tau = tau
+        if tau > 0:
+            self._rolling_delta = math.exp(-1.0 / tau)
+        self._rolling_avg = None   # reset accumulator on every tau change
+        self._render_frame()
 
     def set_colormap(self, index: int) -> None:
         """Set the display colormap from the Colormap combobox index.
@@ -1831,21 +1872,38 @@ class PMTControlGroup(QtWidgets.QGroupBox):
 
 class ImageDisplayControlGroup(QtWidgets.QGroupBox):
     """Image display control group box.
-    
+
     Contains:
     - Channel display selector
     - Display gain slider
+    - Rolling average selector
     """
-    
-    def __init__(self):
-        """Initialize the image display control group."""
+
+    # Default tau values (in frames) used when not set by config.
+    _DEFAULT_TAUS = [5, 10, 20]
+
+    def __init__(self, config=None):
+        """Initialize the image display control group.
+
+        Args:
+            config: Optional ScanboxConfig (or plain dict).  When provided the
+                ``display.rolling_avg_taus`` list is used to populate the
+                rolling average combobox.
+        """
         super().__init__("Image Display")
+        config_dict = (
+            config.to_dict() if hasattr(config, 'to_dict') else (config or {})
+        )
+        display_cfg = config_dict.get('display', {})
+        taus = display_cfg.get('rolling_avg_taus', self._DEFAULT_TAUS)
+        # rolling_avg_taus maps combobox index → tau; index 0 is always "Off" (tau=0).
+        self.rolling_avg_taus = [0] + list(taus)
         self._init_ui()
-        
+
     def _init_ui(self):
         """Initialize the UI components."""
         layout = QtWidgets.QVBoxLayout()
-        
+
         # Channel display selector
         layout.addWidget(QtWidgets.QLabel("Channel:"))
         self.channel_combobox = QtWidgets.QComboBox()
@@ -1871,9 +1929,17 @@ class ImageDisplayControlGroup(QtWidgets.QGroupBox):
         self.gain_slider.valueChanged.connect(
             lambda v: self.gain_label.setText(f"Gain:  {v/10:.1f}x")
         )
-        
+
         layout.addLayout(gain_layout)
-        
+
+        # Rolling average selector
+        layout.addWidget(QtWidgets.QLabel("Rolling avg:"))
+        self.rolling_avg_combobox = QtWidgets.QComboBox()
+        items = ["Off"] + [f"\u03c4 = {t} frames" for t in self.rolling_avg_taus[1:]]
+        self.rolling_avg_combobox.addItems(items)
+        self.rolling_avg_combobox.setCurrentIndex(0)
+        layout.addWidget(self.rolling_avg_combobox)
+
         layout.addStretch()
         self.setLayout(layout)
 
@@ -1927,9 +1993,10 @@ class OptotuneGroup(QtWidgets.QGroupBox):
         self.etl_spinbox.setSuffix('')
         layout.addWidget(self.etl_spinbox)
 
-        # Depth display: shows raw ETL value (4 digits) when uncalibrated,
-        # or depth in µm (e.g. "42 µm") once a calibration file is loaded.
-        self.depth_label = QtWidgets.QLabel(f'{self._default_value:04d}')
+        # Depth display: shows depth in µm (e.g. "42 µm") once a calibration
+        # file is loaded; empty when no calibration is available (the raw ETL
+        # value is already visible in the spinbox above).
+        self.depth_label = QtWidgets.QLabel('')
         self.depth_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.depth_label)
 
@@ -1944,12 +2011,13 @@ class OptotuneGroup(QtWidgets.QGroupBox):
         """Update the ETL depth display label.
 
         Called on every slider move by MainWindow._on_etl_current_changed.
-        Shows the raw ETL current when no calibration is loaded, or depth
-        in µm once a calibration file is present.
+        Shows depth in µm once a calibration file is loaded; empty string
+        when no calibration is available (the raw ETL value is already
+        visible in the spinbox).
 
         Args:
-            text: Formatted string, e.g. ``'0860'`` (uncalibrated) or
-                ``'42 µm'`` (calibrated).
+            text: Formatted string, e.g. ``'42 µm'`` (calibrated) or
+                ``''`` (uncalibrated).
         """
         self.depth_label.setText(text)
 

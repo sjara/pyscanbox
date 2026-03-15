@@ -118,6 +118,13 @@ class RightDisplayPanel(QtWidgets.QWidget):
             self.histogram.set_channel
         )
 
+        # Wire the rolling average combobox to the image display widget.
+        self.image_display_group.rolling_avg_combobox.currentIndexChanged.connect(
+            lambda idx: self.image_display.set_rolling_avg(
+                self.image_display_group.rolling_avg_taus[idx]
+            )
+        )
+
         # Add splitter to layout
         layout = QtWidgets.QVBoxLayout()
         layout.addWidget(splitter)
@@ -141,7 +148,7 @@ class RightDisplayPanel(QtWidgets.QWidget):
         # Add control group boxes side-by-side
         self.position_group = widgets.PositionDisplayGroup()
         self.pmt_group = widgets.PMTControlGroup()
-        self.image_display_group = widgets.ImageDisplayControlGroup()
+        self.image_display_group = widgets.ImageDisplayControlGroup(config=self.config)
         # Extract ETL default value from config; OptotuneGroup uses it as its
         # initial slider position.  Falls back to ETL_CURRENT_MID when absent.
         config_dict = (
