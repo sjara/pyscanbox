@@ -1,12 +1,12 @@
-"""File I/O modules for .sbx and .mat formats.
+"""File I/O modules for .sbx format.
 
-This package handles reading and writing data in Scanbox formats:
-    - .sbx: Raw binary data (headerless uint16)
-    - .mat: MATLAB metadata for backwards compatibility
+This package handles reading and writing data in the Scanbox-compatible format:
+    - .sbx: Raw binary data (MATLAB column-major uint16, bitwise-complemented)
+    - .mat: MATLAB info struct metadata (nested 'info' struct, compatible with
+            sbxread.m and downstream tools such as Suite2p)
 """
 
 from pyscanbox.io import sbx_writer
-from pyscanbox.io import mat_writer
 from pyscanbox.io import sbx_reader
 
-__all__ = ["sbx_writer", "mat_writer", "sbx_reader"]
+__all__ = ["sbx_writer", "sbx_reader"]

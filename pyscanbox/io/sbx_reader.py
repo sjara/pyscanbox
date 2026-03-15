@@ -2,14 +2,16 @@
 
 This module provides two reader classes for .sbx binary files:
 
-    SbxReader
-        Reads files produced by **pyscanbox**.  The binary data is a
-        headerless uint16 dump in C-order (row-major) with shape
-        (frames, channels, lines_per_frame, pixels_per_line).  The
-        companion .mat file stores flat key/value metadata.
+    SbxReaderObsolete
+        Obsolete reader for files produced by the old **pyscanbox** native
+        format.  The binary data is a headerless uint16 C-order dump with
+        shape (frames, channels, lines_per_frame, pixels_per_line) and the
+        companion .mat file stores flat key/value metadata.  Use
+        :class:`ScanboxOriginalReader` for new recordings.
 
     ScanboxOriginalReader
-        Reads files produced by the **original MATLAB Scanbox** software.
+        Reads files produced by the **original MATLAB Scanbox** software
+        and by pyscanbox's :class:`~pyscanbox.io.sbx_writer.ScanboxOriginalWriter`.
         The binary data is written in MATLAB column-major order, with the
         on-disk layout equivalent to (lines_per_frame, pixels_per_line,
         nchan) per frame.  Values are stored bitwise-complemented
@@ -18,16 +20,16 @@ This module provides two reader classes for .sbx binary files:
         struct with fields such as ``sz``, ``recordsPerBuffer``, and
         ``channels``.
 
-Example (pyscanbox files)::
-
-    >>> import pyscanbox.io.sbx_reader
-    >>> with pyscanbox.io.sbx_reader.SbxReader('mydata') as reader:
-    ...     frame = reader.get_frame(0)
-
-Example (original Scanbox files)::
+Example (pyscanbox / original Scanbox files)::
 
     >>> import pyscanbox.io.sbx_reader
     >>> with pyscanbox.io.sbx_reader.ScanboxOriginalReader('mydata') as reader:
+    ...     frame = reader.get_frame(0)
+
+Example (obsolete pyscanbox native format)::
+
+    >>> import pyscanbox.io.sbx_reader
+    >>> with pyscanbox.io.sbx_reader.SbxReaderObsolete('mydata') as reader:
     ...     frame = reader.get_frame(0)
 """
 
@@ -37,15 +39,20 @@ import scipy.io
 from typing import Dict, Any, Optional
 
 
-class SbxReader:
-    """Reader for .sbx binary files with associated .mat metadata.
+class SbxReaderObsolete:
+    """Obsolete reader for .sbx files in the pyscanbox native format.
+
+    .. deprecated::
+        Use :class:`ScanboxOriginalReader` instead, which reads files
+        produced by both the original MATLAB Scanbox software and
+        pyscanbox's :class:`~pyscanbox.io.sbx_writer.ScanboxOriginalWriter`.
 
     Provides memory-mapped access to the raw uint16 PMT data and
     convenience methods for extracting frames and channels.
 
     The binary layout on disk is C-order (row-major) uint16 with
     dimensions (frames, channels, lines_per_frame, pixels_per_line),
-    matching what SbxWriter produces.
+    matching what SbxWriterObsolete produces.
 
     Attributes:
         filepath: Base path (without extension).
@@ -147,6 +154,14 @@ class SbxReader:
             FileNotFoundError: If .mat file does not exist.
         """
         raw = scipy.io.loadmat(self.mat_path)
+        # Detect original Scanbox .mat files (nested 'info' struct, no flat keys).
+        if 'info' in raw and not any(
+                k for k in raw if not k.startswith('__') and k != 'info'):
+            raise ValueError(
+                f"{self.mat_path} appears to be an original Scanbox file "
+                "(nested 'info' struct rather than flat pyscanbox keys). "
+                "Use ScanboxOriginalReader instead of SbxReaderObsolete."
+            )
         meta = {}
         for key, val in raw.items():
             if key.startswith('__'):
@@ -290,13 +305,17 @@ class SbxReader:
 
     def __repr__(self) -> str:
         return (
-            f"SbxReader('{self.filepath}', "
+            f"SbxReaderObsolete('{self.filepath}', "
             f"shape={self.shape}, dtype=uint16)"
         )
 
 
-def load_sbx(filepath: str) -> tuple:
-    """Convenience function to load an .sbx file into memory.
+def load_sbx_obsolete(filepath: str) -> tuple:
+    """Obsolete convenience function to load a pyscanbox-native .sbx file.
+
+    .. deprecated::
+        Use :class:`ScanboxOriginalReader` for files written by pyscanbox
+        v0.5+ or by the original MATLAB Scanbox software.
 
     Args:
         filepath: Base path without extension (e.g., 'mydata').
@@ -310,10 +329,10 @@ def load_sbx(filepath: str) -> tuple:
 
     Example:
         >>> import pyscanbox.io.sbx_reader
-        >>> data, meta = pyscanbox.io.sbx_reader.load_sbx('mydata')
+        >>> data, meta = pyscanbox.io.sbx_reader.load_sbx_obsolete('mydata')
         >>> print(data.shape, meta['frames'])
     """
-    with SbxReader(filepath) as reader:
+    with SbxReaderObsolete(filepath) as reader:
         data = reader.load()
         metadata = reader.metadata
     return data, metadata
@@ -444,8 +463,8 @@ class ScanboxOriginalReader:
         if 'info' not in raw:
             raise KeyError(
                 f"No 'info' struct found in {self.mat_path}. "
-                "This file may have been written by pyscanbox — use "
-                "SbxReader instead."
+                "This file may have been written by the old pyscanbox native "
+                "format — use SbxReaderObsolete instead."
             )
 
         info_obj = raw['info']  # scipy MatlabObject or structured array
@@ -512,18 +531,18 @@ class ScanboxOriginalReader:
     # Public access methods
     # ------------------------------------------------------------------
 
-    def get_frame(self, index: int, raw: bool = False) -> np.ndarray:
+    def get_frame(self, index: int, invert: bool = True) -> np.ndarray:
         """Return a single frame as a numpy array.
-
-        The returned array matches the shape and orientation produced by
-        MATLAB's ``sbxread``:  ``(nchan, lines_per_frame, pixels_per_line)``.
-        Values are the signal intensities (bitwise complement undone) unless
-        ``raw=True`` is requested.
 
         Args:
             index: Frame index (0-based).
-            raw: If True, return the stored bitwise-complemented values
-                without applying the ``65535 - x`` inversion.
+            invert: If ``True`` (default), apply ``65535 − stored`` and
+                return **signal convention** (high = bright fluorescence,
+                low = dark background), matching ``sbxread.m`` and
+                downstream tools such as Suite2p.  If ``False``, return
+                the raw on-disk values in **wire-format convention**
+                (high = dark) — use this when feeding the GUI display
+                pipeline, which applies its own inversion internally.
 
         Returns:
             Array of shape ``(nchan, lines_per_frame, pixels_per_line)``,
@@ -539,16 +558,18 @@ class ScanboxOriginalReader:
         # Disk layout per frame (C-order): (lines, pixels, nchan)
         # Transpose to (nchan, lines, pixels) to match MATLAB permute([1 3 2])
         frame = np.array(self.data[index]).transpose(2, 0, 1)
-        if raw:
-            return frame
-        return np.uint16(65535) - frame
+        if invert:
+            return np.uint16(65535) - frame
+        return frame
 
-    def get_channel(self, channel: int, raw: bool = False) -> np.ndarray:
+    def get_channel(self, channel: int, invert: bool = True) -> np.ndarray:
         """Return all frames for a single PMT channel.
 
         Args:
             channel: Channel index (0-based).
-            raw: If True, return stored complemented values without inversion.
+            invert: If ``True`` (default), apply ``65535 − stored`` to
+                return signal convention (high = bright).  If ``False``,
+                return wire-format values (high = dark) as stored on disk.
 
         Returns:
             Array of shape ``(nframes, lines_per_frame, pixels_per_line)``,
@@ -564,18 +585,23 @@ class ScanboxOriginalReader:
             )
         # data shape: (nframes, lines, pixels, nchan) → select channel last axis
         ch_data = np.array(self.data[:, :, :, channel])
-        if raw:
-            return ch_data
-        return np.uint16(65535) - ch_data
+        if invert:
+            return np.uint16(65535) - ch_data
+        return ch_data
 
-    def load(self, raw: bool = False) -> np.ndarray:
+    def load(self, invert: bool = True) -> np.ndarray:
         """Load the entire dataset into memory.
+
+        Args:
+            invert: If ``True`` (default), apply ``65535 − stored`` to
+                return signal convention (high = bright), matching
+                ``sbxread.m``.  If ``False``, return wire-format values
+                (high = dark) as stored on disk.
 
         Returns:
             Array of shape
             ``(nframes, nchan, lines_per_frame, pixels_per_line)``,
-            dtype uint16.  Values have the bitwise complement undone
-            unless ``raw=True``.
+            dtype uint16.
 
         Note:
             For large files this may consume significant RAM.  Prefer
@@ -584,9 +610,9 @@ class ScanboxOriginalReader:
         # data shape on disk: (nframes, lines, pixels, nchan)
         # Desired output:     (nframes, nchan, lines, pixels)
         result = np.array(self.data).transpose(0, 3, 1, 2)
-        if raw:
-            return result
-        return np.uint16(65535) - result
+        if invert:
+            return np.uint16(65535) - result
+        return result
 
     def close(self) -> None:
         """Release the memory-mapped file handle."""

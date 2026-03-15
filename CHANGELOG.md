@@ -6,6 +6,23 @@ All notable changes to this project are documented here. This file is append-onl
 
 ---
 
+## v0.5.0 - March 15, 2026 (Current)
+- **Fixed polarity bug in mock data saving (scan.py, sbx_writer.py, sbx_reader.py)**
+- `ScanboxOriginalWriter.write_frame()` previously applied `65535 − frame_data` before writing, expecting signal-convention input (low = dark). The acquisition loop delivered wire-format data (high = dark), causing a double-inversion: dark pixels were stored as low values on disk and appeared inverted when loaded back.
+- Writer now accepts **wire-format convention** (high = dark) directly and writes values to disk as-is, matching the original MATLAB `fwrite` output with zero extra operations in the save path.
+- `ScanboxOriginalReader.get_frame()`, `get_channel()`, and `load()`: renamed parameter `raw` → `invert`. `invert=True` (default) applies `65535 −` and returns signal convention (low = dark), matching `sbxread.m` and Suite2p. `invert=False` returns wire-format (high = dark) for the GUI display pipeline, which applies its own inversion.
+- `MainWindow._on_frame_selected()` updated to call `get_frame(invert=False)`.
+- Round-trip tests updated: wire-format data written and verified with `invert=False`; new test `test_round_trip_invert_two_channels` verifies `invert=True` returns the complement.
+
+## v0.4.9 - March 15, 2026
+- **Full compatibility with original Scanbox .sbx/.mat file formats**
+- All reading and writing of Scanbox data now uses ScanboxOriginalReader and ScanboxOriginalWriter, matching the original MATLAB Scanbox conventions (bitwise complement, shape, and metadata).
+- Obsolete/legacy read/write code paths renamed (SbxReaderObsolete, SbxWriterObsolete); all usages updated to use the new compatible classes.
+- Removed mat_writer.py and all related test code; all metadata is now written in MATLAB-compatible format via ScanboxOriginalWriter.
+- GUI and all examples now load Scanbox files using raw=True to avoid double inversion; display inversion is applied only once, matching Scanbox display logic.
+- Added debug print statements to verify pixel value polarity in the display pipeline (removed after verification).
+- All tests updated and passing; file I/O is now fully Scanbox-compatible.
+
 ## v0.4.8 - March 13, 2026 (Current)
 - **Reshape function renaming for clarity (Milestone 1.3.1/1.3.3)**
 - Renamed `reshape_pmt_data_raw()` → `reshape_pmt_data()`: real-hardware Numba JIT path (sums 4 raw ADC samples per pixel, `>> 2`, 16-bit wire format output); now the canonical function name for the hardware path.

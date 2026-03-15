@@ -29,7 +29,6 @@ from pyscanbox.hardware import controller
 from pyscanbox.hardware import motor
 from pyscanbox.acquisition import reshape as data_reshape
 from pyscanbox.io import sbx_writer
-from pyscanbox.io import mat_writer
 
 
 class Scanner:
@@ -43,7 +42,7 @@ class Scanner:
         alazar: AlazarDigitizer instance
         controller: ScanboxController instance
         motor: TrinamicMotor instance (optional)
-        writer: SbxWriter instance
+        writer: ScanboxOriginalWriter instance
         is_running: Acquisition running flag
         frames_acquired: Counter for acquired frames
     """
@@ -179,8 +178,7 @@ class Scanner:
             self.frames_to_acquire = sys.maxsize
 
         # File writers
-        self.sbx_writer: Optional[sbx_writer.SbxWriter] = None
-        self.mat_writer: Optional[mat_writer.MatWriter] = None
+        self.sbx_writer: Optional[sbx_writer.ScanboxOriginalWriter] = None
         
         # State
         self.is_running = False
@@ -223,18 +221,29 @@ class Scanner:
                 self.motor.on_command = self._on_motor_cmd
 
     def initialize_writers(self) -> None:
-        """Initialize file writers for data output.
+        """Initialize the Scanbox-compatible .sbx writer.
 
-        Creates .sbx and .mat file writers using configured output path.
+        The companion .mat metadata file is written automatically when the
+        writer is closed at the end of acquisition.
         """
         if self.output_path is None:
             output_dir = self.config['io']['output_directory']
             file_prefix = self.config['io']['file_prefix']
             timestamp = time.strftime('%Y%m%d_%H%M%S')
             self.output_path = f"{output_dir}/{file_prefix}_{timestamp}"
-        
-        self.sbx_writer = sbx_writer.SbxWriter(self.output_path)
-        self.mat_writer = mat_writer.MatWriter(self.output_path)
+
+        nchan = 1 if self.save_channels in (0, 1) else 2
+        pmt_channel = self.save_channels if self.save_channels in (0, 1) else 0
+        unidirectional = self.config.get('acquisition', {}).get('unidirectional', True)
+        scanmode = 1 if unidirectional else 0
+        self.sbx_writer = sbx_writer.ScanboxOriginalWriter(
+            self.output_path,
+            lines_per_frame=self.lines_per_frame,
+            pixels_per_line=self.pixels_per_line,
+            nchan=nchan,
+            scanmode=scanmode,
+            pmt_channel=pmt_channel,
+        )
 
     def configure_scan_params(self) -> None:
         """Send scan parameters to the controller before starting acquisition.
@@ -424,6 +433,8 @@ class Scanner:
                 data_reshape.apply_bidirectional_correction(reshaped, shift)
             
             # Write to disk, selecting only the requested channel(s).
+            # ScanboxOriginalWriter.write_frame() accepts wire-format data
+            # (high = dark) directly — no inversion needed here.
             if self.sbx_writer is not None:
                 if self.save_channels == 0:
                     frame_to_write = reshaped[0:1]   # PMT0 only
@@ -570,17 +581,15 @@ class Scanner:
             else:
                 self.motor.on_command = self._motor_orig_on_cmd
         
-        # Close file writers
+        # Close .sbx file and write companion .mat metadata.
+        # extra_info is populated with the full acquisition metadata so that
+        # ScanboxOriginalWriter.write_mat() embeds it in the info struct.
         if self.sbx_writer is not None:
-            self.sbx_writer.close()
-        
-        # Write metadata
-        if self.mat_writer is not None:
             try:
-                metadata = self._create_metadata()
-                self.mat_writer.write(metadata)
+                self.sbx_writer.extra_info = self._create_metadata()
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Could not write metadata .mat file: %s", exc)
+                logger.warning("Could not build metadata for .mat file: %s", exc)
+            self.sbx_writer.close()
         
         print("Acquisition complete.")
         print(f"Total frames acquired: {self.frames_acquired}")
@@ -615,7 +624,7 @@ class Scanner:
             channels_mask = 3       # PMT1 only
         else:
             channels_mask = 1       # both (default)
-        # nchan: number of channels actually saved (used by pyscanbox SbxReader)
+        # nchan: number of channels actually saved (used by ScanboxOriginalReader)
         nchan = 1 if self.save_channels in (0, 1) else 2
 
         # ----------------------------------------------------------------
@@ -688,7 +697,7 @@ class Scanner:
             'messages': np.array([], dtype=object),
             'usernotes': '',
             # nchan is derived in sbxread.m from channels bitmask; we store it
-            # explicitly for direct use by SbxReader without re-deriving.
+            # explicitly for direct use by ScanboxOriginalReader without re-deriving.
             'nchan': nchan,
             # TTL event timestamps (mirrors sb_timestamps() field names)
             'frame':    ttl_frame,

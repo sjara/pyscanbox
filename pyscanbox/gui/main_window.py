@@ -17,6 +17,7 @@ from pyscanbox.gui import app_controller
 from pyscanbox.gui import panels
 from pyscanbox.gui import widgets
 from pyscanbox.io import sbx_reader
+from pyscanbox.utils import coordinate_transform
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -51,8 +52,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # Hardware controller and acquisition elapsed-time tracking.
         self._ctrl = None
         self._acq_start_time = 0.0
-        # SbxReader for a loaded recording; None when no file is open.
-        self._sbx_reader: sbx_reader.SbxReader | None = None
+        # ScanboxOriginalReader for a loaded recording; None when no file is open.
+        self._sbx_reader: sbx_reader.ScanboxOriginalReader | None = None
         # True when a Grab (data-saving) acquisition is running; False for Focus.
         # Used to gate post-acquisition actions that only apply to Grab (e.g.
         # Session ID increment).
@@ -290,7 +291,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _open_data_file(self) -> None:
         """Open a file dialog to select an .sbx recording and display it.
 
-        Loads the .sbx/.mat pair via :class:`~pyscanbox.io.sbx_reader.SbxReader`,
+        Loads the .sbx/.mat pair via :class:`~pyscanbox.io.sbx_reader.ScanboxOriginalReader`,
         configures the frame selector widget, shows it, and displays the
         first frame.  Any previously loaded recording is closed first.
         """
@@ -303,7 +304,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not path:
             return
 
-        # Strip the .sbx extension to get the base path expected by SbxReader.
+        # Strip the .sbx extension to get the base path expected by ScanboxOriginalReader.
         base_path = path[:-4] if path.lower().endswith('.sbx') else path
 
         # Close any previously loaded recording.
@@ -312,7 +313,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._sbx_reader = None
 
         try:
-            reader = sbx_reader.SbxReader(base_path)
+            reader = sbx_reader.ScanboxOriginalReader(base_path)
         except (FileNotFoundError, ValueError) as exc:
             QtWidgets.QMessageBox.critical(
                 self, "Failed to open data file", str(exc)
@@ -347,7 +348,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_frame_selected(self, index: int) -> None:
         """Display the frame at *index* from the currently loaded recording.
 
-        Retrieves the frame from the memory-mapped SbxReader and forwards it
+        Retrieves the frame from the memory-mapped ScanboxOriginalReader and forwards it
         to the image display widget using the same array shape that live
         acquisition uses: ``(channels, lines_per_frame, pixels_per_line)``.
 
@@ -357,13 +358,11 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._sbx_reader is None:
             return
         try:
-            frame_data = self._sbx_reader.get_frame(index)
+            # invert=False returns wire-format (high=dark), matching the
+            # live acquisition pipeline.  The display widget inverts internally.
+            frame_data = self._sbx_reader.get_frame(index, invert=False)
         except IndexError:
             return
-        # SbxWriter stores data that has already been processed by
-        # reshape_pmt_data() or reshape_pmt_data_emulation(), which produce
-        # 16-bit wire-format values (0–65532) as expected by
-        # ImageDisplayWidget and HistogramWidget.  No further shift is needed.
         self._right_panel.image_display.update_frame(frame_data)
         self._right_panel.histogram.force_update_frame(frame_data)
 
@@ -815,11 +814,15 @@ class MainWindow(QtWidgets.QMainWindow):
         pos_grp.abs_y_edit.setText(f"{pos.get('abs_Y', 0.0):.2f}")
         pos_grp.abs_z_edit.setText(f"{pos.get('abs_Z', 0.0):.2f}")
 
-        # Rotated row: reserved for angle-compensation mode (future).
-        # Mirror World values until the rotation module is implemented.
-        pos_grp.rotated_x_edit.setText(f"{pos.get('X', 0.0):.2f}")
-        pos_grp.rotated_y_edit.setText(f"{pos.get('Y', 0.0):.2f}")
-        pos_grp.rotated_z_edit.setText(f"{pos.get('Z', 0.0):.2f}")
+        # Rotated row: show coordinates in the objective-rotated frame.
+        x = pos.get('X', 0.0)
+        y = pos.get('Y', 0.0)
+        z = pos.get('Z', 0.0)
+        angle = pos.get('A', 0.0)
+        x_rot, y_rot, z_rot = coordinate_transform.world_to_rotated(x, y, z, angle)
+        pos_grp.rotated_x_edit.setText(f"{x_rot:.2f}")
+        pos_grp.rotated_y_edit.setText(f"{y_rot:.2f}")
+        pos_grp.rotated_z_edit.setText(f"{z_rot:.2f}")
 
     def _on_frame_acquired(self, count):
         """Update frame counter label.
