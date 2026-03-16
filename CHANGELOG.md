@@ -6,7 +6,23 @@ All notable changes to this project are documented here. This file is append-onl
 
 ---
 
-## v0.6.2 - March 15, 2026 (Current)
+## v0.6.3 - March 15, 2026 (Current)
+- **Fixed non-uniform bidirectional alignment (sample-space bishift)**
+- Root cause: pyscanbox was applying `np.roll` (uniform pixel-space shift) to correct backward-scan line timing, but MATLAB applies the bishift in raw-sample space (`preIdx += bishift*2`) *before* the arccosine LUT remapping. Because the resonant mirror slows near its turning points, a fixed sample shift produces a spatially non-uniform correction — left side aligned but right side drifted. Matching MATLAB's sample-space approach produces correct and uniform alignment across the full line width.
+- `reshape_pmt_data_bi()` now accepts a `bishift: int` parameter; each backward-pixel sample index is offset by `bishift` (clamped to `[0, s_max]`) before LUT lookup, matching `alazarReshapeCData2bi.c` / `preIdx += bishift*2`.
+- `Scanner._acquisition_loop` passes `bishift_val` directly to `reshape_pmt_data_bi()`; the post-reshape `np.roll` call on the hardware path is removed.
+- All 8 `reshape_pmt_data_bi(...)` call sites in `tests/test_reshape.py` updated with the new `bishift=0` parameter; 43 tests pass.
+- **Fixed white/black alternating band on left side of bidirectional images (skip-column fill)**
+- Root cause: the backward sweep covers only the right ~706 of 796 columns; the remaining ~90 left "skip" columns were left as zero (the ADC idle fill value). After the `65535−x` wire-format inversion used by the display pipeline, zeros appear as maximum brightness (white), and this alternated with the zero-filled forward lines (dark), producing a strong alternating band on the left edge.
+- Fix: after each backward-scan loop in `reshape_pmt_data_bi()`, the skip columns of the odd (backward) output line are filled by copying the corresponding pixels from the preceding forward (even) output line. The skip region therefore shows the same content as the forward pass rather than ADC idle noise.
+- **Fixed .mat file integer type error (MATLAB int32 × int64 type mismatch)**
+- Root cause: `_create_metadata()` in `scan.py` was writing `info.sz` as `uint16` (bare Python int via `np.array(..., dtype=np.uint16)`). When MATLAB loaded the file and computed `sz(1) * sz(2)`, the product of a `uint16` and an `int64` raised a type-mismatch error that prevented data loading.
+- Fix: all integer scalar fields in `_create_metadata()` are now `np.int64`; `sz` is `np.array([[lines, pixels]], dtype=np.int64)` — matching the `write_mat()` layout that was already correct. Ensured `extra_info.update()` cannot overwrite the corrected `sz` with the wrong type.
+- **Wired Pockels deadband from config to hardware at startup**
+- `AppController.open()` now reads `config['scanner']['deadband']` and calls `controller.set_pockels_deadband(left, right)` after the scan-mode initialization, matching MATLAB's startup sequence in `scanbox.m`. The call is skipped gracefully if the `deadband` key is absent.
+- Removed `scanner.unidirectional` from `default_config.yaml` — this field was never read by any Python code; `acquisition.unidirectional` is the single source of truth for scan mode.
+
+## v0.6.2 - March 15, 2026
 - **Fixed bidirectional scan mode hardware buffer parameters (Milestone 1.7 HIL bug fix)**
 - Root cause: pyscanbox was using unidirectional Alazar parameters (`records_per_buffer=512`, `samples_per_record=5000`) for bidirectional mode; MATLAB `scanbox.m` uses `records_per_buffer=lines/2=256` and `postTriggerSamples=9000` because the PSoC5 fires ONE trigger per full resonant cycle (capturing both forward + backward sweeps in a single 9000-sample record). This caused all three reported HIL bugs.
 - `AlazarDigitizer.start_acquisition()` now uses `samples_per_record=9000` and `records_per_buffer=lines//2=256` in bidirectional raw mode; unidirectional and emulation paths unchanged.
