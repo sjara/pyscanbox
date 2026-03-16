@@ -459,21 +459,21 @@ class TestReshapePmtDataBi(unittest.TestCase):
         """Output must be (2, 2*records, pixels)."""
         lut = self._make_lut_bi()
         buf = self._make_zero_buffer()
-        out = reshape.reshape_pmt_data_bi(buf, self.N_RECORDS, self.N_PIXELS, lut)
+        out = reshape.reshape_pmt_data_bi(buf, self.N_RECORDS, self.N_PIXELS, lut, 0)
         self.assertEqual(out.shape, (2, self.N_RECORDS * 2, self.N_PIXELS))
 
     def test_output_dtype(self):
         """Output dtype must be uint16."""
         lut = self._make_lut_bi()
         buf = self._make_zero_buffer()
-        out = reshape.reshape_pmt_data_bi(buf, self.N_RECORDS, self.N_PIXELS, lut)
+        out = reshape.reshape_pmt_data_bi(buf, self.N_RECORDS, self.N_PIXELS, lut, 0)
         self.assertEqual(out.dtype, np.uint16)
 
     def test_zero_buffer_gives_zero_output(self):
         """All-zero input must give all-zero output."""
         lut = self._make_lut_bi()
         buf = self._make_zero_buffer()
-        out = reshape.reshape_pmt_data_bi(buf, self.N_RECORDS, self.N_PIXELS, lut)
+        out = reshape.reshape_pmt_data_bi(buf, self.N_RECORDS, self.N_PIXELS, lut, 0)
         self.assertTrue(np.all(out == 0))
 
     def test_uniform_buffer_value(self):
@@ -482,7 +482,7 @@ class TestReshapePmtDataBi(unittest.TestCase):
         wire_val = np.uint16(4096 << 2)   # 14-bit 4096 in wire format
         buf = np.full(self.N_RECORDS * self.BIDIR_SAMPLES * 2, wire_val,
                       dtype=np.uint16)
-        out = reshape.reshape_pmt_data_bi(buf, self.N_RECORDS, self.N_PIXELS, lut)
+        out = reshape.reshape_pmt_data_bi(buf, self.N_RECORDS, self.N_PIXELS, lut, 0)
         # Even (forward) lines: all pixels should equal wire_val.
         np.testing.assert_array_equal(out[:, 0::2, :], wire_val)
 
@@ -498,7 +498,7 @@ class TestReshapePmtDataBi(unittest.TestCase):
         known_val = np.uint16(800)
         for k in range(4):
             buf[rec_start + 2 * (s + k)] = known_val  # chA
-        out = reshape.reshape_pmt_data_bi(buf, self.N_RECORDS, self.N_PIXELS, lut)
+        out = reshape.reshape_pmt_data_bi(buf, self.N_RECORDS, self.N_PIXELS, lut, 0)
         expected = np.uint16((int(known_val) * 4) >> 2)
         self.assertEqual(int(out[0, 0, px]), int(expected))   # even line 0, chA
 
@@ -515,7 +515,7 @@ class TestReshapePmtDataBi(unittest.TestCase):
             s = int(lut[self.N_PIXELS + j])
             for k in range(4):
                 buf[rec_start + 2 * (s + k)] = ref_val
-        out = reshape.reshape_pmt_data_bi(buf, self.N_RECORDS, self.N_PIXELS, lut)
+        out = reshape.reshape_pmt_data_bi(buf, self.N_RECORDS, self.N_PIXELS, lut, 0)
         odd_line = out[0, 1, :]   # first odd output line
         # Right-side n_bwd columns should be non-zero.
         self.assertTrue(np.any(odd_line[self.N_PIXELS - n_bwd:] > 0))
@@ -534,7 +534,7 @@ class TestReshapePmtDataBi(unittest.TestCase):
         bwd_val = np.uint16(1000)
         for k in range(4):
             buf[rec_start + 2 * (s + k)] = bwd_val
-        out = reshape.reshape_pmt_data_bi(buf, self.N_RECORDS, self.N_PIXELS, lut)
+        out = reshape.reshape_pmt_data_bi(buf, self.N_RECORDS, self.N_PIXELS, lut, 0)
         odd_line = out[0, 1, :]
         # j=0 should land at the rightmost column.
         expected = np.uint16((int(bwd_val) * 4) >> 2)

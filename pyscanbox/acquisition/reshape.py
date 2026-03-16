@@ -426,7 +426,8 @@ def compute_pixel_lut_bi(n_pixels: int, laser_freq: float,
 @numba.njit(nogil=True, cache=True)
 def reshape_pmt_data_bi(buffer: np.ndarray, records_per_buffer: int,
                         pixels_per_line: int,
-                        lut_bi: np.ndarray) -> np.ndarray:
+                        lut_bi: np.ndarray,
+                        bishift: int) -> np.ndarray:
     """Reshape a bidirectional Alazar buffer using the combined forward+backward LUT.
 
     In bidirectional mode the Alazar receives ONE trigger per full resonant
@@ -467,6 +468,14 @@ def reshape_pmt_data_bi(buffer: np.ndarray, records_per_buffer: int,
         pixels_per_line: Number of output pixels per line (e.g. 796).
         lut_bi: Combined forward+backward LUT from ``compute_pixel_lut_bi()``.
             Shape ``(pixels_per_line + n_bwd_pixels,)`` int32.
+        bishift: Per-magnification timing offset in ADC samples, applied to
+            both forward and backward sample indices before averaging.  This
+            mirrors MATLAB ``preIdx += sbconfig.bishift(mag) * 2`` in
+            ``scanbox.m``.  Applying the shift in sample space produces a
+            spatially non-uniform pixel correction (more shift near the fast
+            center, less near the slow edges) that matches the underlying
+            resonant-scan physics — a uniform ``np.roll`` in pixel space does
+            not.  Default 0 (no correction).
 
     Returns:
         uint16 array of shape
@@ -479,6 +488,8 @@ def reshape_pmt_data_bi(buffer: np.ndarray, records_per_buffer: int,
     n_bwd = len(lut_bi) - pixels_per_line  # backward pixel count per record
     lines_per_frame = records_per_buffer * 2
     bidir_samples = len(buffer) // (records_per_buffer * 2)
+    # Maximum safe base index: need s, s+1, s+2, s+3 all in [0, bidir_samples).
+    s_max = bidir_samples - 4
 
     output = np.zeros((2, lines_per_frame, pixels_per_line), dtype=np.uint16)
 
@@ -487,7 +498,13 @@ def reshape_pmt_data_bi(buffer: np.ndarray, records_per_buffer: int,
 
         # ---- Forward scan line (even output line) ----
         for px in range(pixels_per_line):
-            s = lut_bi[px]
+            # Apply bishift in sample space (matches MATLAB preIdx += bishift*2).
+            # Clamp to [0, s_max] so the +3 offset never overruns the buffer.
+            s = lut_bi[px] + bishift
+            if s < 0:
+                s = 0
+            elif s > s_max:
+                s = s_max
             sum_a = (np.uint32(buffer[line_start + 2 * s])
                      + np.uint32(buffer[line_start + 2 * (s + 1)])
                      + np.uint32(buffer[line_start + 2 * (s + 2)])
@@ -507,7 +524,11 @@ def reshape_pmt_data_bi(buffer: np.ndarray, records_per_buffer: int,
         # `pixels_per_line - 1 - j` produces the correct spatial order.
         # Left-edge columns 0 .. (pixels_per_line - n_bwd - 1) stay zero.
         for j in range(n_bwd):
-            s = lut_bi[pixels_per_line + j]
+            s = lut_bi[pixels_per_line + j] + bishift
+            if s < 0:
+                s = 0
+            elif s > s_max:
+                s = s_max
             sum_a = (np.uint32(buffer[line_start + 2 * s])
                      + np.uint32(buffer[line_start + 2 * (s + 1)])
                      + np.uint32(buffer[line_start + 2 * (s + 2)])

@@ -178,7 +178,7 @@ class Scanner:
                 # JIT warmup for bidirectional reshape.
                 _dummy_lut_bi = np.zeros(2, dtype=np.int32)
                 data_reshape.reshape_pmt_data_bi(
-                    np.zeros(4 * 2, dtype=np.uint16), 1, 1, _dummy_lut_bi
+                    np.zeros(4 * 2, dtype=np.uint16), 1, 1, _dummy_lut_bi, 0
                 )
 
         # Acquisition mode flags.
@@ -425,14 +425,20 @@ class Scanner:
                 if self.bidirectional and self._pixel_lut_bi is not None:
                     # Bidirectional raw hardware mode: one Alazar record per
                     # full resonant cycle (forward + backward).  The LUT
-                    # extracts both lines and already places backward pixels
-                    # in the correct left-to-right column order.
+                    # extracts both lines, places backward pixels in the
+                    # correct column order, and applies bishift in sample
+                    # space (matching MATLAB preIdx += bishift*2).
                     records_per_buf = self.lines_per_frame // 2
+                    bishift_val = (
+                        self._bishift[self.magnification]
+                        if self.magnification < len(self._bishift) else 0
+                    )
                     reshaped = data_reshape.reshape_pmt_data_bi(
                         buffer,
                         records_per_buf,
                         self.pixels_per_line,
                         self._pixel_lut_bi,
+                        bishift_val,
                     )
                 else:
                     # Unidirectional raw hardware mode: one record per
@@ -460,14 +466,16 @@ class Scanner:
                     if self.magnification < len(self._bishift)
                     else 0
                 )
-                # On the real hardware path reshape_pmt_data_bi() already
-                # reverses backward lines, so only the bishift is needed
-                # (flip_lines=False).  On the emulation path the mock
-                # delivers unflipped backward lines, so both steps apply
-                # (flip_lines=True, the default).
+                # On the real hardware path bishift is applied in sample space
+                # inside reshape_pmt_data_bi() (matching MATLAB's
+                # preIdx += bishift*2), so only the line flip is needed here
+                # (shift=0, flip_lines=False since reshape already reversed
+                # backward lines). On the emulation path the mock delivers
+                # unflipped backward lines, so both steps apply.
                 flip = not (self.raw_mode and self._pixel_lut_bi is not None)
+                pixel_roll = 0 if (self.raw_mode and self._pixel_lut_bi is not None) else shift
                 data_reshape.apply_bidirectional_correction(
-                    reshaped, shift, flip_lines=flip
+                    reshaped, pixel_roll, flip_lines=flip
                 )
             
             # Write to disk, selecting only the requested channel(s).
