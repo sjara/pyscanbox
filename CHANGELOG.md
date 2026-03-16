@@ -6,7 +6,19 @@ All notable changes to this project are documented here. This file is append-onl
 
 ---
 
-## v0.6.0 - March 15, 2026 (Current)
+## v0.6.1 - March 15, 2026 (Current)
+- **PMT gains no longer zeroed at end of Focus / Grab**
+- Removed `set_pmt_gain(0, 0)` / `set_pmt_gain(1, 0)` from `Scanner.cleanup()` in `scan.py`; PMT gains now retain their acquisition values after Focus or Grab completes.
+- PMTs are still zeroed on application close via `AppController.close()`, ensuring a safe hardware state on shutdown or crash.
+- Added `AppController.zero_angle()`: moves A-axis motor to absolute step 0, sends Knobby `zero_xyza` (cmd 31) to reset Knobby's display counters, and resets all PC-side position tracking; X/Y/Z motors are not moved.
+- Added "Rotate to 0°" button (`PositionGroup.zero_angle_button`) in the GUI; shows a confirmation dialog before moving, warning that physical rotation may be dangerous.
+- Wired `zero_angle_button.clicked` → `MainWindow._on_zero_angle_clicked` → `AppController.zero_angle()` in `main_window.py`.
+- **Knobby Normal/Rotated mode — documented hardware limitation**
+- Investigated whether Knobby sends a packet to the PC when the Normal/Rotated mode button is pressed; confirmed it does not (firmware only updates the Nextion touchscreen via `Serial1`; no byte is written to `Serial`).
+- The Rotated-coordinates panel in the GUI is always shown and always valid; it cannot be disabled conditionally because the PC has no way to observe the current Knobby mode.
+- Added note 7 to `docs/knobby_architecture.md` documenting this finding and the GUI design decision.
+
+## v0.6.0 - March 15, 2026
 - **Rolling average display in Image Display widget**
 - Added `ImageDisplayWidget.set_rolling_avg(tau)`: exponential rolling average `avg = delta * avg + (1-delta) * frame` (delta = exp(-1/tau)); tau=0 disables; accumulator resets on tau change or frame-shape change.
 - Added "Rolling avg" combobox to `ImageDisplayControlGroup` with "Off" and configurable tau choices.

@@ -278,6 +278,29 @@ knobby.close()
    the Trinamic board's absolute step counter.  Never use `dpos` directly as an
    MVP Type 0 (absolute) target.
 
+7. **Normal / Rotated mode button — no packet sent to the PC:** Knobby has a
+   physical button that toggles between *Normal* mode (each encoder controls its
+   own axis independently) and *Rotated* mode (turning the Z or X encoder
+   applies a 2-D rotation by the current A-axis angle, so movements stay
+   parallel/perpendicular to the objective axis rather than the stage horizon).
+   When the button is pressed the firmware toggles an internal `mode` variable
+   and updates the Nextion touchscreen (`Serial1`), but it does **not** write
+   any packet to the PC (`Serial`).  The PC therefore has no way to detect the
+   current mode from the serial stream.
+
+   The 5-byte position packets emitted while in Rotated mode already contain the
+   post-rotation `dpos` values, so the motors always move correctly regardless
+   of which mode Knobby is in.  From the PC's perspective the stream is
+   byte-identical in both modes.
+
+   **GUI design decision:** pyscanbox always computes and displays the
+   *Rotated* coordinates panel (stage-axis frame, accounting for objective
+   tilt), even when Knobby may be in Normal mode.  Because we cannot observe the
+   mode over serial, graying out the panel conditionally is not possible without
+   a dedicated firmware change.  The Rotated coordinates remain valid at all
+   times; they are simply not being actively used when the user is in Normal
+   mode.
+
 ## References
 
 - **Knobby firmware**: `Scanbox/scanknob/knobby2/knobby2.ino`

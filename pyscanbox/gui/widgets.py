@@ -297,9 +297,9 @@ class PositionDisplayGroup(QtWidgets.QGroupBox):
         self.objective_angle_edit = QtWidgets.QLineEdit("0.0°")
         self.objective_angle_edit.setReadOnly(True)
         angle_row.addWidget(self.objective_angle_edit)
-        self.zero_angle_button = QtWidgets.QPushButton("Move to 0°")
+        self.zero_angle_button = QtWidgets.QPushButton("Rotate to 0°")
         self.zero_angle_button.setToolTip("Move angle motor to absolute zero (step 0)")
-        self.zero_angle_button.setMaximumWidth(90)
+        self.zero_angle_button.setMaximumWidth(120)
         angle_row.addWidget(self.zero_angle_button)
         outer.addLayout(angle_row)
 
