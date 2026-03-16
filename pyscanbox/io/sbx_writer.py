@@ -330,12 +330,12 @@ class ScanboxOriginalWriter:
 
         info: Dict[str, Any] = {
             'sz': np.array([[self.lines_per_frame, self.pixels_per_line]],
-                           dtype=np.int32),
-            'recordsPerBuffer': int(self.lines_per_frame),
-            'channels': int(channels_bitmask),
-            'scanbox_version': 2,
-            'scanmode': int(self.scanmode),
-            'max_idx': int(self.frames_written - 1),
+                           dtype=np.int64),
+            'recordsPerBuffer': np.int64(self.lines_per_frame),
+            'channels': np.int64(channels_bitmask),
+            'scanbox_version': np.int64(2),
+            'scanmode': np.int64(self.scanmode),
+            'max_idx': np.int64(self.frames_written - 1),
         }
         # Merge extra_info last so callers can override defaults if needed.
         info.update(self.extra_info)
