@@ -6,7 +6,21 @@ All notable changes to this project are documented here. This file is append-onl
 
 ---
 
-## v0.6.1 - March 15, 2026 (Current)
+## v0.6.2 - March 15, 2026 (Current)
+- **Fixed bidirectional scan mode hardware buffer parameters (Milestone 1.7 HIL bug fix)**
+- Root cause: pyscanbox was using unidirectional Alazar parameters (`records_per_buffer=512`, `samples_per_record=5000`) for bidirectional mode; MATLAB `scanbox.m` uses `records_per_buffer=lines/2=256` and `postTriggerSamples=9000` because the PSoC5 fires ONE trigger per full resonant cycle (capturing both forward + backward sweeps in a single 9000-sample record). This caused all three reported HIL bugs.
+- `AlazarDigitizer.start_acquisition()` now uses `samples_per_record=9000` and `records_per_buffer=lines//2=256` in bidirectional raw mode; unidirectional and emulation paths unchanged.
+- `AlazarDigitizer._bytes_per_buffer` updated to use `samples_per_line_bidir × (lines//2) × channels × 2` in bidirectional raw mode.
+- Added `samples_per_line_bidir: 9000` to `acquisition:` section of `default_config.yaml`.
+- Added `compute_pixel_lut_bi(n_pixels, laser_freq, res_freq, bidir_samples=9000)` to `reshape.py` — translates MATLAB `pixel_lut_bi_2.m`; returns flat int32 LUT `(n_pixels + n_bwd_pixels,)` with forward section (same as unidirectional LUT) followed by backward section (samples offset by `nsamp/2`; ~706 backward columns due to 9000-sample window).
+- Added `reshape_pmt_data_bi(buffer, records_per_buffer, pixels_per_line, lut_bi)` to `reshape.py` — Numba JIT; translates `alazarReshapeCData2bi.c`; places forward pixels on even output lines, backward pixels reversed onto odd output lines (right-edge aligned); output shape `(2, records_per_buffer*2, pixels_per_line)`.
+- Added `flip_lines=True` parameter to `apply_bidirectional_correction()` — hardware bidir path passes `flip_lines=False` (line orientation is already handled by `reshape_pmt_data_bi`); emulation path is unchanged (default `True`).
+- `Scanner.__init__` pre-computes `_pixel_lut_bi` and JIT-warms `reshape_pmt_data_bi` when `raw_mode=True` and `bidirectional=True`.
+- `Scanner._acquisition_loop` now dispatches on three paths: (a) raw bidir → `reshape_pmt_data_bi` + `flip_lines=False`; (b) raw unidirectional → `reshape_pmt_data` unchanged; (c) emulation → `reshape_pmt_data_emulation` with `flip_lines=True` unchanged.
+- **Bugs fixed by this change:** (1) Every other line was mirrored left-right — `apply_bidirectional_correction` was flipping forward-scan lines that should not be flipped. (2) Image appeared repeated twice vertically — 256-trigger PSoC5 frame was mapped to a 512-record buffer, doubling the image. (3) Grab recorded only half the specified frame count — PSoC5 exhausted its trigger budget at half the expected buffer count.
+- New unit tests: `TestComputePixelLutBi` (7 tests), `TestReshapePmtDataBi` (7 tests), `test_flip_lines_false_skips_flip`, `test_flip_lines_false_still_applies_shift` — all 43 `test_reshape.py` tests pass.
+
+## v0.6.1 - March 15, 2026
 - **PMT gains no longer zeroed at end of Focus / Grab**
 - Removed `set_pmt_gain(0, 0)` / `set_pmt_gain(1, 0)` from `Scanner.cleanup()` in `scan.py`; PMT gains now retain their acquisition values after Focus or Grab completes.
 - PMTs are still zeroed on application close via `AppController.close()`, ensuring a safe hardware state on shutdown or crash.

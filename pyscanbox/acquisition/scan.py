@@ -152,6 +152,7 @@ class Scanner:
             or config.get('emulation', {}).get('raw_mode', False)
         )
         self._pixel_lut: Optional[np.ndarray] = None
+        self._pixel_lut_bi: Optional[np.ndarray] = None
         if self.raw_mode:
             laser_freq = config['laser']['frequency']
             res_freq   = config['scanner']['resonant_freq']
@@ -164,6 +165,21 @@ class Scanner:
             _dummy_buf = np.zeros(4 * 2, dtype=np.uint16)   # 1 line, 4 samples
             _dummy_lut = np.zeros(1, dtype=np.int32)
             data_reshape.reshape_pmt_data(_dummy_buf, 1, 1, _dummy_lut)
+            # Bidirectional pixel LUT: built when bidirectional mode is active.
+            # compute_pixel_lut_bi returns an extended LUT covering both
+            # forward and backward pixels in a single 9000-sample record.
+            if self.bidirectional:
+                spl_bi = config.get('acquisition', {}).get(
+                    'samples_per_line_bidir', 9000
+                )
+                self._pixel_lut_bi = data_reshape.compute_pixel_lut_bi(
+                    self.pixels_per_line, laser_freq, res_freq, spl_bi
+                )
+                # JIT warmup for bidirectional reshape.
+                _dummy_lut_bi = np.zeros(2, dtype=np.int32)
+                data_reshape.reshape_pmt_data_bi(
+                    np.zeros(4 * 2, dtype=np.uint16), 1, 1, _dummy_lut_bi
+                )
 
         # Acquisition mode flags.
         self.focus_mode = focus_mode
@@ -406,13 +422,27 @@ class Scanner:
             
             # Reshape data (performance-critical!)
             if self.raw_mode and self._pixel_lut is not None:
-                # Raw hardware mode: apply arccosine pixel LUT.
-                reshaped = data_reshape.reshape_pmt_data(
-                    buffer,
-                    self.lines_per_frame,
-                    self.pixels_per_line,
-                    self._pixel_lut,
-                )
+                if self.bidirectional and self._pixel_lut_bi is not None:
+                    # Bidirectional raw hardware mode: one Alazar record per
+                    # full resonant cycle (forward + backward).  The LUT
+                    # extracts both lines and already places backward pixels
+                    # in the correct left-to-right column order.
+                    records_per_buf = self.lines_per_frame // 2
+                    reshaped = data_reshape.reshape_pmt_data_bi(
+                        buffer,
+                        records_per_buf,
+                        self.pixels_per_line,
+                        self._pixel_lut_bi,
+                    )
+                else:
+                    # Unidirectional raw hardware mode: one record per
+                    # resonant half-period (forward sweep only).
+                    reshaped = data_reshape.reshape_pmt_data(
+                        buffer,
+                        self.lines_per_frame,
+                        self.pixels_per_line,
+                        self._pixel_lut,
+                    )
             else:
                 # Emulation / pre-shaped mode.
                 reshaped = data_reshape.reshape_pmt_data_emulation(
@@ -421,7 +451,7 @@ class Scanner:
                     self.pixels_per_line,
                 )
 
-            # Bidirectional alignment: flip backward lines and apply bishift.
+            # Bidirectional alignment: apply bishift to backward lines.
             # Read bidirectional flag from config each frame so that a mode
             # change (AppController.set_scan_mode) takes effect immediately.
             if not self.config.get('acquisition', {}).get('unidirectional', True):
@@ -430,7 +460,15 @@ class Scanner:
                     if self.magnification < len(self._bishift)
                     else 0
                 )
-                data_reshape.apply_bidirectional_correction(reshaped, shift)
+                # On the real hardware path reshape_pmt_data_bi() already
+                # reverses backward lines, so only the bishift is needed
+                # (flip_lines=False).  On the emulation path the mock
+                # delivers unflipped backward lines, so both steps apply
+                # (flip_lines=True, the default).
+                flip = not (self.raw_mode and self._pixel_lut_bi is not None)
+                data_reshape.apply_bidirectional_correction(
+                    reshaped, shift, flip_lines=flip
+                )
             
             # Write to disk, selecting only the requested channel(s).
             # ScanboxOriginalWriter.write_frame() accepts wire-format data

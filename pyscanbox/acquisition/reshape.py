@@ -10,7 +10,7 @@ always zero (disabled) and LSB[1] (bit 1) carries an external TTL event signal
 on AUX_IN[1].  Both LSB bits are preserved in the output, exactly as MATLAB's
 ``alazarReshapeCData2.c`` does — they are never stripped.
 
-Two acquisition modes are supported:
+Three acquisition modes are supported:
 
 **Emulation mode (raw_mode=False, default):**
   The mock Alazar pre-delivers already-shaped data at
@@ -19,26 +19,38 @@ Two acquisition modes are supported:
   each sample (range 0–65532).  Output is byte-compatible with
   ``reshape_pmt_data()``.
 
-**Raw hardware mode (raw_mode=True):**
-  The real Alazar (and raw-mode mock) delivers ``samples_per_line`` raw ADC
-  samples per channel per line (e.g. 5000 for unidirectional scanning at
-  80.18 MHz laser / 7930 Hz resonant mirror).  Each raw sample corresponds to
-  a non-uniform position along the scan line due to the resonant mirror's
-  sinusoidal velocity.
+**Raw hardware mode, unidirectional (raw_mode=True, unidirectional=True):**
+  The real Alazar delivers ``samples_per_line`` (≈5000) raw ADC samples per
+  channel per line.  Each raw sample corresponds to a non-uniform position
+  along the scan line due to the resonant mirror's sinusoidal velocity.
 
   ``compute_pixel_lut()`` computes the arccosine pixel LUT that maps each of
   the ``pixels_per_line`` (796) output pixels to a base raw-sample index.
-  ``reshape_pmt_data()`` then averages 4 consecutive raw samples per
-  output pixel for both PMT channels.
+  ``reshape_pmt_data()`` averages 4 consecutive raw samples per output pixel
+  for both PMT channels, matching ``pixel_lut_2.m`` + ``alazarReshapeCData2.c``.
 
-  This matches the MATLAB pipeline in ``pixel_lut_2.m`` +
-  ``alazarReshapeCData2.c``.
+**Raw hardware mode, bidirectional (raw_mode=True, unidirectional=False):**
+  In bidirectional mode the PSoC5 fires ONE trigger per full resonant cycle
+  (instead of once per half-period).  Each trigger captures
+  ``samples_per_line_bidir`` (≈9000) raw samples covering BOTH the forward
+  and backward sweeps.  The Alazar receives ``lines_per_frame // 2`` records
+  per frame (e.g. 256 instead of 512), and each record produces two output
+  lines (one forward, one backward).
+
+  ``compute_pixel_lut_bi()`` builds the combined forward+backward LUT.
+  ``reshape_pmt_data_bi()`` extracts both lines per record — forward pixels
+  go to even output lines; backward pixels are placed in reversed order
+  (right-to-left correction) in odd output lines, with edge columns zeroed
+  where the 9000-sample window does not reach.
+
+  This matches the MATLAB pipeline in ``pixel_lut_bi_2.m`` +
+  ``alazarReshapeCData2bi.c``.
 
 Uses Numba JIT compilation for performance matching MATLAB MEX files.
 
 Reference:
     Original MATLAB implementation: core/alazarReshapeCData2.c,
-    core/pixel_lut_2.m
+    core/pixel_lut_2.m, core/alazarReshapeCData2bi.c, core/pixel_lut_bi_2.m
 
 Example:
     >>> import numpy as np
@@ -46,10 +58,14 @@ Example:
     >>> # Emulation mode (pre-shaped buffer):
     >>> buf = np.zeros(512 * 796 * 2, dtype=np.uint16)
     >>> frame = reshape.reshape_pmt_data_emulation(buf, 512, 796)
-    >>> # Raw hardware mode:
+    >>> # Raw hardware mode, unidirectional:
     >>> lut = reshape.compute_pixel_lut(796, laser_freq=80180000, res_freq=7930)
     >>> buf_raw = np.zeros(512 * 5000 * 2, dtype=np.uint16)
     >>> frame = reshape.reshape_pmt_data(buf_raw, 512, 796, lut)
+    >>> # Raw hardware mode, bidirectional:
+    >>> lut_bi = reshape.compute_pixel_lut_bi(796, laser_freq=80180000, res_freq=7930)
+    >>> buf_bi = np.zeros(256 * 9000 * 2, dtype=np.uint16)  # 256 records × 9000 samp
+    >>> frame = reshape.reshape_pmt_data_bi(buf_bi, 256, 796, lut_bi)
 """
 
 import numpy as np
@@ -278,31 +294,39 @@ def compute_pixel_lut(n_pixels: int, laser_freq: float,
 
 
 def apply_bidirectional_correction(frame: np.ndarray,
-                                   pixel_shift: int = 0) -> np.ndarray:
+                                   pixel_shift: int = 0,
+                                   flip_lines: bool = True) -> np.ndarray:
     """Apply bidirectional alignment correction to a reshaped frame.
 
-    Backward scan lines (odd-indexed lines 1, 3, 5, …) are acquired while
-    the resonant mirror sweeps in reverse, so their pixels arrive in
-    reversed spatial order.  This function corrects for that by:
+    This function is used on the **emulation path** where the mock Alazar
+    delivers even lines (forward scan) and odd lines (backward scan) in
+    natural time order — i.e., odd lines still need to be flipped.
 
-    1. **Flipping** each backward line horizontally (always required in
-       bidirectional mode).
-    2. **Shifting** the flipped backward lines by ``pixel_shift`` pixels
-       to compensate for residual timing offset — the ``bishift``
-       calibration parameter from ``sbconfig.bishift`` in MATLAB.
+    On the **real hardware path**, ``reshape_pmt_data_bi()`` already places
+    backward pixels in the correct left-to-right order (the line flip is
+    embedded in the LUT construction).  In that case call with
+    ``flip_lines=False`` to skip Step 1 and apply only the bishift.
 
-    The ``pixel_shift`` value is per-magnification.  Typical values span
-    −10 (low zoom) to +58 (high zoom) and must be measured on real
-    hardware (see Milestone 3.8).  In emulation the correction is still
-    applied so alignment can be verified visually before HIL testing.
+    Steps:
+
+    1. **Flip** each backward line horizontally (``flip_lines=True``,
+       emulation path only).  Backward scan lines (odd index 1, 3, 5, …)
+       arrive in reversed spatial order and must be mirrored.
+    2. **Shift** backward lines by ``pixel_shift`` pixels to compensate for
+       residual timing offset — the ``bishift`` calibration parameter from
+       ``sbconfig.bishift`` in MATLAB.
 
     Args:
         frame: Reshaped data array of shape ``(channels, lines, pixels)``
-            dtype uint16, as returned by ``reshape_pmt_data_emulation()`` or
-            ``reshape_pmt_data()``.  Modified in-place.
-        pixel_shift: Integer pixel shift applied to backward lines after
-            flipping.  Positive = shift right, negative = shift left.
-            Zero = flip only (no timing correction).
+            dtype uint16, as returned by ``reshape_pmt_data_emulation()``,
+            ``reshape_pmt_data()``, or ``reshape_pmt_data_bi()``.
+            Modified in-place.
+        pixel_shift: Integer pixel shift applied to backward lines (after
+            optional flip).  Positive = shift right, negative = shift left.
+            Zero = no timing correction.
+        flip_lines: If ``True`` (default), flip odd lines before shifting.
+            Set to ``False`` when called after ``reshape_pmt_data_bi()``
+            because the bidirectional LUT already corrects line direction.
 
     Returns:
         The same ``frame`` array after in-place modification.
@@ -313,8 +337,10 @@ def apply_bidirectional_correction(frame: np.ndarray,
         flip; ``sbconfig.bishift`` for the shift calibration.
     """
     # Step 1: Flip odd (backward) lines horizontally to correct reverse-scan
-    # order.  np.flip returns a view; the assignment copies into the frame.
-    frame[:, 1::2, :] = frame[:, 1::2, ::-1].copy()
+    # order.  Skipped for the hardware bidirectional path because
+    # reshape_pmt_data_bi() already handles the reversal via the LUT.
+    if flip_lines:
+        frame[:, 1::2, :] = frame[:, 1::2, ::-1].copy()
 
     # Step 2: Apply sub-pixel timing correction (bishift).
     if pixel_shift != 0:
@@ -328,6 +354,173 @@ def apply_bidirectional_correction(frame: np.ndarray,
         frame[:, 1::2, :] = backward
 
     return frame
+
+
+def compute_pixel_lut_bi(n_pixels: int, laser_freq: float,
+                         res_freq: float,
+                         bidir_samples: int = 9000) -> np.ndarray:
+    """Compute the combined forward+backward arccosine pixel LUT for bidirectional mode.
+
+    In bidirectional scanning the PSoC5 fires ONE trigger per full resonant
+    cycle.  Each Alazar record therefore captures ``bidir_samples`` (≈9000)
+    raw samples covering both the forward sweep (first half-period) and the
+    backward sweep (second half-period).
+
+    This function returns a flat LUT of shape
+    ``(n_pixels + n_bwd_pixels,)`` int32:
+
+    * Indices ``0 … n_pixels-1``: base raw-sample positions for the
+      **forward** scan pixels (identical to ``compute_pixel_lut()`` output).
+    * Indices ``n_pixels … end``: base raw-sample positions for the
+      **backward** scan pixels, already offset by ``nsamp / 2`` so they
+      index into the second half of the record.  The backward scan covers
+      slightly fewer pixels than the forward scan because the
+      ``bidir_samples`` window does not reach the extreme left edge; the
+      missing left-edge columns are zeroed by ``reshape_pmt_data_bi()``.
+
+    Translation of ``core/pixel_lut_bi_2.m``.
+
+    Args:
+        n_pixels: Output pixels per line (e.g. 796).
+        laser_freq: Laser/ADC frequency in Hz (e.g. 80_180_000).
+        res_freq: Resonant mirror frequency in Hz (e.g. 7930).
+        bidir_samples: Raw ADC samples captured per full resonant cycle
+            (both sweeps); MATLAB ``postTriggerSamples`` in bidirectional
+            mode; default 9000.
+
+    Returns:
+        int32 array of shape ``(n_pixels + n_bwd_pixels,)`` where
+        ``n_bwd_pixels <= n_pixels``.  Each entry is the 0-indexed base
+        raw-sample index for averaging 4 consecutive interleaved samples.
+
+    Reference:
+        MATLAB ``core/pixel_lut_bi_2.m``.
+    """
+    nsamp = round(laser_freq / res_freq)  # samples per full resonant cycle
+    M = n_pixels + 2
+
+    n0 = np.linspace(1.0, -1.0, M)   # forward scan cosine positions
+    n1 = np.linspace(-1.0, 1.0, M)   # backward scan cosine positions
+
+    # Keep only backward positions reachable within bidir_samples
+    threshold = np.cos(bidir_samples / nsamp * 2.0 * np.pi)
+    n1 = n1[n1 < threshold]
+    n1_len = len(n1)
+
+    # Forward pixels: interior of n0 (n_pixels values)
+    x_fwd = n0[1:-1]
+    # Backward pixels: n0[1:n1_len] (n1_len-1 values, same spatial positions
+    # as the reachable portion of the backward sweep; see pixel_lut_bi_2.m)
+    x_bwd = n0[1:n1_len]
+
+    x = np.concatenate([x_fwd, x_bwd])
+    n = np.arccos(x) * nsamp / (2.0 * np.pi)
+    # Offset backward indices into the second half-period of the record
+    n[n_pixels:] += nsamp / 2.0
+
+    # MATLAB: S = floor(n) - 1  (1-indexed → 0-indexed in Python: floor(n) - 2)
+    lut_base = np.floor(n).astype(np.int32) - 2
+    return lut_base
+
+
+@numba.njit(nogil=True, cache=True)
+def reshape_pmt_data_bi(buffer: np.ndarray, records_per_buffer: int,
+                        pixels_per_line: int,
+                        lut_bi: np.ndarray) -> np.ndarray:
+    """Reshape a bidirectional Alazar buffer using the combined forward+backward LUT.
+
+    In bidirectional mode the Alazar receives ONE trigger per full resonant
+    cycle, so each DMA record contains ``bidir_samples`` (≈9000) interleaved
+    samples covering the forward sweep (first half-period) and the backward
+    sweep (second half-period).  A frame has ``records_per_buffer`` records
+    (= ``lines_per_frame // 2``) and produces ``2 × records_per_buffer``
+    output lines.
+
+    For each record:
+
+    * Even output line ``2 * r`` ← forward scan pixels from
+      ``lut_bi[0 : pixels_per_line]``.
+    * Odd output line ``2 * r + 1`` ← backward scan pixels from
+      ``lut_bi[pixels_per_line :]``, placed in **reversed column order**
+      (right-to-left correction).  Left-edge columns without valid backward
+      data are left as zero (the ``bidir_samples`` window does not cover the
+      extreme left edge of the backward sweep).
+
+    The line-flip performed here is the Python equivalent of the MATLAB
+    ``postIdx(:,:,2:2:end) = postIdx(:,end:-1:1,2:2:end)`` reversal in
+    ``pixel_lut_bi_2.m``.  Because the direction is already corrected here,
+    ``apply_bidirectional_correction()`` must be called with
+    ``flip_lines=False`` after this function.
+
+    Buffer layout (NPT streaming, interleaved channels)::
+
+        [chA_s0_r0, chB_s0_r0, chA_s1_r0, chB_s1_r0, ...,
+         chA_s(N-1)_r(R-1), chB_s(N-1)_r(R-1)]
+
+    where N = bidir_samples and R = records_per_buffer.
+
+    Args:
+        buffer: 1-D uint16 array of length
+            ``records_per_buffer × bidir_samples × 2`` (channels interleaved).
+        records_per_buffer: Number of Alazar records per frame
+            (= ``lines_per_frame // 2``, e.g. 256).
+        pixels_per_line: Number of output pixels per line (e.g. 796).
+        lut_bi: Combined forward+backward LUT from ``compute_pixel_lut_bi()``.
+            Shape ``(pixels_per_line + n_bwd_pixels,)`` int32.
+
+    Returns:
+        uint16 array of shape
+        ``(2, records_per_buffer * 2, pixels_per_line)``.
+        Values are in wire format (bits 15:2 = averaged 14-bit ADC).
+
+    Reference:
+        MATLAB ``core/pixel_lut_bi_2.m`` + ``core/alazarReshapeCData2bi.c``.
+    """
+    n_bwd = len(lut_bi) - pixels_per_line  # backward pixel count per record
+    lines_per_frame = records_per_buffer * 2
+    bidir_samples = len(buffer) // (records_per_buffer * 2)
+
+    output = np.zeros((2, lines_per_frame, pixels_per_line), dtype=np.uint16)
+
+    for r in range(records_per_buffer):
+        line_start = r * bidir_samples * 2  # interleaved offset for this record
+
+        # ---- Forward scan line (even output line) ----
+        for px in range(pixels_per_line):
+            s = lut_bi[px]
+            sum_a = (np.uint32(buffer[line_start + 2 * s])
+                     + np.uint32(buffer[line_start + 2 * (s + 1)])
+                     + np.uint32(buffer[line_start + 2 * (s + 2)])
+                     + np.uint32(buffer[line_start + 2 * (s + 3)]))
+            sum_b = (np.uint32(buffer[line_start + 2 * s + 1])
+                     + np.uint32(buffer[line_start + 2 * (s + 1) + 1])
+                     + np.uint32(buffer[line_start + 2 * (s + 2) + 1])
+                     + np.uint32(buffer[line_start + 2 * (s + 3) + 1]))
+            output[0, 2 * r, px] = np.uint16(sum_a >> 2)
+            output[1, 2 * r, px] = np.uint16(sum_b >> 2)
+
+        # ---- Backward scan line (odd output line) ----
+        # Backward pixels are placed in REVERSED column order so that the
+        # right-to-left scan becomes a left-to-right image row.  The
+        # first n_bwd LUT entries (lut_bi[pixels_per_line:]) correspond
+        # to the rightmost image columns; placing them at
+        # `pixels_per_line - 1 - j` produces the correct spatial order.
+        # Left-edge columns 0 .. (pixels_per_line - n_bwd - 1) stay zero.
+        for j in range(n_bwd):
+            s = lut_bi[pixels_per_line + j]
+            sum_a = (np.uint32(buffer[line_start + 2 * s])
+                     + np.uint32(buffer[line_start + 2 * (s + 1)])
+                     + np.uint32(buffer[line_start + 2 * (s + 2)])
+                     + np.uint32(buffer[line_start + 2 * (s + 3)]))
+            sum_b = (np.uint32(buffer[line_start + 2 * s + 1])
+                     + np.uint32(buffer[line_start + 2 * (s + 1) + 1])
+                     + np.uint32(buffer[line_start + 2 * (s + 2) + 1])
+                     + np.uint32(buffer[line_start + 2 * (s + 3) + 1]))
+            out_col = pixels_per_line - 1 - j
+            output[0, 2 * r + 1, out_col] = np.uint16(sum_a >> 2)
+            output[1, 2 * r + 1, out_col] = np.uint16(sum_b >> 2)
+
+    return output
 
 
 @numba.njit(nogil=True, cache=True)

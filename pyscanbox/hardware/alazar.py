@@ -246,8 +246,23 @@ class AlazarDigitizer:
 
     @property
     def _bytes_per_buffer(self) -> int:
-        """Correct DMA buffer size in bytes based on current mode."""
+        """Correct DMA buffer size in bytes based on current mode.
+
+        Bidirectional raw mode uses different geometry than unidirectional:
+        - ``records_per_buffer = lines_per_frame // 2`` (256 instead of 512)
+        - ``samples_per_record = samples_per_line_bidir`` (9000 instead of 5000)
+        so the buffer is ``256 × 9000 × 2 × 2 = 9,216,000 bytes``.
+        """
         if self._use_raw_mode:
+            unidirectional = self.config.get('acquisition', {}).get(
+                'unidirectional', True
+            )
+            if not unidirectional:
+                spl_bi = self.config.get('acquisition', {}).get(
+                    'samples_per_line_bidir', 9000
+                )
+                records = self.lines_per_frame // 2
+                return spl_bi * records * self.channels * 2
             return self.samples_per_line * self.lines_per_frame * self.channels * 2
         else:
             return self.samples_per_buffer * self.channels * 2
@@ -489,18 +504,33 @@ class AlazarDigitizer:
         # ------------------------------------------------------------------
         # Determine per-record (per-scan-line) and per-buffer parameters.
         #
-        # Real hardware always delivers raw ADC samples; each DMA record
-        # corresponds to one resonant scan line:
+        # Unidirectional raw hardware: each DMA record = one resonant
+        # half-period (forward sweep only):
         #   samplesPerRecord = samples_per_line      (e.g. 5000)
         #   recordsPerBuffer = lines_per_frame       (e.g. 512)
+        #
+        # Bidirectional raw hardware: ONE trigger fires per FULL resonant
+        # cycle.  Each record spans the forward AND backward sweeps:
+        #   samplesPerRecord = samples_per_line_bidir (e.g. 9000)
+        #   recordsPerBuffer = lines_per_frame // 2   (e.g. 256)
+        # Each record yields 2 output lines (one per sweep direction).
         #
         # Pre-shaped emulation packs one processed frame into a single record:
         #   samplesPerRecord = samples_per_buffer    (e.g. 407552)
         #   recordsPerBuffer = 1
         # ------------------------------------------------------------------
         if self._use_raw_mode:
-            samples_per_record = self.samples_per_line
-            records_per_buffer = self.lines_per_frame
+            unidirectional = self.config.get('acquisition', {}).get(
+                'unidirectional', True
+            )
+            if unidirectional:
+                samples_per_record = self.samples_per_line
+                records_per_buffer = self.lines_per_frame
+            else:
+                samples_per_record = self.config.get('acquisition', {}).get(
+                    'samples_per_line_bidir', 9000
+                )
+                records_per_buffer = self.lines_per_frame // 2
         else:
             samples_per_record = self.samples_per_buffer
             records_per_buffer = 1

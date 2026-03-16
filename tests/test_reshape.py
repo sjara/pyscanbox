@@ -345,6 +345,203 @@ class TestApplyBidirectionalCorrection(unittest.TestCase):
         np.testing.assert_array_equal(frame[0, 1, :], orig_ch0[::-1])
         np.testing.assert_array_equal(frame[1, 1, :], orig_ch1[::-1])
 
+    def test_flip_lines_false_skips_flip(self):
+        """flip_lines=False must apply only the bishift, not the line flip."""
+        pixels = 6
+        frame = np.zeros((1, 4, pixels), dtype=np.uint16)
+        frame[0, 1, :] = np.arange(1, pixels + 1, dtype=np.uint16)
+        orig_odd = frame[0, 1, :].copy()
+
+        reshape.apply_bidirectional_correction(frame, pixel_shift=0, flip_lines=False)
+
+        # Odd line must be unchanged (no flip requested).
+        np.testing.assert_array_equal(frame[0, 1, :], orig_odd)
+
+    def test_flip_lines_false_still_applies_shift(self):
+        """flip_lines=False with a non-zero shift must still roll backward lines."""
+        pixels = 8
+        shift = 2
+        frame = np.zeros((1, 4, pixels), dtype=np.uint16)
+        frame[0, 1, :] = 1   # uniform backward line
+
+        reshape.apply_bidirectional_correction(frame, pixel_shift=shift,
+                                               flip_lines=False)
+
+        # Leading edge must be zeroed by the roll.
+        self.assertTrue(np.all(frame[0, 1, :shift] == 0))
+        self.assertTrue(np.all(frame[0, 1, shift:] == 1))
+
+
+class TestComputePixelLutBi(unittest.TestCase):
+    """Tests for compute_pixel_lut_bi() (bidirectional hardware path)."""
+
+    LASER_FREQ    = 80_180_000
+    RES_FREQ      = 7_930
+    N_PIXELS      = 796
+    BIDIR_SAMPLES = 9000
+
+    def _get_lut_bi(self):
+        return reshape.compute_pixel_lut_bi(
+            self.N_PIXELS, self.LASER_FREQ, self.RES_FREQ, self.BIDIR_SAMPLES
+        )
+
+    def test_output_dtype(self):
+        """LUT must be int32 for Numba compatibility."""
+        lut = self._get_lut_bi()
+        self.assertEqual(lut.dtype, np.int32)
+
+    def test_output_length(self):
+        """LUT must have more than n_pixels entries (forward + backward)."""
+        lut = self._get_lut_bi()
+        self.assertGreater(len(lut), self.N_PIXELS)
+
+    def test_forward_section_matches_unidirectional_lut(self):
+        """First n_pixels entries must equal the unidirectional LUT."""
+        lut_bi = self._get_lut_bi()
+        lut_uni = reshape.compute_pixel_lut(
+            self.N_PIXELS, self.LASER_FREQ, self.RES_FREQ
+        )
+        np.testing.assert_array_equal(lut_bi[:self.N_PIXELS], lut_uni)
+
+    def test_forward_indices_in_first_half(self):
+        """Forward scan indices must fall within the first half of bidir_samples."""
+        lut = self._get_lut_bi()
+        nsamp_half = round(self.LASER_FREQ / self.RES_FREQ) // 2
+        fwd = lut[:self.N_PIXELS]
+        self.assertTrue(np.all(fwd >= 0))
+        self.assertTrue(np.all(fwd + 3 < nsamp_half + 200),
+                        "Forward indices must be in the first half-period")
+
+    def test_backward_indices_in_second_half(self):
+        """Backward scan indices must be offset into the second half of the record."""
+        lut = self._get_lut_bi()
+        nsamp = round(self.LASER_FREQ / self.RES_FREQ)
+        bwd = lut[self.N_PIXELS:]
+        # All backward indices must be in the range [nsamp/2 - small, bidir_samples - 4]
+        nsamp_half = nsamp // 2
+        self.assertTrue(np.all(bwd >= nsamp_half - 200))
+        self.assertTrue(np.all(bwd + 3 < self.BIDIR_SAMPLES))
+
+    def test_deterministic(self):
+        """Two calls with the same parameters return identical arrays."""
+        lut1 = self._get_lut_bi()
+        lut2 = self._get_lut_bi()
+        np.testing.assert_array_equal(lut1, lut2)
+
+    def test_fewer_backward_pixels_than_forward(self):
+        """The 9000-sample window does not cover the full backward sweep;
+        so there are fewer backward pixels than forward pixels."""
+        lut = self._get_lut_bi()
+        n_bwd = len(lut) - self.N_PIXELS
+        self.assertLess(n_bwd, self.N_PIXELS)
+        self.assertGreater(n_bwd, 0)
+
+
+class TestReshapePmtDataBi(unittest.TestCase):
+    """Tests for reshape_pmt_data_bi() (bidirectional hardware path)."""
+
+    LASER_FREQ    = 80_180_000
+    RES_FREQ      = 7_930
+    N_PIXELS      = 796
+    N_RECORDS     = 4          # small frame: 4 records → 8 output lines
+    BIDIR_SAMPLES = 9000
+
+    def _make_lut_bi(self):
+        return reshape.compute_pixel_lut_bi(
+            self.N_PIXELS, self.LASER_FREQ, self.RES_FREQ, self.BIDIR_SAMPLES
+        )
+
+    def _make_zero_buffer(self):
+        size = self.N_RECORDS * self.BIDIR_SAMPLES * 2
+        return np.zeros(size, dtype=np.uint16)
+
+    def test_output_shape(self):
+        """Output must be (2, 2*records, pixels)."""
+        lut = self._make_lut_bi()
+        buf = self._make_zero_buffer()
+        out = reshape.reshape_pmt_data_bi(buf, self.N_RECORDS, self.N_PIXELS, lut)
+        self.assertEqual(out.shape, (2, self.N_RECORDS * 2, self.N_PIXELS))
+
+    def test_output_dtype(self):
+        """Output dtype must be uint16."""
+        lut = self._make_lut_bi()
+        buf = self._make_zero_buffer()
+        out = reshape.reshape_pmt_data_bi(buf, self.N_RECORDS, self.N_PIXELS, lut)
+        self.assertEqual(out.dtype, np.uint16)
+
+    def test_zero_buffer_gives_zero_output(self):
+        """All-zero input must give all-zero output."""
+        lut = self._make_lut_bi()
+        buf = self._make_zero_buffer()
+        out = reshape.reshape_pmt_data_bi(buf, self.N_RECORDS, self.N_PIXELS, lut)
+        self.assertTrue(np.all(out == 0))
+
+    def test_uniform_buffer_value(self):
+        """Uniform non-zero buffer: forward pixels must equal the wire value."""
+        lut = self._make_lut_bi()
+        wire_val = np.uint16(4096 << 2)   # 14-bit 4096 in wire format
+        buf = np.full(self.N_RECORDS * self.BIDIR_SAMPLES * 2, wire_val,
+                      dtype=np.uint16)
+        out = reshape.reshape_pmt_data_bi(buf, self.N_RECORDS, self.N_PIXELS, lut)
+        # Even (forward) lines: all pixels should equal wire_val.
+        np.testing.assert_array_equal(out[:, 0::2, :], wire_val)
+
+    def test_even_lines_use_forward_lut(self):
+        """Forward pixels (even output lines) are derived from first record half."""
+        lut = self._make_lut_bi()
+        buf = self._make_zero_buffer()
+        # Set one forward pixel in record 0 to a known value.
+        px = 50
+        rec = 0
+        s = int(lut[px])
+        rec_start = rec * self.BIDIR_SAMPLES * 2
+        known_val = np.uint16(800)
+        for k in range(4):
+            buf[rec_start + 2 * (s + k)] = known_val  # chA
+        out = reshape.reshape_pmt_data_bi(buf, self.N_RECORDS, self.N_PIXELS, lut)
+        expected = np.uint16((int(known_val) * 4) >> 2)
+        self.assertEqual(int(out[0, 0, px]), int(expected))   # even line 0, chA
+
+    def test_odd_lines_filled_in_correct_columns(self):
+        """Backward pixel values must appear in right-side columns of odd lines."""
+        lut = self._make_lut_bi()
+        n_bwd = len(lut) - self.N_PIXELS
+        buf = self._make_zero_buffer()
+        # Set all backward-scan samples in record 0 to a non-zero value.
+        rec = 0
+        ref_val = np.uint16(400)
+        rec_start = rec * self.BIDIR_SAMPLES * 2
+        for j in range(n_bwd):
+            s = int(lut[self.N_PIXELS + j])
+            for k in range(4):
+                buf[rec_start + 2 * (s + k)] = ref_val
+        out = reshape.reshape_pmt_data_bi(buf, self.N_RECORDS, self.N_PIXELS, lut)
+        odd_line = out[0, 1, :]   # first odd output line
+        # Right-side n_bwd columns should be non-zero.
+        self.assertTrue(np.any(odd_line[self.N_PIXELS - n_bwd:] > 0))
+        # Left-side skip columns should be zero.
+        skip = self.N_PIXELS - n_bwd
+        self.assertTrue(np.all(odd_line[:skip] == 0))
+
+    def test_backward_pixels_reversed_vs_lut_order(self):
+        """Backward pixel j=0 (closest to right edge) goes to column n_pixels-1."""
+        lut = self._make_lut_bi()
+        buf = self._make_zero_buffer()
+        rec = 0
+        rec_start = rec * self.BIDIR_SAMPLES * 2
+        # Set only backward pixel j=0 to a non-zero value; all others zero.
+        s = int(lut[self.N_PIXELS])
+        bwd_val = np.uint16(1000)
+        for k in range(4):
+            buf[rec_start + 2 * (s + k)] = bwd_val
+        out = reshape.reshape_pmt_data_bi(buf, self.N_RECORDS, self.N_PIXELS, lut)
+        odd_line = out[0, 1, :]
+        # j=0 should land at the rightmost column.
+        expected = np.uint16((int(bwd_val) * 4) >> 2)
+        self.assertEqual(int(odd_line[-1]), int(expected))
+        # All other columns in the backward line must be zero.
+        self.assertTrue(np.all(odd_line[:-1] == 0))
+
 
 if __name__ == '__main__':
     unittest.main()
