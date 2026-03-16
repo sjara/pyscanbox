@@ -344,6 +344,15 @@ class AppController(QtCore.QObject):
             logger.error(msg)
             self.hardware_error.emit(msg)
 
+        deadband = self.config.get('scanner', {}).get('deadband', None)
+        if deadband is not None:
+            try:
+                self._hw_controller.set_pockels_deadband(int(deadband[0]), int(deadband[1]))
+            except Exception as exc:
+                msg = f"Could not set Pockels deadband: {exc}"
+                logger.error(msg)
+                self.hardware_error.emit(msg)
+
         emulation = self.config.get('emulation', {}).get('enabled', False)
         suffix = ' (emulation)' if emulation else ''
         self._log_event(f'All hardware ready{suffix}')

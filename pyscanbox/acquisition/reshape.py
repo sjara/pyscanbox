@@ -541,6 +541,18 @@ def reshape_pmt_data_bi(buffer: np.ndarray, records_per_buffer: int,
             output[0, 2 * r + 1, out_col] = np.uint16(sum_a >> 2)
             output[1, 2 * r + 1, out_col] = np.uint16(sum_b >> 2)
 
+        # ---- Fill skip columns on the backward line ----
+        # The backward sweep covers fewer columns than the forward sweep
+        # (the 9000-sample window only reaches the right-side `n_bwd` columns).
+        # The left-side `skip` columns have no valid backward data.  Copy them
+        # from the corresponding forward line so the display shows a smooth
+        # image instead of the alternating bright/dark band caused by zeros
+        # in wire-format (0 = maximum brightness after inversion).
+        skip = pixels_per_line - n_bwd
+        for col in range(skip):
+            output[0, 2 * r + 1, col] = output[0, 2 * r, col]
+            output[1, 2 * r + 1, col] = output[1, 2 * r, col]
+
     return output
 
 
