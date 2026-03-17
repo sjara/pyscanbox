@@ -342,9 +342,13 @@ class AppController(QtCore.QObject):
             self.hardware_error.emit(msg)
 
         # Load ETL calibration coefficients from JSON file if available.
-        cal_path = self.config.get('optotune', {}).get(
-            'calibration_file', etl_calibration.DEFAULT_CALIBRATION_FILE
-        )
+        # Resolve the filename relative to the config directory so that
+        # moving the config folder keeps everything together.
+        cal_filename = self.config.get('optotune', {}).get('calibration_file', None)
+        if self._config_path is not None:
+            cal_path = etl_calibration.calibration_path(self._config_path, cal_filename)
+        else:
+            cal_path = cal_filename or etl_calibration.DEFAULT_CALIBRATION_FILE
         self._etl_calibration = etl_calibration.load_calibration(cal_path)
         if self._etl_calibration is not None:
             logger.info("ETL calibration loaded from %s", cal_path)
@@ -358,7 +362,12 @@ class AppController(QtCore.QObject):
         # Load bidirectional calibration and populate config['acquisition']['bishift']
         # so the running Scanner picks up the stored values immediately.
         if self._config_path is not None:
-            self._bidir_cal = bidir_calibration.BidirCalibration(self._config_path)
+            bidir_filename = self.config.get('acquisition', {}).get(
+                'bidir_calibration_file', None
+            )
+            self._bidir_cal = bidir_calibration.BidirCalibration(
+                self._config_path, filename=bidir_filename
+            )
             acq = self.config.setdefault('acquisition', {})
             acq.setdefault('bishift', [0] * bidir_calibration.NUM_MAGNIFICATIONS)
             stored = self._bidir_cal.shifts
@@ -993,6 +1002,21 @@ class AppController(QtCore.QObject):
             Depth in microns as an ``int``, or ``None`` if uncalibrated.
         """
         return etl_calibration.etl_to_depth(current, self._etl_calibration)
+
+    def reload_etl_calibration(self, coeffs) -> None:
+        """Replace the in-memory ETL calibration coefficients.
+
+        Called by the main window after the user saves a new calibration from
+        the ETL calibration dialog, so the depth display updates immediately
+        without requiring a hardware reconnect.
+
+        Args:
+            coeffs: 3-element array ``[a, b, c]`` as returned by
+                :func:`~pyscanbox.calibration.etl.fit_etl_curve`.
+        """
+        import numpy as np
+        self._etl_calibration = np.asarray(coeffs, dtype=float)
+        logger.info('ETL calibration reloaded (live update): %s', self._etl_calibration)
 
     # ------------------------------------------------------------------
     # Pockels cell LUT upload

@@ -69,6 +69,23 @@ logger = logging.getLogger(__name__)
 DEFAULT_CALIBRATION_FILE = 'etl_cal.json'
 
 
+def calibration_path(config_path: str, filename: str | None = None) -> str:
+    """Return the ETL calibration file path alongside *config_path*.
+
+    Args:
+        config_path: Absolute or relative path to the active YAML config file.
+        filename: Optional filename override.  Defaults to
+            ``DEFAULT_CALIBRATION_FILE`` (``'etl_cal.json'``).
+
+    Returns:
+        Path to the calibration JSON in the same directory as the config.
+    """
+    return os.path.join(
+        os.path.dirname(os.path.abspath(config_path)),
+        filename or DEFAULT_CALIBRATION_FILE,
+    )
+
+
 def load_calibration(path: str) -> Optional[np.ndarray]:
     """Load ETL calibration coefficients from a JSON file.
 
@@ -133,6 +150,46 @@ def save_calibration(
     with open(path, 'w', encoding='utf-8') as fh:
         json.dump(data, fh, indent=2)
     logger.info("ETL calibration saved to %s", path)
+
+
+def fit_etl_curve(
+    etl_values: np.ndarray,
+    depths_um: np.ndarray,
+) -> tuple:
+    """Fit a quadratic polynomial to (ETL current, depth) calibration data.
+
+    Mirrors the MATLAB calibration step::
+
+        otcoeff = polyfit(oval, -depth, 2)
+
+    Note: ``depths_um`` should already be signed (positive = deeper in tissue
+    for downward sweeps), so pass the actual measured depths as-is.  The
+    returned coefficients satisfy ``np.polyval(coeffs, etl_current) ≈ depth_um``.
+
+    Args:
+        etl_values: 1-D array of ETL current values (hardware units 0–1760).
+        depths_um: 1-D array of corresponding measured depths in microns.
+
+    Returns:
+        Tuple ``(coeffs, r_squared)`` where *coeffs* is a length-3 ``ndarray``
+        ``[a, b, c]`` (degree-2, highest first) and *r_squared* is the
+        coefficient of determination for the fit quality.
+
+    Raises:
+        ValueError: If fewer than 3 data points are supplied.
+    """
+    etl_values = np.asarray(etl_values, dtype=float)
+    depths_um = np.asarray(depths_um, dtype=float)
+    if etl_values.size < 3:
+        raise ValueError(
+            f'At least 3 data points required; got {etl_values.size}.'
+        )
+    coeffs = np.polyfit(etl_values, depths_um, 2)
+    depth_pred = np.polyval(coeffs, etl_values)
+    ss_res = np.sum((depths_um - depth_pred) ** 2)
+    ss_tot = np.sum((depths_um - depths_um.mean()) ** 2)
+    r_sq = float(1.0 - ss_res / ss_tot) if ss_tot > 0.0 else 1.0
+    return coeffs, r_sq
 
 
 def etl_to_depth(

@@ -77,18 +77,20 @@ DEFAULT_CALIBRATION_FILE = 'pockels_cal.json'
 DEFAULT_MAX_VOLTAGE = 2.040
 
 
-def calibration_path(config_path: str) -> str:
+def calibration_path(config_path: str, filename: str | None = None) -> str:
     """Return the Pockels calibration file path alongside *config_path*.
 
     Args:
         config_path: Absolute or relative path to the active YAML config file.
+        filename: Optional filename override.  Defaults to
+            ``DEFAULT_CALIBRATION_FILE`` (``'pockels_cal.json'``).
 
     Returns:
-        Path to ``pockels_cal.json`` in the same directory as the config.
+        Path to the calibration JSON in the same directory as the config.
     """
     return os.path.join(
         os.path.dirname(os.path.abspath(config_path)),
-        DEFAULT_CALIBRATION_FILE,
+        filename or DEFAULT_CALIBRATION_FILE,
     )
 
 

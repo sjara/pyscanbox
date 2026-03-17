@@ -92,18 +92,21 @@ CALIBRATION_FILENAME = 'bidir_cal.json'
 DEFAULT_MAX_SHIFT = 64
 
 
-def calibration_path(config_path: str) -> str:
+def calibration_path(config_path: str, filename: str | None = None) -> str:
     """Return the bidir calibration file path alongside *config_path*.
 
     Args:
         config_path: Absolute or relative path to the active YAML config file.
+        filename: Optional filename override.  Defaults to
+            ``CALIBRATION_FILENAME`` (``'bidir_cal.json'``).
 
     Returns:
-        Path to ``bidir_cal.json`` in the same directory as the config.
+        Path to ``bidir_cal.json`` (or *filename*) in the same directory as
+        the config.
     """
     return os.path.join(
         os.path.dirname(os.path.abspath(config_path)),
-        CALIBRATION_FILENAME,
+        filename or CALIBRATION_FILENAME,
     )
 
 
@@ -178,9 +181,9 @@ class BidirCalibration:
             first GUI rolling-average preset.
     """
 
-    def __init__(self, config_path: str, tau: int = DEFAULT_TAU) -> None:
+    def __init__(self, config_path: str, tau: int = DEFAULT_TAU, filename: str | None = None) -> None:
         self._config_path = config_path
-        self._calib_path  = calibration_path(config_path)
+        self._calib_path  = calibration_path(config_path, filename)
         self._tau         = tau
         self._delta       = math.exp(-1.0 / max(tau, 1))
         self._avg: np.ndarray | None = None

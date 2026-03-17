@@ -68,7 +68,7 @@ class PockelsCalibrationDialog(QtWidgets.QDialog):
 
     lut_uploaded = QtCore.pyqtSignal(list)
 
-    def __init__(self, controller=None, config_path=None, parent=None):
+    def __init__(self, controller=None, config_path=None, cal_filename=None, value_getter=None, parent=None):
         """Initialise the dialog.
 
         Args:
@@ -76,13 +76,21 @@ class PockelsCalibrationDialog(QtWidgets.QDialog):
                 instance used to upload the LUT to hardware.  When ``None``
                 the *Upload* button is disabled (offline / design mode).
             config_path: Path to the active YAML config file.  When provided
-                the dialog auto-loads ``pockels_cal.json`` from the same
+                the dialog auto-loads the calibration file from the same
                 directory and uses it as the default save location.
+            cal_filename: Calibration filename override from config
+                (``pockels.calibration_file``).  Defaults to
+                ``pockels_cal.DEFAULT_CALIBRATION_FILE`` when ``None``.
+            value_getter: Optional callable returning the current Pockels DAC
+                level (0–255) as an ``int``.  When provided, "Add Row"
+                pre-fills the DAC level column with the live slider value.
             parent: Optional Qt parent widget.
         """
         super().__init__(parent)
         self._controller = controller
         self._config_path = config_path
+        self._cal_filename = cal_filename
+        self._value_getter = value_getter
 
         # Most recently fitted calibration state.
         self._lut: list | None = None
@@ -97,7 +105,7 @@ class PockelsCalibrationDialog(QtWidgets.QDialog):
 
         # Try to auto-load an existing calibration alongside the config.
         if self._config_path is not None:
-            cal_path = pockels_cal.calibration_path(self._config_path)
+            cal_path = pockels_cal.calibration_path(self._config_path, self._cal_filename)
             if os.path.exists(cal_path):
                 self._apply_calibration(pockels_cal.load_calibration(cal_path), cal_path)
 
@@ -256,10 +264,17 @@ class PockelsCalibrationDialog(QtWidgets.QDialog):
         """Append a blank measurement row to the table."""
         row = self._table.rowCount()
         self._table.insertRow(row)
-        self._table.setItem(row, 0, QtWidgets.QTableWidgetItem('0'))
+        if self._value_getter is not None:
+            try:
+                dac_val = str(int(self._value_getter()))
+            except Exception:  # pylint: disable=broad-except
+                dac_val = '0'
+        else:
+            dac_val = '0'
+        self._table.setItem(row, 0, QtWidgets.QTableWidgetItem(dac_val))
         self._table.setItem(row, 1, QtWidgets.QTableWidgetItem('0.0'))
         self._table.scrollToBottom()
-        self._table.setCurrentCell(row, 0)
+        self._table.setCurrentCell(row, 1)
 
     def _on_remove_row(self) -> None:
         """Remove the selected row(s), or the last row if none is selected."""
@@ -448,9 +463,9 @@ class PockelsCalibrationDialog(QtWidgets.QDialog):
         if self._lut is None:
             return
         if self._config_path is not None:
-            default_path = pockels_cal.calibration_path(self._config_path)
+            default_path = pockels_cal.calibration_path(self._config_path, self._cal_filename)
         else:
-            default_path = pockels_cal.DEFAULT_CALIBRATION_FILE
+            default_path = self._cal_filename or pockels_cal.DEFAULT_CALIBRATION_FILE
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self, 'Save Pockels Calibration', default_path,
             'JSON files (*.json);;All files (*)',

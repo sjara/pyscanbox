@@ -15,6 +15,7 @@ import PyQt6.QtGui as QtGui
 import pyscanbox
 from pyscanbox.gui import app_controller
 from pyscanbox.gui import panels
+from pyscanbox.gui import etl_cal_dialog
 from pyscanbox.gui import pockels_cal_dialog
 from pyscanbox.gui import widgets
 from pyscanbox.io import sbx_reader
@@ -223,6 +224,10 @@ class MainWindow(QtWidgets.QMainWindow):
         calibrate_bidir_action = QtGui.QAction("Calibrate &Bidir Scan...", self)
         calibrate_bidir_action.triggered.connect(self._on_calibrate_bidir)
         calibration_menu.addAction(calibrate_bidir_action)
+
+        calibrate_etl_action = QtGui.QAction("Calibrate &ETL...", self)
+        calibrate_etl_action.triggered.connect(self._on_calibrate_etl)
+        calibration_menu.addAction(calibrate_etl_action)
 
         # View menu
         view_menu = menubar.addMenu("&View")
@@ -468,9 +473,18 @@ class MainWindow(QtWidgets.QMainWindow):
         a fitted LUT directly to hardware.
         """
         if not hasattr(self, '_pockels_cal_dialog') or self._pockels_cal_dialog is None:
+            config_dict = (
+                self.config.to_dict() if hasattr(self.config, 'to_dict')
+                else (self.config or {})
+            )
+            cal_filename = config_dict.get('pockels', {}).get('calibration_file', None)
             self._pockels_cal_dialog = pockels_cal_dialog.PockelsCalibrationDialog(
                 controller=self._ctrl,
                 config_path=self._config_path,
+                cal_filename=cal_filename,
+                value_getter=lambda: round(
+                    self._left_panel.laser_group.power_slider.value() * 2.55
+                ),
                 parent=None,  # top-level: not blocked by modal state of MainWindow
             )
             self._pockels_cal_dialog.lut_uploaded.connect(
@@ -491,8 +505,44 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
     # ------------------------------------------------------------------
-    # Hardware controller lifecycle
+    # ETL calibration dialog
     # ------------------------------------------------------------------
+
+    def _on_calibrate_etl(self) -> None:
+        """Open the non-modal ETL calibration dialog.
+
+        Creates the dialog on first call and re-shows it on subsequent
+        calls.
+        """
+        if not hasattr(self, '_etl_cal_dialog') or self._etl_cal_dialog is None:
+            config_dict = (
+                self.config.to_dict() if hasattr(self.config, 'to_dict')
+                else (self.config or {})
+            )
+            cal_filename = config_dict.get('optotune', {}).get('calibration_file', None)
+            self._etl_cal_dialog = etl_cal_dialog.EtlCalibrationDialog(
+                config_path=self._config_path,
+                cal_filename=cal_filename,
+                value_getter=lambda: self._right_panel.optotune_group.etl_slider.value(),
+                parent=None,
+            )
+            self._etl_cal_dialog.calibration_saved.connect(
+                self._on_etl_calibration_saved
+            )
+        self._etl_cal_dialog.show()
+        self._etl_cal_dialog.raise_()
+        self._etl_cal_dialog.activateWindow()
+
+    def _on_etl_calibration_saved(self, coeffs) -> None:
+        """Reload ETL calibration in the controller after a save.
+
+        Args:
+            coeffs: 3-element ndarray ``[a, b, c]`` from the dialog.
+        """
+        if self._ctrl is not None:
+            self._ctrl.reload_etl_calibration(coeffs)
+        self.statusBar.showMessage('ETL calibration updated.')
+
 
     def _init_app_controller(self):
         """Create AppController from config and open hardware connections.
