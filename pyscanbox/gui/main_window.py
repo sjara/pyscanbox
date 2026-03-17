@@ -15,6 +15,7 @@ import PyQt6.QtGui as QtGui
 import pyscanbox
 from pyscanbox.gui import app_controller
 from pyscanbox.gui import panels
+from pyscanbox.gui import pockels_cal_dialog
 from pyscanbox.gui import widgets
 from pyscanbox.io import sbx_reader
 from pyscanbox.utils import coordinate_transform
@@ -39,14 +40,17 @@ class MainWindow(QtWidgets.QMainWindow):
     DEFAULT_LEFT_PANEL_WIDTH = 300
     DEFAULT_RIGHT_PANEL_WIDTH = DEFAULT_WINDOW_WIDTH - DEFAULT_LEFT_PANEL_WIDTH
     
-    def __init__(self, config=None):
+    def __init__(self, config=None, config_path=None):
         """Initialize the main window.
         
         Args:
             config: Optional ScanboxConfig object for initialization.
+            config_path: Path to the config YAML file; passed to
+                AppController so bidir calibration can be saved alongside it.
         """
         super().__init__()
         self.config = config
+        self._config_path = config_path
         self._init_ui()
 
         # Hardware controller and acquisition elapsed-time tracking.
@@ -178,12 +182,48 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._disconnect_action = QtGui.QAction("&Disconnect All", self)
         hardware_menu.addAction(self._disconnect_action)
-        
+
         hardware_menu.addSeparator()
-        
-        calibrate_action = QtGui.QAction("C&alibrate...", self)
-        hardware_menu.addAction(calibrate_action)
-        
+
+        connect_controller_action = QtGui.QAction("Connect &Controller", self)
+        connect_controller_action.triggered.connect(self._on_connect_controller)
+        hardware_menu.addAction(connect_controller_action)
+
+        disconnect_controller_action = QtGui.QAction("&Disconnect Controller", self)
+        disconnect_controller_action.triggered.connect(self._on_disconnect_controller)
+        hardware_menu.addAction(disconnect_controller_action)
+
+        hardware_menu.addSeparator()
+
+        connect_knobby_action = QtGui.QAction("Connect &Knobby", self)
+        connect_knobby_action.triggered.connect(self._on_connect_knobby)
+        hardware_menu.addAction(connect_knobby_action)
+
+        disconnect_knobby_action = QtGui.QAction("Disconnect &Knobby", self)
+        disconnect_knobby_action.triggered.connect(self._on_disconnect_knobby)
+        hardware_menu.addAction(disconnect_knobby_action)
+
+        hardware_menu.addSeparator()
+
+        connect_motor_action = QtGui.QAction("Connect &Motor", self)
+        connect_motor_action.triggered.connect(self._on_connect_motor)
+        hardware_menu.addAction(connect_motor_action)
+
+        disconnect_motor_action = QtGui.QAction("Disconnect &Motor", self)
+        disconnect_motor_action.triggered.connect(self._on_disconnect_motor)
+        hardware_menu.addAction(disconnect_motor_action)
+
+        # Calibration menu
+        calibration_menu = menubar.addMenu("&Calibration")
+
+        pockels_cal_action = QtGui.QAction("Calibrate &Pockels Cell...", self)
+        pockels_cal_action.triggered.connect(self._on_calibrate_pockels)
+        calibration_menu.addAction(pockels_cal_action)
+
+        calibrate_bidir_action = QtGui.QAction("Calibrate &Bidir Scan...", self)
+        calibrate_bidir_action.triggered.connect(self._on_calibrate_bidir)
+        calibration_menu.addAction(calibrate_bidir_action)
+
         # View menu
         view_menu = menubar.addMenu("&View")
         
@@ -416,6 +456,41 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Pockels calibration dialog
+    # ------------------------------------------------------------------
+
+    def _on_calibrate_pockels(self) -> None:
+        """Open the non-modal Pockels cell calibration dialog.
+
+        Creates the dialog on first call and re-shows it on subsequent
+        calls.  Passes the current AppController so the dialog can upload
+        a fitted LUT directly to hardware.
+        """
+        if not hasattr(self, '_pockels_cal_dialog') or self._pockels_cal_dialog is None:
+            self._pockels_cal_dialog = pockels_cal_dialog.PockelsCalibrationDialog(
+                controller=self._ctrl,
+                config_path=self._config_path,
+                parent=None,  # top-level: not blocked by modal state of MainWindow
+            )
+            self._pockels_cal_dialog.lut_uploaded.connect(
+                self._on_pockels_lut_uploaded
+            )
+        self._pockels_cal_dialog.show()
+        self._pockels_cal_dialog.raise_()
+        self._pockels_cal_dialog.activateWindow()
+
+    def _on_pockels_lut_uploaded(self, lut: list) -> None:
+        """React to a successful Pockels LUT upload from the calibration dialog.
+
+        Args:
+            lut: 256-entry LUT that was just uploaded to hardware.
+        """
+        self.statusBar.showMessage(
+            f'Pockels LUT uploaded ({len(lut)} entries)'
+        )
+
+    # ------------------------------------------------------------------
     # Hardware controller lifecycle
     # ------------------------------------------------------------------
 
@@ -438,7 +513,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
         self._ctrl = app_controller.AppController(
-            config_dict, parent=self
+            config_dict, config_path=self._config_path, parent=self
         )
 
         # Wire menu actions regardless of whether open() succeeds.
@@ -539,6 +614,70 @@ class MainWindow(QtWidgets.QMainWindow):
         self._ctrl.command_logged.connect(self._log_panel.append)
         self._ctrl.hardware_error.connect(self._log_panel.append_error)
 
+        # Bidirectional calibration signals.
+        self._ctrl.bidir_calibration_progress.connect(
+            self._on_bidir_calibration_progress
+        )
+        self._ctrl.bidir_calibration_done.connect(
+            self._on_bidir_calibration_done
+        )
+
+    # ------------------------------------------------------------------
+    # Bidirectional calibration
+    # ------------------------------------------------------------------
+
+    def _on_calibrate_bidir(self) -> None:
+        """Start bidirectional pixel-shift calibration from the Hardware menu.
+
+        Requires the system to be in bidirectional scan mode and an acquisition
+        (Focus) to be running so live frames are available.  Shows status-bar
+        messages for progress and result.
+        """
+        if self._ctrl is None or not self._ctrl.is_open:
+            self.statusBar.showMessage('Hardware not connected.')
+            return
+        unidirectional = self._ctrl.config.get('acquisition', {}).get(
+            'unidirectional', True
+        )
+        if unidirectional:
+            QtWidgets.QMessageBox.information(
+                self,
+                'Bidirectional Calibration',
+                'Please switch to Bidirectional scan mode before calibrating.',
+            )
+            return
+        try:
+            self._ctrl.start_bidir_calibration()
+            self.statusBar.showMessage('Bidir calibration started — collecting frames…')
+        except RuntimeError as exc:
+            self.statusBar.showMessage(f'Calibration error: {exc}')
+
+    def _on_bidir_calibration_progress(self, done: int, needed: int) -> None:
+        """Update status bar with calibration frame-collection progress.
+
+        Args:
+            done: Frames collected so far.
+            needed: Total frames needed before measurement.
+        """
+        self.statusBar.showMessage(
+            f'Bidir calibration: {done}/{needed} frames…'
+        )
+
+    def _on_bidir_calibration_done(self, mag_index: int, shift: int) -> None:
+        """React to a completed bidirectional calibration.
+
+        Updates the bishift spinbox to show the measured value and shows a
+        status-bar message.
+
+        Args:
+            mag_index: Magnification index that was calibrated.
+            shift: Measured pixel shift stored for that magnification.
+        """
+        self._sync_bishift_spinbox(mag_index)
+        self.statusBar.showMessage(
+            f'Bidir calibration complete: mag={mag_index}, bishift={shift} px'
+        )
+
     def closeEvent(self, event):
         """Stop acquisition and close hardware before the window is destroyed.
 
@@ -548,6 +687,9 @@ class MainWindow(QtWidgets.QMainWindow):
         Args:
             event: QCloseEvent from Qt.
         """
+        if hasattr(self, '_pockels_cal_dialog') and self._pockels_cal_dialog is not None:
+            self._pockels_cal_dialog.close()
+            self._pockels_cal_dialog = None
         if self._ctrl is not None and self._ctrl.is_open:
             # Zero PMTs and Pockels via hardware calls before closing.
             # Setting the GUI sliders fires valueChanged, which calls the
@@ -915,3 +1057,42 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._ctrl is not None and self._ctrl.is_open:
             self._ctrl.close()
             self.statusBar.showMessage("Hardware disconnected.")
+
+    def _on_connect_controller(self):
+        """Open just the ScanboxController."""
+        if self._ctrl is not None and not self._ctrl._hw_controller.is_open:
+            try:
+                self._ctrl.open_controller()
+                self.statusBar.showMessage("Controller connected.")
+            except RuntimeError as exc:
+                self.statusBar.showMessage(f"Controller connect failed: {exc}")
+
+    def _on_disconnect_controller(self):
+        """Disconnect just the ScanboxController."""
+        if self._ctrl is not None and self._ctrl._hw_controller.is_open:
+            self._ctrl.close_controller()
+            self.statusBar.showMessage("Controller disconnected.")
+
+    def _on_connect_knobby(self):
+        """Open just the Knobby position controller."""
+        if self._ctrl is not None and not self._ctrl._knobby.is_open:
+            self._ctrl.open_knobby()
+            self.statusBar.showMessage("Knobby connected.")
+
+    def _on_disconnect_knobby(self):
+        """Disconnect just the Knobby position controller."""
+        if self._ctrl is not None and self._ctrl._knobby.is_open:
+            self._ctrl.close_knobby()
+            self.statusBar.showMessage("Knobby disconnected.")
+
+    def _on_connect_motor(self):
+        """Open just the Trinamic motor controller."""
+        if self._ctrl is not None and not self._ctrl._motor.is_open:
+            self._ctrl.open_motor()
+            self.statusBar.showMessage("Motor connected.")
+
+    def _on_disconnect_motor(self):
+        """Disconnect just the Trinamic motor controller."""
+        if self._ctrl is not None and self._ctrl._motor.is_open:
+            self._ctrl.close_motor()
+            self.statusBar.showMessage("Motor disconnected.")

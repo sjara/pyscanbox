@@ -296,12 +296,14 @@ class AlazarDigitizer:
         # raw_mode=False, but always call so the mock knows samples_per_line
         # and laser parameters even in emulation mode).
         if self.use_emulation and hasattr(self.board_handle, 'set_raw_mode'):
-            raw_mode       = self.config.get('emulation', {}).get('raw_mode', False)
+            raw_mode         = self.config.get('emulation', {}).get('raw_mode', False)
             samples_per_line = self.config.get('acquisition', {}).get('samples_per_line', 5000)
-            laser_freq     = self.config.get('laser', {}).get('frequency', 80_180_000)
-            res_freq       = self.config.get('scanner', {}).get('resonant_freq', 7930)
+            spl_bidir        = self.config.get('acquisition', {}).get('samples_per_line_bidir', 9000)
+            laser_freq       = self.config.get('laser', {}).get('frequency', 80_180_000)
+            res_freq         = self.config.get('scanner', {}).get('resonant_freq', 7930)
             self.board_handle.set_raw_mode(raw_mode, samples_per_line,
-                                           laser_freq, res_freq)
+                                           laser_freq, res_freq,
+                                           samples_per_line_bidir=spl_bidir)
 
         # Inform the mock board of the scan mode so that odd (backward) lines
         # are generated with reversed pixel order, matching real hardware.
@@ -476,8 +478,11 @@ class AlazarDigitizer:
                 self.buffers.append(dma_buffer.buffer)  # NumPy array view
                 self.buffer_pointers.append(dma_buffer.addr)  # C pointer for posting
             else:
-                # Fall back to numpy array (emulation mode)
-                buffer = np.empty(self.samples_per_buffer * self.channels, dtype=np.uint16)
+                # Fall back to numpy array (emulation mode).
+                # Use bytes_per_buffer to correctly handle bidirectional geometry,
+                # which uses a different record layout (256 × 9000 instead of 512 × 5000).
+                n_samples = bytes_per_buffer // 2  # uint16 = 2 bytes per sample
+                buffer = np.empty(n_samples, dtype=np.uint16)
                 self.buffers.append(buffer)
                 # For emulation, store the buffer itself (mock expects numpy array)
                 self.buffer_pointers.append(buffer)

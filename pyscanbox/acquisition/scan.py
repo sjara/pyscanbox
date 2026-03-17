@@ -224,6 +224,9 @@ class Scanner:
             # Redirect command logging to Scanner's path for scan duration.
             self.controller.on_command = self._on_controller_cmd
 
+        # Upload Pockels LUT and range once after the controller is open.
+        self.initialize_pockels_lut()
+
         # Initialize motor if configured
         if 'motor' in self.config:
             if self._motor_owned:
@@ -232,6 +235,16 @@ class Scanner:
                     self.config, on_command=self._on_motor_cmd
                 )
                 self.motor.open()
+                # Apply per-motor freewheeling from config (TMCL SAP 204).
+                motor_cfg = self.config.get('motor', {})
+                freewheel = [
+                    motor_cfg.get('freewheel_z', False),
+                    motor_cfg.get('freewheel_y', False),
+                    motor_cfg.get('freewheel_x', False),
+                    motor_cfg.get('freewheel_a', False),
+                ]
+                for motor_id, enabled in enumerate(freewheel):
+                    self.motor.set_freewheel(motor_id, bool(enabled))
             else:
                 # Reuse the caller's already-open motor; redirect logging.
                 self.motor.on_command = self._on_motor_cmd
@@ -290,6 +303,47 @@ class Scanner:
         # Reference: sb_imask.m; original scanbox.m line 251.
         imask = self.config.get('external_events', {}).get('interrupt_mask', 0)
         self.controller.set_ttl_mask(imask)
+
+        # Horizontal sync polarity: 0 = normal, 1 = flip scan direction.
+        # Toggling this is useful for diagnosing Pockels cell phase/timing
+        # asymmetry (see devel/guides/pockels_calibration.md).
+        # Reference: sb/sb_hsync_sign.m; scanbox.m line 294.
+        hsync_sign = self.config.get('scanner', {}).get('hsync_sign', 1)
+        self.controller.set_hsync_sign(hsync_sign)
+
+        # Resonant scanner warmup delay: how long the PSoC5 waits (after
+        # start_scan) before firing line triggers, giving the mirror time
+        # to reach its stable oscillation amplitude.  Without this the
+        # first frames will be geometrically distorted.
+        # Reference: sb/sb_warmup_delay.m; scanbox.m line 303.
+        warmup_delay = self.config.get('scanner', {}).get('warmup_delay', 50)
+        self.controller.set_warmup_delay(warmup_delay)
+
+    def initialize_pockels_lut(self) -> None:
+        """Upload the Pockels cell LUT and range from config to the PSoC5.
+
+        Reads ``pockels.lut``, ``pockels.lut_enabled``, and
+        ``pockels.range`` from config and uploads them in the same order
+        as the original MATLAB startup sequence (``core/scanbox.m``
+        lines 262–288).
+
+        If ``lut_enabled`` is false or ``lut`` is absent from config,
+        the identity LUT is used (linear voltage, non-linear power).
+        """
+        pockels_cfg = self.config.get('pockels', {})
+
+        # 1. Upload LUT or reset to identity.
+        lut = pockels_cfg.get('lut') if pockels_cfg.get('lut_enabled', True) else None
+        if lut and len(lut) == 256:
+            logger.info('Uploading Pockels LUT (%d entries).', len(lut))
+            self.controller.set_pockels_lut(lut)
+        else:
+            logger.info('No Pockels LUT in config — resetting to identity.')
+            self.controller.set_pockels_lut_identity()
+
+        # 2. Set DAC/PGA range.
+        prange = pockels_cfg.get('range', [1, 2])
+        self.controller.set_pockels_range(int(prange[0]), int(prange[1]))
 
     def initialize_pockels(self) -> None:
         """Set Pockels cell to zero power as a safe starting state.

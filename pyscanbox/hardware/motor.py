@@ -239,6 +239,33 @@ class TrinamicMotor:
         response = self.send_command('SAP', param_type, motor, value)
         return response is not None
 
+    def set_freewheel(self, motor_id: int, enabled: bool) -> bool:
+        """Set freewheeling mode for a single motor (TMCL SAP 204).
+
+        When enabled, the motor coils de-energize as soon as the motor
+        reaches its target position (less heat, less vibration from
+        holding-torque PWM).  When disabled, the motor stays energized
+        and actively holds position against gravity or cable drag.
+
+        Use ``enabled=False`` for gravity-loaded axes (e.g. Z focus) and
+        ``enabled=True`` for horizontal axes where drift is not a concern
+        (e.g. X and Y translation).
+
+        Args:
+            motor_id: Motor number (0=Z, 1=Y, 2=X, 3=A).
+            enabled: True = freewheel (power off at position),
+                     False = hold position (power stays on).
+
+        Returns:
+            True if the command was acknowledged, False otherwise.
+
+        Reference:
+            TMCL SAP parameter 204 (Freewheeling).
+            Original MATLAB: ``tri_send('SAP', 204, i, sbconfig.freewheel)``.
+            Config keys: ``motor.freewheel_z/y/x/a`` in YAML config.
+        """
+        return self.set_axis_parameter(motor_id, 204, int(enabled))
+
     def get_position(self, motor: int) -> Optional[int]:
         """Get current motor position.
 

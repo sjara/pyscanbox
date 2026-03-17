@@ -40,10 +40,15 @@ class Serial:
     CMD_SCAN = 4
     CMD_MIRROR = 5
     CMD_POCKELS = 8
+    CMD_POCKELS_RANGE = 13
     CMD_SHUTTER = 16
+    CMD_WARMUP_DELAY = 11
     CMD_UNIDIRECTIONAL = 33
     CMD_BIDIRECTIONAL = 34
     CMD_TTL_MASK = 64
+    CMD_POCKELS_LUT_ENTRY = 0x43
+    CMD_POCKELS_LUT_IDENTITY = 0x44
+    CMD_HSYNC_SIGN = 0x80
 
     def __init__(self, port: str = 'COM1', baudrate: int = 9600,
                  bytesize: int = 8, parity: str = 'N', stopbits: int = 1,
@@ -77,6 +82,10 @@ class Serial:
             'motor_positions': [0, 0, 0, 0],  # 4 motors
             'motor_velocities': [0, 0, 0, 0],
             'ttl_mask': 0,  # interrupt mask for external TTL inputs
+            'warmup_delay': 50,  # resonant scanner warmup delay (×10 ms)
+            'hsync_sign': 0,  # horizontal sync polarity (0=normal, 1=flip)
+            'pockels_range': (1, 2),  # (vdac, pga) DAC/PGA range
+            'pockels_lut': list(range(256)),  # identity LUT by default
         }
 
         # Buffer for responses
@@ -207,6 +216,31 @@ class Serial:
             if self.verbose:
                 logger.debug(f"TTL mask set: imask={param2}")
 
+        elif cmd_id == self.CMD_WARMUP_DELAY:
+            self.state['warmup_delay'] = param2
+            if self.verbose:
+                logger.debug(f"Warmup delay set: {param2 * 10} ms")
+
+        elif cmd_id == self.CMD_POCKELS_RANGE:
+            self.state['pockels_range'] = (param1, param2)
+            if self.verbose:
+                logger.debug(f"Pockels range set: vdac={param1}, pga={param2}")
+
+        elif cmd_id == self.CMD_POCKELS_LUT_ENTRY:
+            self.state['pockels_lut'][param1] = param2
+            if self.verbose:
+                logger.debug(f"Pockels LUT entry set: idx={param1}, val={param2}")
+
+        elif cmd_id == self.CMD_POCKELS_LUT_IDENTITY:
+            self.state['pockels_lut'] = list(range(256))
+            if self.verbose:
+                logger.debug("Pockels LUT reset to identity")
+
+        elif cmd_id == self.CMD_HSYNC_SIGN:
+            self.state['hsync_sign'] = param1
+            if self.verbose:
+                logger.debug(f"Hsync sign set: flip={bool(param1)}")
+
         else:
             if self.verbose:
                 logger.debug(f"Unknown command: {cmd_id}")
@@ -249,7 +283,12 @@ class Serial:
                 value = self.state['motor_positions'][motor]
 
         elif cmd == 5:  # SAP (set axis parameter)
-            pass  # Just acknowledge
+            if cmd_type == 204 and 0 <= motor < 4:  # Freewheeling
+                if 'motor_freewheel' not in self.state:
+                    self.state['motor_freewheel'] = [False] * 4
+                self.state['motor_freewheel'][motor] = bool(value)
+                if self.verbose:
+                    logger.debug(f"Motor {motor} freewheel: {bool(value)}")
 
         elif cmd == 1:  # ROR (rotate right)
             if 0 <= motor < 4:

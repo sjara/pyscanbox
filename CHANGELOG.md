@@ -6,7 +6,51 @@ All notable changes to this project are documented here. This file is append-onl
 
 ---
 
-## v0.6.3 - March 15, 2026 (Current)
+## v0.8.0 - March 17, 2026 (Current)
+- **Pockels cell calibration module (Milestone 2.7)**
+  - New `pyscanbox/calibration/pockels.py`: fits `P = A·sin(V·k)²` curve to power-meter measurements, generates 256-entry linearisation LUT via `scipy.optimize.curve_fit + arcsin inversion`; validated against MATLAB `pockels_920nm.m` (A=1537.4 mW, k=1.098 rad/V)
+  - New `pyscanbox/gui/pockels_cal_dialog.py`: non-modal `PockelsCalibrationDialog` with measurement table, Fit button, dual-panel matplotlib preview (graceful degradation without matplotlib), Upload / Save / Load actions
+  - `AppController.upload_pockels_lut(lut)`: sends 256-entry LUT to hardware and persists to config
+  - Saves/loads calibration to `pockels_cal.json` alongside the active YAML config (same pattern as `etl_cal.json` and `bidir_cal.json`)
+  - 20 unit tests in `tests/test_pockels_calibration.py`
+  - `matplotlib>=3.5.0` added to `requirements.txt`
+- **Calibration menu reorganisation**
+  - "Calibrate Bidir Scan..." moved from Hardware menu to the new **Calibration** menu alongside "Calibrate Pockels Cell..."
+- **Per-device Hardware connect/disconnect (Milestone 2.7)**
+  - `AppController`: new `open_controller()`, `close_controller()`, `open_knobby()`, `close_knobby()`, `open_motor()`, `close_motor()` methods
+  - Hardware menu now exposes six per-device connect/disconnect entries (Controller, Knobby, Motor) in addition to the existing "Connect All" / "Disconnect All"
+
+## v0.7.0 - March 16, 2026
+- **Bidirectional calibration system (Milestone 1.7.2)**
+- Added `pyscanbox/calibration/` package — new home for all calibration modules, replacing `pyscanbox/hardware/bidir_calibration.py` and `pyscanbox/hardware/etl_calibration.py`; `app_controller.py` imports updated to `from pyscanbox.calibration import bidir/etl`.
+- Added `pyscanbox/calibration/bidir.py` — `measure_bishift(frame, max_shift=64)` computes the bidirectional line-shift via zero-padded FFT cross-correlation of even/odd row profiles (`xcorr = IFFT(conj(FFT(even)) * FFT(odd))`; positive peak = backward lines shifted right). `BidirCalibration` class accumulates frames via exponential rolling average (tau=5, ~25 frames to converge), stores per-magnification shifts (13 total), saves/loads `bidir_cal.json` alongside the active config YAML.
+- `AppController` now accepts `config_path` and exposes `start_bidir_calibration()` / `stop_bidir_calibration()`; signals `bidir_calibration_progress(done, needed)` and `bidir_calibration_done(mag_index, shift)`. `open()` loads `bidir_cal.json` and populates `config['acquisition']['bishift']` on startup.
+- `MainWindow` Calibrate menu triggers calibration for the current magnification; three new slots handle progress display and completion.
+- **Fixed bidirectional emulation buffer size mismatch**
+- Root cause: `AlazarDigitizer.allocate_buffers()` was sizing numpy DMA buffers as `samples_per_buffer × channels` — a unidirectional geometry (`512 × 5000 × 2 = 5,120,000` elements). In bidirectional raw-mode emulation, `start_acquisition()` correctly posted 4,608,000-byte buffers (`256 × 9000 × 2`) to the mock, but the pre-allocated arrays were 5,120,000 elements, causing `ValueError: could not broadcast input array from shape (4608000,) into shape (5120000,)` on the first frame.
+- `allocate_buffers()` now sizes the fallback numpy buffers as `_bytes_per_buffer // 2`, which already accounts for the correct geometry in all modes (unidirectional, bidirectional, emulation).
+- `alazar.py open()` now passes `samples_per_line_bidir` from config to `mock_alazar.set_raw_mode()`.
+- `mock_alazar.set_raw_mode()` accepts a new `samples_per_line_bidir` parameter (default 9000); stores it and pre-computes `_pixel_lut_bi` via `compute_pixel_lut_bi()`. When `bidirectional=True`, sets `buffer_size_samples = (lines // 2) × samples_per_line_bidir × 2`.
+- `mock_alazar.set_scan_mode()` now recomputes `buffer_size_samples` when toggling bidir with `raw_mode=True`, and clears cached test frames.
+- `mock_alazar._prepare_test_frames_raw()` added a bidirectional branch generating `(lines // 2) × samples_per_line_bidir × 2`-sized buffers using `_pixel_lut_bi` for correct forward+backward pixel placement; the existing unidirectional branch is unchanged.
+- **Pockels cell LUT and range wired from config to hardware at startup**
+- Added `set_pockels_lut(lut)` to `ScanboxController` — uploads a 256-entry linearisation LUT to the PSoC5 via 256 × `[0x43, idx, val]` packets, matching `sb/sb_pockels_lut.m` and the startup sequence in `core/scanbox.m` lines 269–273.
+- Added `set_pockels_lut_identity()` — resets the PSoC5 LUT to the identity map via `[0x44, 0, 0]`, matching `sb/sb_pockels_lut_identity.m`.
+- Added `set_pockels_range(vdac, pga)` — sets the Pockels DAC/PGA range via `[13, vdac, pga]`, matching `sb/sb_pockels_range.m`.
+- Added `Scanner.initialize_pockels_lut()` — called in `initialize_hardware()` right after controller open; reads `pockels.lut`, `pockels.lut_enabled`, and `pockels.range` from config and uploads them in MATLAB startup order; falls back to identity LUT if none provided.
+- Added 256-entry linearisation LUT (from `scanbox_config.jaralab.m`) to `pockels.lut` in `default_config.yaml`; removed `⚠️ not yet used` from the `pockels:` section.
+- **Horizontal scan direction (hsync_sign) wired from config to hardware at startup**
+- Added `set_hsync_sign(flip)` to `ScanboxController` — sends `[0x80, flip, 0]`, matching `sb/sb_hsync_sign.m`; `flip=0` = normal, `flip=1` = flip horizontal axis.
+- `Scanner.configure_scan_params()` now reads `scanner.hsync_sign` from config and calls `set_hsync_sign()`, matching `core/scanbox.m` line 294.
+- Removed `⚠️ not yet used` from `scanner.hsync_sign` in `default_config.yaml`.
+- Toggling `hsync_sign` between 0 and 1 is the recommended first diagnostic step for left/right brightness asymmetry (see `devel/guides/pockels_calibration.md`).
+- **New diagnostics guide: Pockels calibration and scan-direction asymmetry**
+- Added `devel/guides/pockels_calibration.md` documenting: why Pockels phase/timing causes left/right image asymmetry; the `hsync_sign` flip test; LUT linearisation calibration procedure; DAC value limits; and a reference table of all relevant MATLAB files (`sb/sb_pockels_lut.m`, `sb/sb_pockels_range.m`, `sb/sb_hsync_sign.m`, `core/pockels_920nm.m`, etc.).
+- **New command constants and mock support**
+- Added `CMD_POCKELS_RANGE = 13`, `CMD_POCKELS_LUT_ENTRY = 0x43`, `CMD_POCKELS_LUT_IDENTITY = 0x44`, `CMD_HSYNC_SIGN = 0x80` to `ScanboxController`; all added to `CMD_NAMES` and `format_command()`.
+- `mock_serial.Serial` now tracks `hsync_sign`, `pockels_range`, and `pockels_lut` state and handles all four new command IDs.
+
+## v0.6.3 - March 15, 2026
 - **Fixed non-uniform bidirectional alignment (sample-space bishift)**
 - Root cause: pyscanbox was applying `np.roll` (uniform pixel-space shift) to correct backward-scan line timing, but MATLAB applies the bishift in raw-sample space (`preIdx += bishift*2`) *before* the arccosine LUT remapping. Because the resonant mirror slows near its turning points, a fixed sample shift produces a spatially non-uniform correction — left side aligned but right side drifted. Matching MATLAB's sample-space approach produces correct and uniform alignment across the full line width.
 - `reshape_pmt_data_bi()` now accepts a `bishift: int` parameter; each backward-pixel sample index is offset by `bishift` (clamped to `[0, s_max]`) before LUT lookup, matching `alazarReshapeCData2bi.c` / `preIdx += bishift*2`.

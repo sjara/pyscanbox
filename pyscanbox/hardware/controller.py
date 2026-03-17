@@ -105,10 +105,15 @@ class ScanboxController:
     CMD_POCKELS = 8
     CMD_DEADBAND = 9
     CMD_SHUTTER = 16
+    CMD_WARMUP_DELAY = 11  # [11, 0, delay] — resonant scanner warmup delay (×10 ms)
     CMD_UNIDIRECTIONAL = 33  # Set PSoC5 to trigger on forward sweep only
     CMD_BIDIRECTIONAL = 34   # Set PSoC5 to trigger on both forward and return sweeps
+    CMD_POCKELS_RANGE = 13         # [13, vdac, pga] — set DAC/PGA range
     CMD_ETL = 48  # Electrically tunable lens (Optotune) current
     CMD_TTL_MASK = 64  # TTL interrupt mask (which external TTL inputs fire events)
+    CMD_POCKELS_LUT_ENTRY = 0x43    # [0x43, idx, val] — set one LUT entry
+    CMD_POCKELS_LUT_IDENTITY = 0x44 # [0x44, 0, 0] — reset LUT to identity
+    CMD_HSYNC_SIGN = 0x80           # [0x80, val, 0] — flip horizontal scan axis
 
     # Number of bytes in one TTL event packet returned by the PSoC5 over serial.
     # Packet layout: [frame_low, frame_high, line_low, line_high, event_id]
@@ -157,10 +162,15 @@ class ScanboxController:
         CMD_POCKELS: 'set_pockels',
         CMD_DEADBAND: 'set_pockels_deadband',
         CMD_SHUTTER: 'set_shutter',
+        CMD_WARMUP_DELAY: 'set_warmup_delay',
         CMD_UNIDIRECTIONAL: 'set_scan_mode',
         CMD_BIDIRECTIONAL: 'set_scan_mode',
+        CMD_POCKELS_RANGE: 'set_pockels_range',
         CMD_ETL: 'set_etl_current',
         CMD_TTL_MASK: 'set_ttl_mask',
+        CMD_POCKELS_LUT_ENTRY: 'set_pockels_lut_entry',
+        CMD_POCKELS_LUT_IDENTITY: 'set_pockels_lut_identity',
+        CMD_HSYNC_SIGN: 'set_hsync_sign',
     }
 
     @staticmethod
@@ -234,6 +244,16 @@ class ScanboxController:
             return f'set_etl_current(current={current})'
         if cmd_id == ScanboxController.CMD_TTL_MASK:
             return f'set_ttl_mask(imask={param2})'
+        if cmd_id == ScanboxController.CMD_POCKELS_RANGE:
+            return f'set_pockels_range(vdac={param1}, pga={param2})'
+        if cmd_id == ScanboxController.CMD_POCKELS_LUT_ENTRY:
+            return f'set_pockels_lut_entry(idx={param1}, val={param2})'
+        if cmd_id == ScanboxController.CMD_POCKELS_LUT_IDENTITY:
+            return 'set_pockels_lut_identity()'
+        if cmd_id == ScanboxController.CMD_HSYNC_SIGN:
+            return f'set_hsync_sign(flip={bool(param1)})'
+        if cmd_id == ScanboxController.CMD_WARMUP_DELAY:
+            return f'set_warmup_delay(delay={param2})'
         name = ScanboxController.CMD_NAMES.get(cmd_id, f'cmd_{cmd_id}')
         return f'{name}(param1={param1}, param2={param2})'
 
@@ -272,6 +292,8 @@ class ScanboxController:
         self.pmt_gains = [0, 0]  # hardware gain values (0-255) for PMT0 and PMT1
         self.etl_current = 0  # ETL current (0-1760)
         self.ttl_mask = 0  # interrupt mask (0=disabled)
+        self.hsync_sign = 0  # horizontal sync polarity (0=normal, 1=flip)
+        self.pockels_range = (1, 2)  # (vdac, pga) DAC/PGA range
 
         # TTL event reader thread state
         self._ttl_events: List[Tuple[int, int, int]] = []
@@ -653,6 +675,117 @@ class ScanboxController:
             raise ValueError(f'imask must be 0, 1, 2, or 3, got {imask}')
         self._send_command(self.CMD_TTL_MASK, 0, imask)
         self.ttl_mask = imask
+
+    def set_hsync_sign(self, flip: int) -> None:
+        """Set horizontal sync polarity (scan direction).
+
+        Flipping the scan direction is useful for diagnosing Pockels cell
+        phase/timing asymmetry: if the dark side of the image flips with
+        the scan direction, the cause is a Pockels timing issue in the
+        PSoC5 firmware rather than an optical/mechanical asymmetry.
+
+        Args:
+            flip: 0 = normal scan direction, 1 = flip horizontal axis.
+
+        Reference:
+            See sb/sb_hsync_sign.m: ``fwrite(sb, uint8([0x80, val, 0]))``.
+            Config key: ``scanner.hsync_sign`` in YAML config.
+
+        Raises:
+            ValueError: If flip is not 0 or 1.
+        """
+        if flip not in (0, 1):
+            raise ValueError(f'hsync_sign must be 0 or 1, got {flip}')
+        self._send_command(self.CMD_HSYNC_SIGN, flip, 0)
+        self.hsync_sign = flip
+
+    def set_warmup_delay(self, delay: int) -> None:
+        """Set the resonant scanner warmup delay.
+
+        Tells the PSoC5 to wait before firing the first line trigger after
+        ``start_scan()`` is called, giving the resonant mirror time to reach
+        its stable oscillation amplitude.  Without this delay the first
+        several frames will have distorted geometry.
+
+        Args:
+            delay: Warmup period in units of 10 ms (e.g. 50 = 500 ms).
+                Valid range: 0–255.
+
+        Reference:
+            See sb/sb_warmup_delay.m: ``fwrite(sb, uint8([11 0 p]))``.\n            Config key: ``scanner.warmup_delay`` in YAML config.
+
+        Raises:
+            ValueError: If delay is outside 0–255.
+        """
+        if not (0 <= delay <= 255):
+            raise ValueError(f'warmup_delay must be 0-255, got {delay}')
+        self._send_command(self.CMD_WARMUP_DELAY, 0, delay)
+        self.warmup_delay = delay
+
+    def set_pockels_range(self, vdac: int, pga: int) -> None:
+        """Set Pockels cell DAC voltage range and PGA gain.
+
+        The lab default is vdac=1, pga=2.  Only change this if the laser
+        wavelength or Pockels cell hardware changes.
+
+        Args:
+            vdac: DAC range selector byte (0–255).
+            pga:  PGA gain selector byte (0–255).
+
+        Reference:
+            See sb/sb_pockels_range.m: ``fwrite(sb, uint8([13, r(1), r(2)]))``.
+            Config key: ``pockels.range`` in YAML config.
+        """
+        self._send_command(self.CMD_POCKELS_RANGE, vdac, pga)
+        self.pockels_range = (vdac, pga)
+
+    def set_pockels_lut_identity(self) -> None:
+        """Reset the Pockels cell LUT to the identity mapping.
+
+        Sends a single ``[0x44, 0, 0]`` packet.  The PSoC5 resets all
+        256 LUT entries to the identity (linear voltage, non-linear
+        power).  Use this when no calibration LUT is available.
+
+        Reference:
+            See sb/sb_pockels_lut_identity.m.
+        """
+        self._send_command(self.CMD_POCKELS_LUT_IDENTITY, 0, 0)
+
+    def set_pockels_lut(self, lut: list) -> None:
+        """Upload the 256-entry Pockels cell linearisation LUT to the PSoC5.
+
+        Sends one ``[0x43, idx, val]`` packet per entry (256 packets total).
+        The LUT maps each requested power level (0–255) to the DAC voltage
+        required to produce linearly-scaled laser output, compensating for
+        the Pockels cell's sinusoidal voltage-to-power response.
+
+        The LUT is 0-indexed (indices 0–255).  The original MATLAB
+        implementation uses 1-indexed arrays and sends indices 1–256
+        (``core/scanbox.m`` lines 269–273).  Python uses 0-indexed to
+        avoid uint8 overflow on the 256th entry.
+
+        Args:
+            lut: List of exactly 256 integers in the range 0–255.
+
+        Reference:
+            See sb/sb_pockels_lut.m: ``fwrite(sb, uint8([0x43, idx, val]))``.
+            Calibration procedure: ``core/pockels_920nm.m``.
+            Config key: ``pockels.lut`` in YAML config.
+
+        Raises:
+            ValueError: If lut does not have exactly 256 entries, or any
+                entry is outside 0–255.
+        """
+        if len(lut) != 256:
+            raise ValueError(
+                f'Pockels LUT must have exactly 256 entries, got {len(lut)}'
+            )
+        for idx, val in enumerate(lut):
+            if not (0 <= val <= 255):
+                raise ValueError(
+                    f'LUT entry {idx} must be 0-255, got {val}'
+                )
+            self._send_command(self.CMD_POCKELS_LUT_ENTRY, idx, val)
 
     # ------------------------------------------------------------------
     # TTL event reader

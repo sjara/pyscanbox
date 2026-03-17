@@ -100,12 +100,14 @@ class Board:
         # Raw hardware mode: generate pre-warped data at real buffer sizes.
         # Set via set_raw_mode() after set_frame_shape().
         self.raw_mode: bool = False
-        self.samples_per_line: int = 5000   # postTriggerSamples (real hardware)
-        self._pixel_lut: np.ndarray | None = None  # (pixels,) int32 base indices
+        self.samples_per_line: int = 5000       # postTriggerSamples unidirectional
+        self.samples_per_line_bidir: int = 9000  # postTriggerSamples bidirectional
+        self._pixel_lut: np.ndarray | None = None     # (pixels,) int32, unidirectional
+        self._pixel_lut_bi: np.ndarray | None = None  # (pixels+n_bwd,) int32, bidir
 
         # Bidirectional scan mode: odd lines are acquired right-to-left.
-        # When True, _prepare_test_frames*() reverses odd-line pixels in the
-        # packed buffer to faithfully simulate real hardware output.
+        # When True, _prepare_test_frames*() uses the bidir buffer layout
+        # (records_per_frame = lines//2, samples_per_record = samples_per_line_bidir).
         self.bidirectional: bool = False
 
         logger.info(f"Mock Alazar board initialized: System {system_id}, Board {board_id}")
@@ -211,36 +213,45 @@ class Board:
         logger.info("Mock Alazar frame shape set to %d x %d", lines_per_frame, pixels_per_line)
 
     def set_raw_mode(self, raw_mode: bool, samples_per_line: int,
-                     laser_freq: float, res_freq: float) -> None:
+                     laser_freq: float, res_freq: float,
+                     samples_per_line_bidir: int = 9000) -> None:
         """Configure raw acquisition mode to match real hardware buffer layout.
 
-        When ``raw_mode=True``, each buffer contains
+        When ``raw_mode=True``, unidirectional buffers contain
         ``lines_per_frame × samples_per_line × 2`` interleaved uint16 raw ADC
-        samples (channels A and B interleaved per sample, lines sequential).
-        Spot images are pre-warped using the inverse of the arccosine pixel LUT
-        so that after ``reshape_pmt_data()`` the spots appear at the correct
-        display positions.
+        samples; bidirectional buffers contain
+        ``(lines_per_frame // 2) × samples_per_line_bidir × 2`` samples (one
+        record per full resonant cycle covering both sweeps).
 
         Must be called **after** ``set_frame_shape()`` and **before**
         ``startCapture()``.
 
         Args:
             raw_mode: ``True`` to generate raw-format buffers.
-            samples_per_line: Raw ADC samples per scan line (e.g. 5000).
+            samples_per_line: Raw ADC samples per forward scan line (e.g. 5000).
             laser_freq: Laser repetition frequency in Hz (e.g. 80_180_000).
             res_freq: Resonant mirror frequency in Hz (e.g. 7930).
+            samples_per_line_bidir: Raw ADC samples per full resonant cycle
+                (forward + backward), used when bidirectional=True (e.g. 9000).
         """
         self.raw_mode = raw_mode
         self.samples_per_line = samples_per_line
+        self.samples_per_line_bidir = samples_per_line_bidir
         self._test_frames = None   # force regeneration on next call
 
         if raw_mode and self.frame_shape is not None:
-            from pyscanbox.acquisition.reshape import compute_pixel_lut
+            from pyscanbox.acquisition.reshape import compute_pixel_lut, compute_pixel_lut_bi
             pixels = self.frame_shape[1]
             self._pixel_lut = compute_pixel_lut(pixels, laser_freq, res_freq)
-            # Adjust buffer size to raw mode: lines × samples_per_line × channels
+            self._pixel_lut_bi = compute_pixel_lut_bi(
+                pixels, laser_freq, res_freq,
+                bidir_samples=samples_per_line_bidir,
+            )
             lines = self.frame_shape[0]
-            self.buffer_size_samples = lines * samples_per_line * 2
+            if self.bidirectional:
+                self.buffer_size_samples = (lines // 2) * samples_per_line_bidir * 2
+            else:
+                self.buffer_size_samples = lines * samples_per_line * 2
             # Pre-compute test frames now so the generation thread doesn't stall
             # on the first buffer request.
             self._prepare_test_frames_raw()
@@ -250,25 +261,28 @@ class Board:
             )
         else:
             self._pixel_lut = None
+            self._pixel_lut_bi = None
             # Re-compute shaped test frames if frame_shape is already known,
             # so a switch back to non-raw mode is reflected immediately.
             if not raw_mode and self.frame_shape is not None:
                 self._prepare_test_frames()
 
         logger.info(
-            "Mock Alazar raw mode %s (samples_per_line=%d)",
+            "Mock Alazar raw mode %s (samples_per_line=%d, samples_per_line_bidir=%d)",
             "enabled" if raw_mode else "disabled",
             samples_per_line,
+            samples_per_line_bidir,
         )
 
     def set_scan_mode(self, bidirectional: bool) -> None:
         """Configure bidirectional scan mode for test frame generation.
 
-        In bidirectional mode, odd scan lines are acquired right-to-left
-        (backward sweep), so their pixels arrive in reversed order in the
-        hardware buffer.  Setting this flag causes the pre-computed test
-        frames to faithfully replicate that reversed layout so that
-        ``apply_bidirectional_correction()`` can recover a correct image.
+        In bidirectional mode each DMA record spans a full resonant cycle
+        (``samples_per_line_bidir`` samples) and the frame has
+        ``lines_per_frame // 2`` records — a different buffer geometry from
+        unidirectional mode.  Updating this flag recalculates
+        ``buffer_size_samples`` so that ``_generate_synthetic_frame`` slices
+        the correct number of samples and the pre-allocated DMA buffers match.
 
         Must be called before ``startCapture()``.
 
@@ -279,6 +293,14 @@ class Board:
         if self.bidirectional != bidirectional:
             self.bidirectional = bidirectional
             self._test_frames = None  # force regeneration on next call
+            if self.raw_mode and self.frame_shape is not None:
+                lines = self.frame_shape[0]
+                if bidirectional:
+                    self.buffer_size_samples = (
+                        (lines // 2) * self.samples_per_line_bidir * 2
+                    )
+                else:
+                    self.buffer_size_samples = lines * self.samples_per_line * 2
         logger.info(
             "Mock Alazar scan mode: %s",
             "bidirectional" if bidirectional else "unidirectional",
@@ -603,30 +625,116 @@ class Board:
         Generates the same 15-neuron Gaussian-spot layout as
         ``_prepare_test_frames()``, but maps each display-space pixel value
         back to raw ADC sample space using the inverse of the arccosine pixel
-        LUT.  After passing through ``reshape_pmt_data_raw()`` the spots will
-        appear at the correct display positions.
+        LUT so that after ``reshape_pmt_data()`` / ``reshape_pmt_data_bi()``
+        the spots appear at the correct display positions.
 
-        Buffer layout: interleaved channels (chA, chB per sample), line-major,
-        with each sample left-shifted by 2 (14-bit value in bits 15:2).
-        Shape: ``(lines * samples_per_line * 2,)`` uint16.
+        **Unidirectional** (``bidirectional=False``):
+          Shape: ``(lines × samples_per_line × 2,)`` uint16.
 
-        Note: PMT signals are inverted - high values = no light (dark),
-        low values = bright signal. Neurons appear as dips below baseline.
+        **Bidirectional** (``bidirectional=True``):
+          Each DMA record covers one full resonant cycle (forward + backward).
+          Shape: ``((lines // 2) × samples_per_line_bidir × 2,)`` uint16.
+          Uses ``_pixel_lut_bi`` for correct forward+backward pixel placements.
+
+        Note: PMT signals are inverted — high values = dark, low = bright.
         """
         lines, pixels = self.frame_shape
-        n_samp = self.samples_per_line
         n = self._n_test_frames
         rng = np.random.default_rng(42)   # same seed as _prepare_test_frames
 
         n_neurons = 15
         ny = rng.integers(2, max(3, lines  - 2), n_neurons).astype(np.float32)
         nx = rng.integers(2, max(3, pixels - 2), n_neurons).astype(np.float32)
-        # Signal strength: how much the signal dips below baseline (inverted PMT)
         signal_strength = rng.uniform(8000, 16383, n_neurons).astype(np.float32)
         sigma = rng.uniform(8, 20, n_neurons).astype(np.float32)
 
         yy = np.arange(lines,  dtype=np.float32)
         xx = np.arange(pixels, dtype=np.float32)
+
+        # ------------------------------------------------------------------ #
+        # BIDIRECTIONAL path                                                   #
+        # Each record spans a full resonant cycle → different buffer geometry. #
+        # ------------------------------------------------------------------ #
+        if self.bidirectional and self._pixel_lut_bi is not None:
+            records = lines // 2
+            n_samp  = self.samples_per_line_bidir
+            lut_bi  = self._pixel_lut_bi.astype(np.int64)
+            n_bwd   = len(lut_bi) - pixels
+
+            # Forward LUT: lut_bi[0:pixels] → sample indices in [0, n_samp)
+            fwd_lut = lut_bi[:pixels]
+            fwd_valid = (fwd_lut >= 0) & (fwd_lut + 3 < n_samp)
+            fwd_valid_px   = np.where(fwd_valid)[0]
+            fwd_valid_samp = fwd_lut[fwd_valid]
+
+            # Backward LUT: lut_bi[pixels:] → sample indices in [n_samp/2, n_samp)
+            # reshape_pmt_data_bi maps lut_bi[pixels+bx] → output pixel (pixels-1-bx)
+            bwd_lut = lut_bi[pixels:]
+            bwd_valid = (bwd_lut >= 0) & (bwd_lut + 3 < n_samp)
+            bwd_valid_bx   = np.where(bwd_valid)[0]
+            bwd_valid_samp = bwd_lut[bwd_valid]
+            bwd_display_px = pixels - 1 - bwd_valid_bx  # display pixel column
+
+            frames = []
+            for f in range(n):
+                imgs = np.full((2, lines, pixels), 16383.0, dtype=np.float32)
+                imgs += rng.normal(0, _BACKGROUND_NOISE_SIGMA,
+                                   imgs.shape).astype(np.float32)
+                for i in range(n_neurons):
+                    dy2 = (yy - ny[i]) ** 2
+                    dx2 = (xx - nx[i]) ** 2
+                    gauss = np.outer(
+                        np.exp(-dy2 / (2 * sigma[i] ** 2)),
+                        np.exp(-dx2 / (2 * sigma[i] ** 2)),
+                    )
+                    phase = 2 * np.pi * f / n + i * 0.7
+                    activity = 0.7 + 0.3 * np.sin(phase)
+                    imgs[0] -= signal_strength[i] * activity * gauss
+                    imgs[1] -= signal_strength[i] * activity * gauss
+                imgs = np.clip(imgs, 0, 16383)
+
+                bg = 16383.0
+                raw_ch0 = np.full((records, n_samp), bg, dtype=np.float32)
+                raw_ch1 = np.full((records, n_samp), bg, dtype=np.float32)
+
+                # Forward sweep: even display lines (0, 2, 4, …)
+                # imgs[ch, 0::2, fwd_valid_px] → raw_ch[ch, :, fwd_valid_samp]
+                raw_ch0[:, fwd_valid_samp] = imgs[0, 0::2, :][:, fwd_valid_px]
+                raw_ch1[:, fwd_valid_samp] = imgs[1, 0::2, :][:, fwd_valid_px]
+
+                # Backward sweep: odd display lines (1, 3, 5, …)
+                # reshape_pmt_data_bi maps bwd sample → reversed column order,
+                # so place display pixel bwd_display_px at bwd_valid_samp.
+                raw_ch0[:, bwd_valid_samp] = imgs[0, 1::2, :][:, bwd_display_px]
+                raw_ch1[:, bwd_valid_samp] = imgs[1, 1::2, :][:, bwd_display_px]
+
+                raw_ch0 += rng.normal(0, _BACKGROUND_NOISE_SIGMA,
+                                      raw_ch0.shape).astype(np.float32)
+                raw_ch1 += rng.normal(0, _BACKGROUND_NOISE_SIGMA,
+                                      raw_ch1.shape).astype(np.float32)
+                raw_ch0 = np.clip(raw_ch0, 0, 16383)
+                raw_ch1 = np.clip(raw_ch1, 0, 16383)
+
+                # Pack: [chA_s0_r0, chB_s0_r0, chA_s1_r0, …, chA_sN_rR, chB_sN_rR]
+                packed = np.empty(records * n_samp * 2, dtype=np.uint16)
+                packed[0::2] = raw_ch0.ravel().astype(np.uint16) << 2
+                packed[1::2] = raw_ch1.ravel().astype(np.uint16) << 2
+                if self.frame_sync_enabled:
+                    packed[0] |= np.uint16(0x0001)
+                frames.append(packed)
+
+            self._test_frames = frames
+            logger.info(
+                "Mock Alazar: prepared %d bidir raw test frames "
+                "(%d records × %d samples, %d neurons)",
+                n, records, n_samp, n_neurons,
+            )
+            return
+
+        # ------------------------------------------------------------------ #
+        # UNIDIRECTIONAL path                                                  #
+        # ------------------------------------------------------------------ #
+        n_samp = self.samples_per_line
 
         # Build a vectorised reverse map: raw_sample_index → display_pixel_index.
         # Each pixel occupies 4 consecutive raw samples starting at lut_base[px].
@@ -640,54 +748,40 @@ class Board:
                         sample_to_pixel[s] = px
 
         valid_mask    = sample_to_pixel >= 0
-        valid_samples = np.where(valid_mask)[0]          # raw sample indices
-        mapped_pixels = sample_to_pixel[valid_mask]      # corresponding pixel
+        valid_samples = np.where(valid_mask)[0]     # raw sample indices
+        mapped_pixels = sample_to_pixel[valid_mask] # corresponding pixel
 
         frames = []
         for f in range(n):
-            # Start with full-dark baseline (inverted PMT: high = dark)
             imgs = np.full((2, lines, pixels), 16383.0, dtype=np.float32)
-            imgs += rng.normal(0, _BACKGROUND_NOISE_SIGMA, imgs.shape).astype(np.float32)
-
+            imgs += rng.normal(0, _BACKGROUND_NOISE_SIGMA,
+                               imgs.shape).astype(np.float32)
             for i in range(n_neurons):
                 dy2 = (yy - ny[i]) ** 2
                 dx2 = (xx - nx[i]) ** 2
-                gauss = np.outer(np.exp(-dy2 / (2 * sigma[i] ** 2)),
-                                 np.exp(-dx2 / (2 * sigma[i] ** 2)))
+                gauss = np.outer(
+                    np.exp(-dy2 / (2 * sigma[i] ** 2)),
+                    np.exp(-dx2 / (2 * sigma[i] ** 2)),
+                )
                 phase = 2 * np.pi * f / n + i * 0.7
                 activity = 0.7 + 0.3 * np.sin(phase)
-                # Subtract signal (bright spots are dips in PMT signal)
                 imgs[0] -= signal_strength[i] * activity * gauss
                 imgs[1] -= signal_strength[i] * activity * gauss
-
             imgs = np.clip(imgs, 0, 16383)
 
-            # Map display pixels → raw sample positions (vectorised).
-            # Uninitialised raw samples get full-dark baseline (inverted PMT).
             bg = 16383.0
             raw_ch0 = np.full((lines, n_samp), bg, dtype=np.float32)
             raw_ch1 = np.full((lines, n_samp), bg, dtype=np.float32)
-            # In bidirectional mode, odd (backward) scan lines are acquired
-            # right-to-left: raw sample lut[px] corresponds to display pixel
-            # (pixels-1-px) instead of px.  Use reversed pixel indices for
-            # odd lines so the raw buffer matches real hardware output.
-            if self.bidirectional:
-                rev_pixels = pixels - 1 - mapped_pixels
-                raw_ch0[0::2, valid_samples] = imgs[0, 0::2, :][:, mapped_pixels]
-                raw_ch1[0::2, valid_samples] = imgs[1, 0::2, :][:, mapped_pixels]
-                raw_ch0[1::2, valid_samples] = imgs[0, 1::2, :][:, rev_pixels]
-                raw_ch1[1::2, valid_samples] = imgs[1, 1::2, :][:, rev_pixels]
-            else:
-                raw_ch0[:, valid_samples] = imgs[0][:, mapped_pixels]
-                raw_ch1[:, valid_samples] = imgs[1][:, mapped_pixels]
+            raw_ch0[:, valid_samples] = imgs[0][:, mapped_pixels]
+            raw_ch1[:, valid_samples] = imgs[1][:, mapped_pixels]
 
-            # Add noise to fill sparse gaps between LUT samples.
-            raw_ch0 += rng.normal(0, _BACKGROUND_NOISE_SIGMA, raw_ch0.shape).astype(np.float32)
-            raw_ch1 += rng.normal(0, _BACKGROUND_NOISE_SIGMA, raw_ch1.shape).astype(np.float32)
+            raw_ch0 += rng.normal(0, _BACKGROUND_NOISE_SIGMA,
+                                  raw_ch0.shape).astype(np.float32)
+            raw_ch1 += rng.normal(0, _BACKGROUND_NOISE_SIGMA,
+                                  raw_ch1.shape).astype(np.float32)
             raw_ch0 = np.clip(raw_ch0, 0, 16383)
             raw_ch1 = np.clip(raw_ch1, 0, 16383)
 
-            # Pack into Alazar wire format: interleaved channels, line-major.
             packed = np.empty(lines * n_samp * 2, dtype=np.uint16)
             packed[0::2] = raw_ch0.ravel().astype(np.uint16) << 2
             packed[1::2] = raw_ch1.ravel().astype(np.uint16) << 2

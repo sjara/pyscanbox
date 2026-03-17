@@ -24,8 +24,9 @@ from typing import Optional
 
 import PyQt6.QtCore as QtCore
 
+from pyscanbox.calibration import bidir as bidir_calibration
+from pyscanbox.calibration import etl as etl_calibration
 from pyscanbox.hardware import controller as hw_controller
-from pyscanbox.hardware import etl_calibration
 from pyscanbox.hardware import knobby as hw_knobby
 from pyscanbox.hardware import motor as hw_motor
 from pyscanbox.acquisition import scan as acq_scan
@@ -195,8 +196,12 @@ class AppController(QtCore.QObject):
     acquisition_finished = QtCore.pyqtSignal()
     frame_data_ready = QtCore.pyqtSignal(object)  # carries np.ndarray
     command_logged = QtCore.pyqtSignal(str)  # carries HTML-formatted log entry
+    #: Emitted each frame during calibration: (frames_done, frames_needed).
+    bidir_calibration_progress = QtCore.pyqtSignal(int, int)
+    #: Emitted when calibration completes: (mag_index, measured_shift).
+    bidir_calibration_done = QtCore.pyqtSignal(int, int)
 
-    def __init__(self, config: dict, parent=None):
+    def __init__(self, config: dict, config_path: str | None = None, parent=None):
         """Initialize the application controller.
 
         Hardware objects are created here but not yet connected.
@@ -204,11 +209,16 @@ class AppController(QtCore.QObject):
 
         Args:
             config: Configuration dictionary (e.g. from ScanboxConfig.to_dict()).
+            config_path: Path to the active YAML config file.  When provided,
+                bidirectional calibration is loaded from ``bidir_cal.json`` in
+                the same directory and saved there after each calibration run.
+                If ``None``, calibration results are held in memory only.
             parent: Optional Qt parent object.
         """
         super().__init__(parent)
         self.config = config
         self.is_open = False
+        self._config_path: str | None = config_path
 
         # Hardware objects (not yet connected).
         self._hw_controller = hw_controller.ScanboxController(
@@ -251,6 +261,12 @@ class AppController(QtCore.QObject):
         # ETL calibration: 3-element numpy array of polynomial coefficients
         # [a, b, c] loaded from etl_cal.json on open(), or None if absent.
         self._etl_calibration = None
+
+        # Bidirectional scan calibration object.  Created in open() when
+        # config_path is known; None otherwise.
+        self._bidir_cal: bidir_calibration.BidirCalibration | None = None
+        # True while a calibration run is in progress.
+        self._bidir_cal_active: bool = False
 
         # Timer for periodic Knobby position polling.
         self._poll_timer = QtCore.QTimer(self)
@@ -302,6 +318,16 @@ class AppController(QtCore.QObject):
             self._log_event(
                 f'Motor connected ({self._motor.com_port})'
             )
+            # Apply per-motor freewheeling from config (TMCL SAP 204).
+            motor_cfg = self.config.get('motor', {})
+            freewheel = [
+                motor_cfg.get('freewheel_z', False),
+                motor_cfg.get('freewheel_y', False),
+                motor_cfg.get('freewheel_x', False),
+                motor_cfg.get('freewheel_a', False),
+            ]
+            for motor_id, enabled in enumerate(freewheel):
+                self._motor.set_freewheel(motor_id, bool(enabled))
             # Seed desired_steps and origin reference from actual hardware
             # positions so the first move_absolute() targets a sensible value.
             for motor_id in range(4):
@@ -327,6 +353,22 @@ class AppController(QtCore.QObject):
             logger.info(
                 "No ETL calibration at %s; depth label shows raw current",
                 cal_path,
+            )
+
+        # Load bidirectional calibration and populate config['acquisition']['bishift']
+        # so the running Scanner picks up the stored values immediately.
+        if self._config_path is not None:
+            self._bidir_cal = bidir_calibration.BidirCalibration(self._config_path)
+            acq = self.config.setdefault('acquisition', {})
+            acq.setdefault('bishift', [0] * bidir_calibration.NUM_MAGNIFICATIONS)
+            stored = self._bidir_cal.shifts
+            for i, shift in enumerate(stored):
+                acq['bishift'][i] = shift
+            logger.info(
+                'Bidir calibration loaded from %s', self._bidir_cal.calib_path
+            )
+            self._log_event(
+                f'Bidir calibration loaded ({self._bidir_cal.calib_path})'
             )
 
         self.is_open = True
@@ -392,6 +434,139 @@ class AppController(QtCore.QObject):
         self.is_open = False
         logger.info("AppController: hardware closed.")
         self._log_event('Hardware disconnected')
+
+    # ------------------------------------------------------------------
+    # Per-device connect / disconnect
+    # ------------------------------------------------------------------
+
+    def open_controller(self) -> None:
+        """Open only the ScanboxController and run the PSoC5 init sequence.
+
+        Starts the position-poll timer and sets ``is_open = True`` so that
+        all hardware commands become available.  Call this to reconnect the
+        controller without disturbing the Knobby or motor connection.
+
+        Raises:
+            RuntimeError: If the ScanboxController connection fails.
+        """
+        try:
+            self._hw_controller.open()
+            self._log_event(
+                f'Controller connected ({self._hw_controller.com_port})'
+            )
+        except Exception as exc:
+            msg = f"Could not open ScanboxController: {exc}"
+            logger.error(msg)
+            self.hardware_error.emit(msg)
+            raise RuntimeError(msg) from exc
+
+        self.is_open = True
+        if not self._poll_timer.isActive():
+            self._poll_timer.start()
+
+        unidirectional = self.config.get('acquisition', {}).get('unidirectional', True)
+        try:
+            self._hw_controller.set_scan_mode(bidirectional=not unidirectional)
+        except Exception as exc:
+            msg = f"Could not set initial scan mode: {exc}"
+            logger.error(msg)
+            self.hardware_error.emit(msg)
+
+        deadband = self.config.get('scanner', {}).get('deadband', None)
+        if deadband is not None:
+            try:
+                self._hw_controller.set_pockels_deadband(int(deadband[0]), int(deadband[1]))
+            except Exception as exc:
+                msg = f"Could not set Pockels deadband: {exc}"
+                logger.error(msg)
+                self.hardware_error.emit(msg)
+
+        logger.info("AppController: controller connected.")
+
+    def close_controller(self) -> None:
+        """Zero laser/PMT outputs, then disconnect the ScanboxController.
+
+        Sets ``is_open = False`` and stops the position-poll timer.  Knobby
+        and motor connections are left unchanged.
+        """
+        if not self._hw_controller.is_open:
+            return
+
+        self._poll_timer.stop()
+        try:
+            self._hw_controller.set_pmt_gain(0, 0)
+            self._hw_controller.set_pmt_gain(1, 0)
+            self._hw_controller.set_pockels(base=0, active=0)
+        except Exception:
+            pass  # best-effort; do not block disconnect
+        self._hw_controller.close()
+        self.is_open = False
+        logger.info("AppController: controller disconnected.")
+        self._log_event('Controller disconnected')
+
+    def open_knobby(self) -> None:
+        """Open only the Knobby position controller.
+
+        Non-fatal: failures emit ``hardware_error`` but do not raise.
+        """
+        try:
+            self._knobby.open()
+            self._log_event(
+                f'Knobby connected ({self._knobby.com_port})'
+            )
+            logger.info("AppController: Knobby connected.")
+        except Exception as exc:
+            msg = f"Could not open Knobby: {exc}"
+            logger.warning(msg)
+            self.hardware_error.emit(msg)
+
+    def close_knobby(self) -> None:
+        """Disconnect the Knobby position controller."""
+        if not self._knobby.is_open:
+            return
+        self._knobby.close()
+        logger.info("AppController: Knobby disconnected.")
+        self._log_event('Knobby disconnected')
+
+    def open_motor(self) -> None:
+        """Open only the Trinamic motor controller.
+
+        Applies the per-motor freewheeling configuration from ``config`` and
+        seeds the desired-steps tracker from current hardware positions.
+        Non-fatal: failures emit ``hardware_error`` but do not raise.
+        """
+        try:
+            self._motor.open()
+            self._log_event(
+                f'Motor connected ({self._motor.com_port})'
+            )
+            motor_cfg = self.config.get('motor', {})
+            freewheel = [
+                motor_cfg.get('freewheel_z', False),
+                motor_cfg.get('freewheel_y', False),
+                motor_cfg.get('freewheel_x', False),
+                motor_cfg.get('freewheel_a', False),
+            ]
+            for motor_id, enabled in enumerate(freewheel):
+                self._motor.set_freewheel(motor_id, bool(enabled))
+            for motor_id in range(4):
+                pos = self._motor.get_position(motor_id)
+                steps = pos if pos is not None else 0
+                self._motor_origin_steps[motor_id] = steps
+                self._desired_steps[motor_id] = steps
+            logger.info("AppController: motor connected.")
+        except Exception as exc:
+            msg = f"Could not open motor controller: {exc}"
+            logger.warning(msg)
+            self.hardware_error.emit(msg)
+
+    def close_motor(self) -> None:
+        """Disconnect the Trinamic motor controller."""
+        if not self._motor.is_open:
+            return
+        self._motor.close()
+        logger.info("AppController: motor disconnected.")
+        self._log_event('Motor disconnected')
 
     # ------------------------------------------------------------------
     # Laser / Pockels cell
@@ -592,6 +767,102 @@ class AppController(QtCore.QObject):
         logger.debug("Bishift[%d] set to %d", mag_index, shift)
 
     # ------------------------------------------------------------------
+    # Bidirectional calibration
+    # ------------------------------------------------------------------
+
+    def start_bidir_calibration(self) -> None:
+        """Begin bidirectional pixel-shift calibration for the current magnification.
+
+        Resets the bishift to 0 for the current magnification (so the raw
+        scanner timing offset is visible), then connects to the live frame
+        stream and accumulates an exponential rolling average (tau = 5 frames).
+        After :attr:`~bidir_calibration.BidirCalibration.frames_needed` frames
+        the shift is measured automatically, stored, and saved to
+        ``bidir_cal.json``.  Progress is reported via
+        :attr:`bidir_calibration_progress`; completion via
+        :attr:`bidir_calibration_done`.
+
+        Raises:
+            RuntimeError: If the system is not currently in bidirectional mode.
+        """
+        if self._bidir_cal_active:
+            logger.warning('Bidir calibration already in progress.')
+            return
+
+        unidirectional = self.config.get('acquisition', {}).get('unidirectional', True)
+        if unidirectional:
+            raise RuntimeError(
+                'Switch to bidirectional mode before running calibration.'
+            )
+
+        if self._bidir_cal is None:
+            # No config_path was given; create an in-memory-only calibration.
+            logger.warning(
+                'No config_path set — calibration results will NOT be saved to disk.'
+            )
+            import tempfile
+            tmp = tempfile.NamedTemporaryFile(
+                suffix='.yaml', delete=False
+            )
+            tmp.close()
+            self._bidir_cal = bidir_calibration.BidirCalibration(tmp.name)
+
+        mag_index = self.config.get('acquisition', {}).get('magnification', 0)
+        logger.info(
+            'Starting bidir calibration for magnification index %d', mag_index
+        )
+
+        # Zero out the current magnification's bishift so the raw offset is
+        # visible during frame collection.
+        self.set_bishift(0)
+
+        self._bidir_cal.reset()
+        self._bidir_cal_active = True
+        self.frame_data_ready.connect(self._on_bidir_calibration_frame)
+
+    def stop_bidir_calibration(self) -> None:
+        """Cancel an in-progress bidirectional calibration without saving."""
+        if not self._bidir_cal_active:
+            return
+        self._bidir_cal_active = False
+        try:
+            self.frame_data_ready.disconnect(self._on_bidir_calibration_frame)
+        except (RuntimeError, TypeError):
+            pass
+        logger.info('Bidir calibration cancelled.')
+
+    def _on_bidir_calibration_frame(self, frame) -> None:
+        """Internal slot: feed one live frame into the calibration accumulator."""
+        if not self._bidir_cal_active:
+            return
+        # Use PMT channel 0 only; frame shape is (2, lines, pixels).
+        channel0 = frame[0] if getattr(frame, 'ndim', 1) == 3 else frame
+        self._bidir_cal.add_frame(channel0)
+
+        done = self._bidir_cal.frame_count
+        needed = self._bidir_cal.frames_needed
+        self.bidir_calibration_progress.emit(done, needed)
+
+        if self._bidir_cal.is_converged:
+            self._bidir_cal_active = False
+            try:
+                self.frame_data_ready.disconnect(self._on_bidir_calibration_frame)
+            except (RuntimeError, TypeError):
+                pass
+
+            mag_index = self.config.get('acquisition', {}).get('magnification', 0)
+            shift = self._bidir_cal.calibrate_magnification(mag_index)
+            self._bidir_cal.save()
+            self.set_bishift(shift)
+            self.bidir_calibration_done.emit(mag_index, shift)
+            self._log_event(
+                f'Bidir calibration done: mag={mag_index}, bishift={shift}'
+            )
+            logger.info(
+                'Bidir calibration complete: mag=%d, shift=%d', mag_index, shift
+            )
+
+    # ------------------------------------------------------------------
     # ETL / Optotune
     # ------------------------------------------------------------------
 
@@ -633,6 +904,47 @@ class AppController(QtCore.QObject):
             Depth in microns as an ``int``, or ``None`` if uncalibrated.
         """
         return etl_calibration.etl_to_depth(current, self._etl_calibration)
+
+    # ------------------------------------------------------------------
+    # Pockels cell LUT upload
+    # ------------------------------------------------------------------
+
+    def upload_pockels_lut(self, lut: list) -> None:
+        """Upload a 256-entry Pockels cell linearisation LUT to the PSoC5.
+
+        Sends 256 ``[0x43, idx, val]`` packets to the PSoC5 controller so
+        that every subsequent active-power DAC value is linearised by the
+        hardware.  Also stores the new LUT in ``config['pockels']['lut']``
+        so it is re-uploaded automatically on the next scan start
+        (``Scanner.initialize_pockels_lut()``).
+
+        Args:
+            lut: List of exactly 256 integers in the range 0–255.
+
+        Raises:
+            RuntimeError: If hardware is not open.
+            ValueError: If *lut* does not have exactly 256 entries or any
+                entry is outside 0–255.
+        """
+        if not self.is_open:
+            raise RuntimeError("AppController is not open. Call open() first.")
+
+        try:
+            self._hw_controller.set_pockels_lut(lut)
+        except Exception as exc:
+            msg = f"upload_pockels_lut failed: {exc}"
+            logger.error(msg)
+            self.hardware_error.emit(msg)
+            raise
+
+        # Persist in config so Scanner re-uploads on the next acquisition start.
+        self.config.setdefault('pockels', {})['lut'] = [int(v) for v in lut]
+        self.config['pockels']['lut_enabled'] = True
+
+        self._log_event(
+            f'Pockels LUT uploaded ({len(lut)} entries)'
+        )
+        logger.info('Pockels LUT uploaded (%d entries).', len(lut))
 
     # ------------------------------------------------------------------
     # Angle motor
