@@ -6,7 +6,15 @@ All notable changes to this project are documented here. This file is append-onl
 
 ---
 
-## v0.8.0 - March 17, 2026 (Current)
+## v0.9.0 - March 17, 2026 (Current)
+- **Focus stacking / volumetric scanning GUI (Milestone 2.4)**
+  - `ScanboxController`: four new ETL waveform commands — `CMD_OPTOWAVE_ENTRY` (21), `CMD_OPTOPERIOD` (22), `CMD_OPTOTUNE_ACTIVE` (23), `CMD_OPTOWAVE_RESET` (24) — mirroring MATLAB `sb_optowave.m`, `sb_optoperiod.m`, `sb_optotune_active.m`, `sb_optowave_init.m`
+  - `ScanboxController.upload_etl_waveform(values)`: resets table, uploads 1–255 ETL entries, sets period; `set_etl_waveform_active(active)`: enables/disables autonomous PSoC5 waveform cycling
+  - `AppController.upload_focus_stack(top, bottom, n_planes, frames_per_plane)`: generates equally-spaced step waveform and uploads to PSoC5
+  - `AppController.enable_focus_stack(active)`: enables/disables waveform cycling; disabling restores direct ETL control
+  - `OptotuneGroup` widget extended with "Focus Stacking" section: Set Top / Set Bottom capture buttons, Planes spinbox, Frames/plane spinbox, derived step-size label (µm when ETL calibration is loaded), table-size info label, Enable checkbox; ETL slider disabled while focus stack is active
+
+## v0.8.0 - March 17, 2026
 - **Pockels cell calibration module (Milestone 2.7)**
   - New `pyscanbox/calibration/pockels.py`: fits `P = A·sin(V·k)²` curve to power-meter measurements, generates 256-entry linearisation LUT via `scipy.optimize.curve_fit + arcsin inversion`; validated against MATLAB `pockels_920nm.m` (A=1537.4 mW, k=1.098 rad/V)
   - New `pyscanbox/gui/pockels_cal_dialog.py`: non-modal `PockelsCalibrationDialog` with measurement table, Fit button, dual-panel matplotlib preview (graceful degradation without matplotlib), Upload / Save / Load actions

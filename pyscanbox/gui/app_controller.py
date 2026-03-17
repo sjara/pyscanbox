@@ -891,6 +891,95 @@ class AppController(QtCore.QObject):
             logger.error(msg)
             self.hardware_error.emit(msg)
 
+    def upload_focus_stack(
+        self,
+        top: int,
+        bottom: int,
+        n_planes: int,
+        frames_per_plane: int,
+    ) -> None:
+        """Compute and upload a step-waveform focus-stacking table.
+
+        Generates ``n_planes`` equally-spaced ETL current values between
+        ``top`` and ``bottom``, each repeated ``frames_per_plane`` times,
+        and uploads the resulting table to the PSoC5 via
+        ``upload_etl_waveform()``.  The PSoC5 will advance through the
+        table one entry per frame trigger once ``enable_focus_stack(True)``
+        is called.
+
+        Constraint: ``n_planes × frames_per_plane ≤ 255`` (PSoC5 period
+        register is one byte).
+
+        Args:
+            top: ETL current at the top (nearest) imaging plane (0–1760).
+            bottom: ETL current at the bottom (furthest) imaging plane.
+            n_planes: Number of depth planes.
+            frames_per_plane: Frames to acquire at each plane before
+                stepping to the next.
+
+        Raises:
+            RuntimeError: If hardware is not open.
+            ValueError: If the table would exceed 255 entries, or any ETL
+                value is out of range.
+        """
+        if not self.is_open:
+            raise RuntimeError("AppController is not open. Call open() first.")
+
+        total = n_planes * frames_per_plane
+        if total > 255:
+            raise ValueError(
+                f'Focus stack table too large: {n_planes} planes × '
+                f'{frames_per_plane} frames = {total} entries (max 255)'
+            )
+
+        import numpy as np
+        etl_vals = np.round(np.linspace(top, bottom, n_planes)).astype(int).tolist()
+        waveform = [v for v in etl_vals for _ in range(frames_per_plane)]
+
+        try:
+            self._hw_controller.upload_etl_waveform(waveform)
+            self._log_event(
+                f'Focus stack uploaded: {n_planes} planes × '
+                f'{frames_per_plane} frames/plane '
+                f'(ETL {top}\u2192{bottom}, {total} entries)'
+            )
+            logger.info(
+                "Focus stack uploaded: %d planes × %d frames, ETL %d→%d",
+                n_planes, frames_per_plane, top, bottom,
+            )
+        except Exception as exc:
+            msg = f"upload_focus_stack failed: {exc}"
+            logger.error(msg)
+            self.hardware_error.emit(msg)
+            raise
+
+    def enable_focus_stack(self, active: bool) -> None:
+        """Enable or disable autonomous ETL waveform cycling on the PSoC5.
+
+        When enabled the PSoC5 advances through the uploaded waveform on
+        every frame trigger.  When disabled the ETL returns to direct
+        manual control via ``set_etl_current()``.
+
+        Args:
+            active: True to start cycling, False to stop.
+
+        Raises:
+            RuntimeError: If hardware is not open.
+        """
+        if not self.is_open:
+            raise RuntimeError("AppController is not open. Call open() first.")
+
+        try:
+            self._hw_controller.set_etl_waveform_active(active)
+            state = 'enabled' if active else 'disabled'
+            self._log_event(f'Focus stack {state}')
+            logger.info("Focus stack %s", state)
+        except Exception as exc:
+            msg = f"enable_focus_stack failed: {exc}"
+            logger.error(msg)
+            self.hardware_error.emit(msg)
+            raise
+
     def etl_to_depth(self, current: int) -> Optional[int]:
         """Convert an ETL current value to focal depth in microns.
 

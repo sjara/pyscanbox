@@ -110,6 +110,10 @@ class ScanboxController:
     CMD_BIDIRECTIONAL = 34   # Set PSoC5 to trigger on both forward and return sweeps
     CMD_POCKELS_RANGE = 13         # [13, vdac, pga] — set DAC/PGA range
     CMD_ETL = 48  # Electrically tunable lens (Optotune) current
+    CMD_OPTOWAVE_ENTRY = 21   # [21, high, low] — write one entry to ETL waveform table (sb_optowave)
+    CMD_OPTOPERIOD = 22       # [22, period, 0] — set ETL waveform period in frames (sb_optoperiod)
+    CMD_OPTOTUNE_ACTIVE = 23  # [23, active, 0] — enable (1) / disable (0) ETL waveform (sb_optotune_active)
+    CMD_OPTOWAVE_RESET = 24   # [24, 0, 0] — reset waveform table index to 0 (sb_optowave_init)
     CMD_TTL_MASK = 64  # TTL interrupt mask (which external TTL inputs fire events)
     CMD_POCKELS_LUT_ENTRY = 0x43    # [0x43, idx, val] — set one LUT entry
     CMD_POCKELS_LUT_IDENTITY = 0x44 # [0x44, 0, 0] — reset LUT to identity
@@ -167,6 +171,10 @@ class ScanboxController:
         CMD_BIDIRECTIONAL: 'set_scan_mode',
         CMD_POCKELS_RANGE: 'set_pockels_range',
         CMD_ETL: 'set_etl_current',
+        CMD_OPTOWAVE_ENTRY: 'etl_waveform_entry',
+        CMD_OPTOPERIOD: 'set_etl_waveform_period',
+        CMD_OPTOTUNE_ACTIVE: 'set_etl_waveform_active',
+        CMD_OPTOWAVE_RESET: 'etl_waveform_reset',
         CMD_TTL_MASK: 'set_ttl_mask',
         CMD_POCKELS_LUT_ENTRY: 'set_pockels_lut_entry',
         CMD_POCKELS_LUT_IDENTITY: 'set_pockels_lut_identity',
@@ -242,6 +250,15 @@ class ScanboxController:
             # Decode 16-bit encoded value: bits 15-12 are always 0b0111
             current = ((param1 & 0x0F) << 8) | param2
             return f'set_etl_current(current={current})'
+        if cmd_id == ScanboxController.CMD_OPTOWAVE_ENTRY:
+            val = (param1 << 8) | param2
+            return f'etl_waveform_entry(value={val})'
+        if cmd_id == ScanboxController.CMD_OPTOPERIOD:
+            return f'set_etl_waveform_period(frames={param1})'
+        if cmd_id == ScanboxController.CMD_OPTOTUNE_ACTIVE:
+            return f'set_etl_waveform_active(active={bool(param1)})'
+        if cmd_id == ScanboxController.CMD_OPTOWAVE_RESET:
+            return 'etl_waveform_reset()'
         if cmd_id == ScanboxController.CMD_TTL_MASK:
             return f'set_ttl_mask(imask={param2})'
         if cmd_id == ScanboxController.CMD_POCKELS_RANGE:
@@ -291,6 +308,7 @@ class ScanboxController:
         self.scan_running = False
         self.pmt_gains = [0, 0]  # hardware gain values (0-255) for PMT0 and PMT1
         self.etl_current = 0  # ETL current (0-1760)
+        self.etl_waveform_active = False  # True when PSoC5 is cycling ETL waveform
         self.ttl_mask = 0  # interrupt mask (0=disabled)
         self.hsync_sign = 0  # horizontal sync polarity (0=normal, 1=flip)
         self.pockels_range = (1, 2)  # (vdac, pga) DAC/PGA range
@@ -643,6 +661,67 @@ class ScanboxController:
         b2 = encoded & 0xFF
         self._send_command(self.CMD_ETL, b1, b2)
         self.etl_current = current
+
+    def upload_etl_waveform(self, values: list) -> None:
+        """Upload a focus-stacking ETL waveform table to the PSoC5.
+
+        Resets the waveform table index (CMD_OPTOWAVE_RESET), then uploads
+        each ETL current value as one 3-byte packet (CMD_OPTOWAVE_ENTRY),
+        and finally sets the waveform period in frames (CMD_OPTOPERIOD).
+
+        The PSoC5 will cycle through the table automatically on each frame
+        trigger once ``set_etl_waveform_active(True)`` is called.  The table
+        represents a step waveform: each entry is held for exactly one frame.
+        To hold a position for N frames, repeat the same value N times.
+
+        Encoding (from ``sb/sb_optowave.m`` and ``sb/sb_optowave_init.m``)::
+
+            reset:  [24, 0, 0]
+            entry:  [21, high_byte, low_byte]  for each uint16 ETL value
+            period: [22, len(values), 0]
+
+        Args:
+            values: List of ETL current values (each 0–1760).  Length must
+                be 1–255 (PSoC5 period register is one byte).
+
+        Raises:
+            ValueError: If values is empty, longer than 255, or contains
+                out-of-range entries.
+        """
+        if not (1 <= len(values) <= 255):
+            raise ValueError(
+                f'ETL waveform must have 1–255 entries, got {len(values)}'
+            )
+        for i, v in enumerate(values):
+            if not (self.ETL_CURRENT_MIN <= v <= self.ETL_CURRENT_MAX):
+                raise ValueError(
+                    f'ETL waveform entry {i} out of range '
+                    f'({self.ETL_CURRENT_MIN}–{self.ETL_CURRENT_MAX}): {v}'
+                )
+
+        self._send_command(self.CMD_OPTOWAVE_RESET, 0, 0)
+        for v in values:
+            high = (v >> 8) & 0xFF
+            low = v & 0xFF
+            self._send_command(self.CMD_OPTOWAVE_ENTRY, high, low)
+        self._send_command(self.CMD_OPTOPERIOD, len(values), 0)
+
+    def set_etl_waveform_active(self, active: bool) -> None:
+        """Enable or disable autonomous ETL waveform cycling.
+
+        When active, the PSoC5 advances through the uploaded waveform table
+        on every frame trigger, producing the focus-stacking depth sequence.
+        When inactive, direct ``set_etl_current()`` commands control the lens.
+
+        Reference:
+            See ``sb/sb_optotune_active.m`` (sends ``[23, active, 0]``).
+
+        Args:
+            active: True to enable waveform cycling, False to disable.
+        """
+        self._send_command(self.CMD_OPTOTUNE_ACTIVE, 1 if active else 0, 0)
+        self.etl_waveform_active = active
+
     def set_ttl_mask(self, imask: int) -> None:
         """Set the interrupt mask that controls which TTL inputs fire events.
 

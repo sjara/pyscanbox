@@ -33,7 +33,7 @@ class MainWindow(QtWidgets.QMainWindow):
     # Default window geometry
     DEFAULT_WINDOW_X = 100
     DEFAULT_WINDOW_Y = 100
-    DEFAULT_WINDOW_WIDTH = 1200
+    DEFAULT_WINDOW_WIDTH = 1280
     DEFAULT_WINDOW_HEIGHT = 900
     
     # Default panel widths (for splitter)
@@ -587,6 +587,14 @@ class MainWindow(QtWidgets.QMainWindow):
         # Send the initial slider value so hardware matches the GUI at startup.
         self._on_etl_current_changed(optotune.etl_slider.value())
 
+        # Focus stacking controls
+        optotune.set_top_btn.clicked.connect(self._on_focus_stack_set_top)
+        optotune.set_bottom_btn.clicked.connect(self._on_focus_stack_set_bottom)
+        optotune.planes_spinbox.valueChanged.connect(self._update_focus_stack_info)
+        optotune.frames_spinbox.valueChanged.connect(self._update_focus_stack_info)
+        optotune.enable_checkbox.toggled.connect(self._on_focus_stack_enable)
+        self._update_focus_stack_info()
+
         # Acquisition buttons -> AppController
         acq.focus_button.clicked.connect(self._on_focus_clicked)
         acq.grab_button.clicked.connect(self._on_grab_clicked)
@@ -818,6 +826,146 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._ctrl.set_etl_current(current)
             except RuntimeError:
                 pass  # hardware not open yet; silently ignore
+
+    # ------------------------------------------------------------------
+    # Focus stacking
+    # ------------------------------------------------------------------
+
+    def _on_focus_stack_set_top(self) -> None:
+        """Capture the current ETL slider value as the top imaging plane."""
+        optotune = self._right_panel.optotune_group
+        current = optotune.etl_spinbox.value()
+        depth = (
+            self._ctrl.etl_to_depth(current)
+            if self._ctrl is not None
+            else None
+        )
+        label = f'{current} ({depth} \u00b5m)' if depth is not None else str(current)
+        optotune.set_top(current, label)
+        self._update_focus_stack_info()
+
+    def _on_focus_stack_set_bottom(self) -> None:
+        """Capture the current ETL slider value as the bottom imaging plane."""
+        optotune = self._right_panel.optotune_group
+        current = optotune.etl_spinbox.value()
+        depth = (
+            self._ctrl.etl_to_depth(current)
+            if self._ctrl is not None
+            else None
+        )
+        label = f'{current} ({depth} \u00b5m)' if depth is not None else str(current)
+        optotune.set_bottom(current, label)
+        self._update_focus_stack_info()
+
+    def _update_focus_stack_info(self, _unused=None) -> None:
+        """Refresh the derived step-size display in the focus stacking panel.
+
+        Computes the depth step between planes in µm (when ETL calibration
+        is available) and updates the step display label.  Also enforces the
+        255-entry constraint by clamping the Planes spinbox when the product
+        n_planes × frames_per_plane would exceed 255.
+        """
+        optotune = self._right_panel.optotune_group
+        top, bottom, n_planes, fpp = optotune.get_stack_params()
+
+        # Enforce PSoC5 table size limit: clamp Planes so total ≤ 255.
+        max_planes = max(1, 255 // fpp)
+        if n_planes > max_planes:
+            optotune.planes_spinbox.blockSignals(True)
+            optotune.planes_spinbox.setValue(max_planes)
+            optotune.planes_spinbox.blockSignals(False)
+            n_planes = max_planes
+
+        # Compute per-step depth if calibration is available.
+        if (
+            self._ctrl is not None
+            and top is not None
+            and bottom is not None
+            and n_planes > 1
+        ):
+            top_depth = self._ctrl.etl_to_depth(top)
+            bot_depth = self._ctrl.etl_to_depth(bottom)
+            if top_depth is not None and bot_depth is not None:
+                step_um = abs(bot_depth - top_depth) / (n_planes - 1)
+                optotune.update_step_display(f'\u2248 {step_um:.1f} \u00b5m')
+            else:
+                optotune.update_step_display('')
+        else:
+            optotune.update_step_display('')
+
+    def _on_focus_stack_enable(self, checked: bool) -> None:
+        """Upload and enable (or disable) the focus-stacking waveform.
+
+        When ``checked`` is True:
+        - Validates that top and bottom planes have been set and parameters
+          are in range.
+        - Uploads the step waveform to the PSoC5.
+        - Activates autonomous ETL cycling.
+        - Disables the ETL slider so it cannot interfere.
+
+        When ``checked`` is False:
+        - Deactivates waveform cycling.
+        - Re-enables the ETL slider and restores its current value.
+
+        Args:
+            checked: True when the Enable checkbox is checked.
+        """
+        optotune = self._right_panel.optotune_group
+        if self._ctrl is None:
+            optotune.enable_checkbox.blockSignals(True)
+            optotune.enable_checkbox.setChecked(False)
+            optotune.enable_checkbox.blockSignals(False)
+            return
+
+        if checked:
+            top, bottom, n_planes, fpp = optotune.get_stack_params()
+            if top is None or bottom is None:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    'Focus Stack',
+                    'Please set both the Top and Bottom ETL positions before enabling.',
+                )
+                optotune.enable_checkbox.blockSignals(True)
+                optotune.enable_checkbox.setChecked(False)
+                optotune.enable_checkbox.blockSignals(False)
+                return
+            total = n_planes * fpp
+            if total > 255:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    'Focus Stack',
+                    f'Table size {total} exceeds PSoC5 limit of 255 entries.\n'
+                    'Reduce the number of planes or frames per plane.',
+                )
+                optotune.enable_checkbox.blockSignals(True)
+                optotune.enable_checkbox.setChecked(False)
+                optotune.enable_checkbox.blockSignals(False)
+                return
+            try:
+                self._ctrl.upload_focus_stack(top, bottom, n_planes, fpp)
+                self._ctrl.enable_focus_stack(True)
+                optotune.set_etl_controls_enabled(False)
+                optotune.set_focus_stack_controls_enabled(False)
+                self.statusBar.showMessage(
+                    f'Focus stack enabled: {n_planes} planes × {fpp} frames/plane.'
+                )
+            except (RuntimeError, ValueError) as exc:
+                QtWidgets.QMessageBox.critical(
+                    self, 'Focus Stack', f'Could not enable focus stack:\n{exc}'
+                )
+                optotune.enable_checkbox.blockSignals(True)
+                optotune.enable_checkbox.setChecked(False)
+                optotune.enable_checkbox.blockSignals(False)
+        else:
+            try:
+                self._ctrl.enable_focus_stack(False)
+                # Restore direct ETL control at the current slider position.
+                self._ctrl.set_etl_current(optotune.etl_spinbox.value())
+            except RuntimeError:
+                pass
+            optotune.set_etl_controls_enabled(True)
+            optotune.set_focus_stack_controls_enabled(True)
+            self.statusBar.showMessage('Focus stack disabled.')
 
     def _on_pmt_gain_changed(self, pmt_id: int, percent: int):
         """Forward a PMT gain slider value to the hardware.

@@ -1954,6 +1954,7 @@ class OptotuneGroup(QtWidgets.QGroupBox):
     Contains:
     - ETL (electrotunable lens) slider + spinbox
     - Depth display label (shows raw current or µm when calibration loaded)
+    - Focus stacking controls: Top/Bottom capture, planes, frames/plane, Enable
     """
 
     def __init__(self, default_value=None):
@@ -1968,18 +1969,26 @@ class OptotuneGroup(QtWidgets.QGroupBox):
         if default_value is None:
             default_value = hw_controller.ScanboxController.ETL_CURRENT_MID
         self._default_value = default_value
+        # Focus stacking state — set by Set Top / Set Bottom buttons.
+        self.etl_top = None     # int | None
+        self.etl_bottom = None  # int | None
         self._init_ui()
 
     def _init_ui(self):
         """Initialize the UI components."""
-        layout = QtWidgets.QVBoxLayout()
+        main_layout = QtWidgets.QHBoxLayout()
+
+        # ------------------------------------------------------------------
+        # Left column: ETL current controls + Enable volumetric checkbox
+        # ------------------------------------------------------------------
+        left_layout = QtWidgets.QVBoxLayout()
 
         # ETL current — slider (coarse) + spinbox (fine), bidirectionally
         # linked.  Range from ScanboxController constants (single source of
         # truth); initial value from config (optotune.default_value).
         etl_min = hw_controller.ScanboxController.ETL_CURRENT_MIN
         etl_max = hw_controller.ScanboxController.ETL_CURRENT_MAX
-        layout.addWidget(QtWidgets.QLabel("ETL current"))
+        left_layout.addWidget(QtWidgets.QLabel("ETL current"))
 
         # Horizontal slider starting at the config default value.
         self.etl_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
@@ -1988,28 +1997,89 @@ class OptotuneGroup(QtWidgets.QGroupBox):
         self.etl_slider.setTickPosition(QtWidgets.QSlider.TickPosition.TicksBelow)
         self.etl_slider.setTickInterval((etl_max - etl_min) // 10)  # 10 ticks
         self.etl_slider.setMinimumWidth(120)
-        layout.addWidget(self.etl_slider)
+        left_layout.addWidget(self.etl_slider)
 
         # Spinbox for precise current entry
         self.etl_spinbox = QtWidgets.QSpinBox()
         self.etl_spinbox.setRange(etl_min, etl_max)
         self.etl_spinbox.setValue(self._default_value)
         self.etl_spinbox.setSuffix('')
-        layout.addWidget(self.etl_spinbox)
+        left_layout.addWidget(self.etl_spinbox)
 
         # Depth display: shows depth in µm (e.g. "42 µm") once a calibration
         # file is loaded; empty when no calibration is available (the raw ETL
         # value is already visible in the spinbox above).
         self.depth_label = QtWidgets.QLabel('')
         self.depth_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.depth_label)
+        left_layout.addWidget(self.depth_label)
 
         # Bidirectional link: slider ↔ spinbox
         self.etl_slider.valueChanged.connect(self.etl_spinbox.setValue)
         self.etl_spinbox.valueChanged.connect(self.etl_slider.setValue)
 
-        layout.addStretch()
-        self.setLayout(layout)
+        left_layout.addStretch()
+
+        main_layout.addLayout(left_layout)
+
+        # ------------------------------------------------------------------
+        # Right column: Focus stacking controls
+        # ------------------------------------------------------------------
+        right_layout = QtWidgets.QVBoxLayout()
+
+        # Grid layout aligns the spinboxes for Planes and Frames/plane in
+        # the same column as the Set buttons for Top/Bottom.
+        grid = QtWidgets.QGridLayout()
+        grid.setVerticalSpacing(4)
+        grid.setColumnStretch(0, 1)  # combined label column expands
+
+        # Top row: combined label (spans value col) + Set button
+        self.etl_top_label = QtWidgets.QLabel("Top:  \u2014")
+        grid.addWidget(self.etl_top_label, 0, 0)
+        self.set_top_btn = QtWidgets.QPushButton("Set")
+        self.set_top_btn.setFixedWidth(46)
+        grid.addWidget(self.set_top_btn, 0, 1)
+
+        # Bottom row: same pattern
+        self.etl_bottom_label = QtWidgets.QLabel("Bottom:  \u2014")
+        grid.addWidget(self.etl_bottom_label, 1, 0)
+        self.set_bottom_btn = QtWidgets.QPushButton("Set")
+        self.set_bottom_btn.setFixedWidth(46)
+        grid.addWidget(self.set_bottom_btn, 1, 1)
+
+        # Planes row: label (with step-size appended by update_step_display)
+        # + spinbox.  Both spinboxes share col 1 for vertical alignment.
+        self.planes_label = QtWidgets.QLabel("Planes:")
+        grid.addWidget(self.planes_label, 2, 0)
+        self.planes_spinbox = QtWidgets.QSpinBox()
+        self.planes_spinbox.setRange(2, 255)
+        self.planes_spinbox.setValue(10)
+        self.planes_spinbox.setFixedWidth(60)
+        grid.addWidget(self.planes_spinbox, 2, 1)
+
+        # Frames/plane row: spinbox aligned with Planes spinbox above
+        grid.addWidget(QtWidgets.QLabel("Frames/plane:"), 3, 0)
+        self.frames_spinbox = QtWidgets.QSpinBox()
+        self.frames_spinbox.setRange(1, 255)
+        self.frames_spinbox.setValue(5)
+        self.frames_spinbox.setFixedWidth(60)
+        grid.addWidget(self.frames_spinbox, 3, 1)
+
+        # Checkbox to send data to controller for volumetric acquisition.
+        # While checked, the spinboxes and Set buttons are disabled to prevent
+        # silent parameter drift — the user must uncheck, adjust, then re-check
+        # to re-upload the waveform.
+        self.enable_checkbox = QtWidgets.QCheckBox("Enable volumetric")
+        right_layout.addLayout(grid)
+        right_layout.addWidget(self.enable_checkbox)
+        right_layout.addStretch()
+
+        main_layout.addLayout(right_layout)
+
+        self.setLayout(main_layout)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     def set_depth_display(self, text: str) -> None:
         """Update the ETL depth display label.
@@ -2024,6 +2094,80 @@ class OptotuneGroup(QtWidgets.QGroupBox):
                 ``''`` (uncalibrated).
         """
         self.depth_label.setText(text)
+
+    def set_top(self, etl_value: int, label: str = '') -> None:
+        """Store the top ETL value and update the display label.
+
+        Args:
+            etl_value: Raw ETL current (0–1760).
+            label: Human-readable string shown next to "Top:", e.g.
+                ``'880 (42 µm)'`` when calibrated, ``'880'`` otherwise.
+        """
+        self.etl_top = etl_value
+        self.etl_top_label.setText(f"Top:  {label or str(etl_value)}")
+
+    def set_bottom(self, etl_value: int, label: str = '') -> None:
+        """Store the bottom ETL value and update the display label.
+
+        Args:
+            etl_value: Raw ETL current (0–1760).
+            label: Human-readable string shown next to "Bottom:".
+        """
+        self.etl_bottom = etl_value
+        self.etl_bottom_label.setText(f"Bottom:  {label or str(etl_value)}")
+
+    def update_step_display(self, text: str) -> None:
+        """Update the per-step depth display appended to the Planes label.
+
+        Args:
+            text: E.g. ``'≈ 1.2 µm'`` when calibrated, or ``''``.
+        """
+        if text:
+            self.planes_label.setText(f"Planes: {text}")
+        else:
+            self.planes_label.setText("Planes:")
+
+    def get_stack_params(self):
+        """Return the current focus-stacking parameters.
+
+        Returns:
+            Tuple ``(top_etl, bottom_etl, n_planes, frames_per_plane)``
+            where ``top_etl`` and ``bottom_etl`` are ``int | None``.
+        """
+        return (
+            self.etl_top,
+            self.etl_bottom,
+            self.planes_spinbox.value(),
+            self.frames_spinbox.value(),
+        )
+
+    def set_etl_controls_enabled(self, enabled: bool) -> None:
+        """Enable or disable the direct ETL slider and spinbox.
+
+        Should be disabled while focus stacking is active so the user
+        does not accidentally send a direct current command while the
+        PSoC5 is cycling the waveform.
+
+        Args:
+            enabled: True to allow manual control, False to lock it.
+        """
+        self.etl_slider.setEnabled(enabled)
+        self.etl_spinbox.setEnabled(enabled)
+
+    def set_focus_stack_controls_enabled(self, enabled: bool) -> None:
+        """Enable or disable the focus-stacking parameter widgets.
+
+        Should only be called by MainWindow after a successful enable or
+        on disable/failure, so that controls are never locked due to a
+        validation error.
+
+        Args:
+            enabled: True to allow editing, False to lock.
+        """
+        self.planes_spinbox.setEnabled(enabled)
+        self.frames_spinbox.setEnabled(enabled)
+        self.set_top_btn.setEnabled(enabled)
+        self.set_bottom_btn.setEnabled(enabled)
 
 
 class CommandLogPanel(QtWidgets.QWidget):

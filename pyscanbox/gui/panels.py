@@ -101,7 +101,10 @@ class RightDisplayPanel(QtWidgets.QWidget):
 
         # Distribute vertical space: image gets most, histogram and frame
         # selector are thin strips, controls take a fixed chunk.
-        splitter.setSizes([500, 90, 36, 200])
+        # stretch factor 0 prevents the controls row from growing when the
+        # window is resized vertically.
+        splitter.setSizes([500, 90, 36, 130])
+        splitter.setStretchFactor(3, 0)
 
         # Wire the Image Display gain slider to the image display widget so
         # that moving the slider re-scales the brightness of the next frame.
@@ -168,12 +171,14 @@ class RightDisplayPanel(QtWidgets.QWidget):
         right_layout = QtWidgets.QHBoxLayout(right_container)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(4)
-        right_layout.addWidget(self.pmt_group)
-        right_layout.addWidget(self.image_display_group)
-        right_layout.addWidget(self.optotune_group)
+        right_layout.addWidget(self.pmt_group, 1)
+        right_layout.addWidget(self.image_display_group, 1)
+        right_layout.addWidget(self.optotune_group, 2)
         splitter.addWidget(right_container)
 
         # Objective Position 300 px; right container takes the rest.
-        splitter.setSizes([300, 600])
+        # Optotune panel is twice as wide as PMT/ImageDisplay, so right
+        # container needs ~800 px (vs 600 before) for equal base widths.
+        splitter.setSizes([300, 800])
 
         return splitter
