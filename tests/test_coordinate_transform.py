@@ -39,6 +39,40 @@ class TestWorldToRotated(unittest.TestCase):
         for got, expected in zip(back, orig):
             self.assertAlmostEqual(got, expected, places=9)
 
+    def test_along_objective_axis_only_changes_z_rot(self):
+        """Moving the objective along its own axis should only change z_rot.
+
+        With positive_angle_increases_x=True and angle θ, the objective axis
+        direction (toward the sample) in world coords is (+sin θ, 0, −cos θ).
+        Displacing by (d·sin θ, 0, −d·cos θ) in world should give
+        x_rot=0, z_rot=−d in the rotated frame.
+        """
+        angle_deg = 30.0
+        d = 1000.0  # μm along objective axis
+        angle_rad = math.radians(angle_deg)
+        # World move: down along objective axis
+        world_dx = d * math.sin(angle_rad)
+        world_dz = -d * math.cos(angle_rad)
+        x_rot, y_rot, z_rot = ct.world_to_rotated(world_dx, 0.0, world_dz, angle_deg)
+        self.assertAlmostEqual(x_rot, 0.0, places=9)
+        self.assertAlmostEqual(y_rot, 0.0, places=9)
+        self.assertAlmostEqual(z_rot, -d, places=9)
+
+    def test_perpendicular_to_axis_only_changes_x_rot(self):
+        """Moving perpendicular to the objective axis should only change x_rot.
+
+        The perpendicular direction in the XZ plane is (+cos θ, 0, +sin θ).
+        """
+        angle_deg = 30.0
+        d = 500.0
+        angle_rad = math.radians(angle_deg)
+        world_dx = d * math.cos(angle_rad)
+        world_dz = d * math.sin(angle_rad)
+        x_rot, y_rot, z_rot = ct.world_to_rotated(world_dx, 0.0, world_dz, angle_deg)
+        self.assertAlmostEqual(x_rot, d, places=9)
+        self.assertAlmostEqual(y_rot, 0.0, places=9)
+        self.assertAlmostEqual(z_rot, 0.0, places=9)
+
 
 class TestTipCompensationDelta(unittest.TestCase):
     """tip_compensation_delta returns correct XZ stage offsets."""

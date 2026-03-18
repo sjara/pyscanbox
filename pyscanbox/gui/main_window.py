@@ -1155,8 +1155,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """Update the position display group from hardware position data.
 
         Updates the World (Knobby relative), Abs (motor hardware absolute),
-        and Angle fields.  Rotated coordinates are left at their current
-        values — the row is reserved for the future angle-compensation mode.
+        Angle, and Rotated (objective-frame) fields.
 
         Args:
             pos: Dict containing:

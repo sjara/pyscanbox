@@ -42,6 +42,27 @@ DEFAULT_POSITIVE_ANGLE_INCREASES_X = True
 def world_to_rotated(x, y, z, angle_deg, positive_angle_increases_x=DEFAULT_POSITIVE_ANGLE_INCREASES_X):
     """Convert from world (knobby) coordinates to the objective-rotated frame.
 
+    The rotated frame is defined so that:
+
+    * ``z_rot`` runs along the objective axis, positive pointing away from
+      the sample ("up" along the objective).  Moving the objective purely
+      along its own axis only changes ``z_rot``; ``x_rot`` is unaffected.
+    * ``x_rot`` is the axis perpendicular to the objective in the XZ plane.
+    * ``y_rot`` is identical to world ``y``.
+
+    This is a rotation of the coordinate frame by ``+θ`` about the Y axis
+    (R_y(+θ), standard right-hand convention)::
+
+        x_rot =  x·cos θ + z·sin θ
+        y_rot =  y
+        z_rot = −x·sin θ + z·cos θ
+
+    Verification (positive_angle_increases_x=True, θ > 0):
+    Moving the objective **down** along its own axis by distance ``d`` in
+    world gives ``(dx, 0, dz) = (+d·sinθ, 0, −d·cosθ)``.  Applying the
+    formula yields ``x_rot = 0``, ``z_rot = −d`` — only the on-axis
+    coordinate changes, as expected.
+
     Args:
         x, y, z: World coordinates in μm (see module-level sign conventions).
         angle_deg: Objective tilt angle in degrees.  0 = pointing straight
@@ -57,15 +78,21 @@ def world_to_rotated(x, y, z, angle_deg, positive_angle_increases_x=DEFAULT_POSI
     angle_rad = math.radians(angle_deg)
     if not positive_angle_increases_x:
         angle_rad = -angle_rad
-    x_rot = x * math.cos(angle_rad) - z * math.sin(angle_rad)
+    # R_y(+θ): right-hand rotation about Y by +θ.
+    x_rot = x * math.cos(angle_rad) + z * math.sin(angle_rad)
     y_rot = y
-    z_rot = x * math.sin(angle_rad) + z * math.cos(angle_rad)
+    z_rot = -x * math.sin(angle_rad) + z * math.cos(angle_rad)
     return (x_rot, y_rot, z_rot)
 
 def rotated_to_world(x_rot, y_rot, z_rot, angle_deg, positive_angle_increases_x=DEFAULT_POSITIVE_ANGLE_INCREASES_X):
     """Convert from the objective-rotated frame back to world (knobby) coordinates.
 
-    Inverse of :func:`world_to_rotated`.
+    Inverse of :func:`world_to_rotated`.  Applies R_y(−θ), the transpose
+    (= inverse) of R_y(+θ)::
+
+        x = x_rot·cos θ − z_rot·sin θ
+        y = y_rot
+        z = x_rot·sin θ + z_rot·cos θ
 
     Args:
         x_rot, y_rot, z_rot: Coordinates in the objective-aligned frame, in μm.
@@ -81,9 +108,10 @@ def rotated_to_world(x_rot, y_rot, z_rot, angle_deg, positive_angle_increases_x=
     angle_rad = math.radians(angle_deg)
     if not positive_angle_increases_x:
         angle_rad = -angle_rad
-    x = x_rot * math.cos(angle_rad) + z_rot * math.sin(angle_rad)
+    # R_y(-θ): inverse/transpose of R_y(+θ).
+    x = x_rot * math.cos(angle_rad) - z_rot * math.sin(angle_rad)
     y = y_rot
-    z = -x_rot * math.sin(angle_rad) + z_rot * math.cos(angle_rad)
+    z = x_rot * math.sin(angle_rad) + z_rot * math.cos(angle_rad)
     return (x, y, z)
 
 

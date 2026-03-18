@@ -276,9 +276,12 @@ class PositionDisplayGroup(QtWidgets.QGroupBox):
     - **Abs (μm)**: Absolute motor hardware step counter in physical units,
       polled from the Trinamic board every 100 ms.  Useful for debugging to
       confirm that commanded moves reached the hardware.
-    - **Rotated (μm)**: Reserved for the future angle-compensation mode
-      (Knobby rotate mode, where Z becomes the objective axis when the
-      objective is tilted).  Currently mirrors the Knobby row.
+    - **Rotated (μm)**: Coordinates in the objective-aligned frame, computed
+      from the Knobby world (X, Z) positions via ``world_to_rotated``.
+      ``Z_rot`` runs along the objective axis (positive = away from sample),
+      so moving the objective purely along its own axis (Knobby rotated mode)
+      only changes ``Z_rot`` while ``X_rot`` stays constant.  ``Y_rot``
+      is always equal to world ``Y``.
     """
 
     def __init__(self):
