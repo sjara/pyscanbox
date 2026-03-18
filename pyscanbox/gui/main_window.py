@@ -15,6 +15,7 @@ import PyQt6.QtGui as QtGui
 import pyscanbox
 from pyscanbox.gui import app_controller
 from pyscanbox.gui import panels
+from pyscanbox.gui import bidir_cal_dialog
 from pyscanbox.gui import etl_cal_dialog
 from pyscanbox.gui import pockels_cal_dialog
 from pyscanbox.gui import widgets
@@ -34,7 +35,7 @@ class MainWindow(QtWidgets.QMainWindow):
     # Default window geometry
     DEFAULT_WINDOW_X = 100
     DEFAULT_WINDOW_Y = 100
-    DEFAULT_WINDOW_WIDTH = 1280
+    DEFAULT_WINDOW_WIDTH = 1400
     DEFAULT_WINDOW_HEIGHT = 900
     
     # Default panel widths (for splitter)
@@ -653,6 +654,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # Zero-angle button -> AppController
         pos_grp = self._right_panel.position_group
         pos_grp.zero_angle_button.clicked.connect(self._on_zero_angle_clicked)
+        pos_grp.keep_tip_fixed_checkbox.toggled.connect(
+            self._ctrl.set_keep_tip_fixed
+        )
 
         # AppController -> GUI
         self._ctrl.position_updated.connect(self._on_position_updated)
@@ -685,33 +689,23 @@ class MainWindow(QtWidgets.QMainWindow):
     # ------------------------------------------------------------------
 
     def _on_calibrate_bidir(self) -> None:
-        """Start bidirectional pixel-shift calibration from the Hardware menu.
+        """Open the non-modal bidirectional calibration dialog.
 
-        Requires the system to be in bidirectional scan mode and an acquisition
-        (Focus) to be running so live frames are available.  Shows status-bar
-        messages for progress and result.
+        Creates the dialog on first call and re-shows it on subsequent calls.
+        The dialog guides the user through the calibration steps and displays
+        live progress as frames are collected.
         """
-        if self._ctrl is None or not self._ctrl.is_open:
-            self.statusBar.showMessage('Hardware not connected.')
-            return
-        unidirectional = self._ctrl.config.get('acquisition', {}).get(
-            'unidirectional', True
-        )
-        if unidirectional:
-            QtWidgets.QMessageBox.information(
-                self,
-                'Bidirectional Calibration',
-                'Please switch to Bidirectional scan mode before calibrating.',
+        if not hasattr(self, '_bidir_cal_dialog') or self._bidir_cal_dialog is None:
+            self._bidir_cal_dialog = bidir_cal_dialog.BidirCalibrationDialog(
+                controller=self._ctrl,
+                parent=None,  # top-level: not blocked by MainWindow modal state
             )
-            return
-        try:
-            self._ctrl.start_bidir_calibration()
-            self.statusBar.showMessage('Bidir calibration started — collecting frames…')
-        except RuntimeError as exc:
-            self.statusBar.showMessage(f'Calibration error: {exc}')
+        self._bidir_cal_dialog.show()
+        self._bidir_cal_dialog.raise_()
+        self._bidir_cal_dialog.activateWindow()
 
     def _on_bidir_calibration_progress(self, done: int, needed: int) -> None:
-        """Update status bar with calibration frame-collection progress.
+        """Forward calibration progress to the dialog and update the status bar.
 
         Args:
             done: Frames collected so far.
@@ -720,12 +714,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusBar.showMessage(
             f'Bidir calibration: {done}/{needed} frames…'
         )
+        if hasattr(self, '_bidir_cal_dialog') and self._bidir_cal_dialog is not None:
+            self._bidir_cal_dialog.update_progress(done, needed)
 
     def _on_bidir_calibration_done(self, mag_index: int, shift: int) -> None:
-        """React to a completed bidirectional calibration.
-
-        Updates the bishift spinbox to show the measured value and shows a
-        status-bar message.
+        """Forward calibration result to the dialog, update spinbox and status bar.
 
         Args:
             mag_index: Magnification index that was calibrated.
@@ -735,6 +728,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusBar.showMessage(
             f'Bidir calibration complete: mag={mag_index}, bishift={shift} px'
         )
+        if hasattr(self, '_bidir_cal_dialog') and self._bidir_cal_dialog is not None:
+            self._bidir_cal_dialog.update_done(mag_index, shift)
 
     def closeEvent(self, event):
         """Stop acquisition and close hardware before the window is destroyed.
@@ -745,6 +740,9 @@ class MainWindow(QtWidgets.QMainWindow):
         Args:
             event: QCloseEvent from Qt.
         """
+        if hasattr(self, '_bidir_cal_dialog') and self._bidir_cal_dialog is not None:
+            self._bidir_cal_dialog.close()
+            self._bidir_cal_dialog = None
         if hasattr(self, '_pockels_cal_dialog') and self._pockels_cal_dialog is not None:
             self._pockels_cal_dialog.close()
             self._pockels_cal_dialog = None

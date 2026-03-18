@@ -7,6 +7,16 @@ All notable changes to this project are documented here. This file is append-onl
 ---
 
 ## v0.9.0 - March 17, 2026 (Current)
+- **Bidirectional calibration dialog**
+  - New `pyscanbox/gui/bidir_cal_dialog.py`: non-modal `BidirCalibrationDialog` replaces the bare status-bar-only feedback; features a numbered instruction panel (switch to bidir mode → set magnification → start Focus → image a suitable sample → click Start), a live `QProgressBar` showing `N / M frames`, and a result panel displaying the calibrated magnification label and measured bishift in pixels after convergence
+  - Start button validates preconditions (hardware connected, bidirectional mode active, Focus running) with informative dialogs before launching; becomes a Cancel button while running; closing the window also cancels an in-progress run
+  - `MainWindow._on_calibrate_bidir()` now opens and raises the dialog (singleton pattern matching `PockelsCalibrationDialog`) instead of calling `start_bidir_calibration()` directly
+  - `_on_bidir_calibration_progress()` and `_on_bidir_calibration_done()` forward updates to the dialog in addition to the status bar
+- **Tip-fixed angle rotation (Milestone 2.8)**
+  - `coordinate_transform.tip_compensation_delta(angle_old_deg, angle_new_deg, obj_length_um)`: new function in `pyscanbox/utils/coordinate_transform.py`; computes the X and Z stage displacements that cancel the tip displacement caused by a change in objective angle; objective length sourced from `config['objective']['length']`
+  - `AppController.set_keep_tip_fixed(enabled)`: enables/disables tip-fixed mode; when enabled, each angle-knob delta also drives X (motor 2) and Z (motor 0) by the compensating step counts via `tip_compensation_delta()` + `units_to_steps()`; has no effect when `config['objective']['length']` is zero or absent
+  - `PositionDisplayGroup.keep_tip_fixed_checkbox` ("Keep tip fixed"): new `QCheckBox` in the Objective Position widget, wired to `AppController.set_keep_tip_fixed()` via `MainWindow`
+  - 11 unit tests in `tests/test_coordinate_transform.py` covering `world_to_rotated`, `rotated_to_world`, and all cases of `tip_compensation_delta` (zero delta, zero length, sign conventions, forward/backward symmetry, and the key property that applying the compensation exactly cancels the tip displacement)
 - **Focus stacking / volumetric scanning GUI (Milestone 2.4)**
   - `ScanboxController`: four new ETL waveform commands — `CMD_OPTOWAVE_ENTRY` (21), `CMD_OPTOPERIOD` (22), `CMD_OPTOTUNE_ACTIVE` (23), `CMD_OPTOWAVE_RESET` (24) — mirroring MATLAB `sb_optowave.m`, `sb_optoperiod.m`, `sb_optotune_active.m`, `sb_optowave_init.m`
   - `ScanboxController.upload_etl_waveform(values)`: resets table, uploads 1–255 ETL entries, sets period; `set_etl_waveform_active(active)`: enables/disables autonomous PSoC5 waveform cycling
@@ -128,7 +138,7 @@ All notable changes to this project are documented here. This file is append-onl
 - Added debug print statements to verify pixel value polarity in the display pipeline (removed after verification).
 - All tests updated and passing; file I/O is now fully Scanbox-compatible.
 
-## v0.4.8 - March 13, 2026 (Current)
+## v0.4.8 - March 13, 2026
 - **Reshape function renaming for clarity (Milestone 1.3.1/1.3.3)**
 - Renamed `reshape_pmt_data_raw()` → `reshape_pmt_data()`: real-hardware Numba JIT path (sums 4 raw ADC samples per pixel, `>> 2`, 16-bit wire format output); now the canonical function name for the hardware path.
 - Renamed `reshape_pmt_data()` → `reshape_pmt_data_emulation()`: emulation-only shortcut that de-interleaves a pre-shaped buffer with no bit operations.

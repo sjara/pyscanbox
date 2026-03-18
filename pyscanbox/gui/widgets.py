@@ -303,6 +303,15 @@ class PositionDisplayGroup(QtWidgets.QGroupBox):
         angle_row.addWidget(self.zero_angle_button)
         outer.addLayout(angle_row)
 
+        # --- Tip-fixed checkbox ---
+        self.keep_tip_fixed_checkbox = QtWidgets.QCheckBox("Tip fixed on angle change")
+        self.keep_tip_fixed_checkbox.setToolTip(
+            "When checked, turning the angle knob also moves X and Z to keep\n"
+            "the objective tip at the same absolute position in space.\n"
+            "Requires 'objective.length' to be set in the config."
+        )
+        outer.addWidget(self.keep_tip_fixed_checkbox)
+
         # --- Coordinate grid: bold X/Y/Z headers immediately above rows ---
         grid = QtWidgets.QGridLayout()
         grid.setSpacing(4)

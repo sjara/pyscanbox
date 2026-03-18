@@ -30,6 +30,7 @@ from pyscanbox.hardware import controller as hw_controller
 from pyscanbox.hardware import knobby as hw_knobby
 from pyscanbox.hardware import motor as hw_motor
 from pyscanbox.acquisition import scan as acq_scan
+from pyscanbox.utils import coordinate_transform
 
 
 logger = logging.getLogger(__name__)
@@ -272,6 +273,12 @@ class AppController(QtCore.QObject):
         self._poll_timer = QtCore.QTimer(self)
         self._poll_timer.setInterval(POSITION_POLL_INTERVAL_MS)
         self._poll_timer.timeout.connect(self._poll_positions)
+
+        # Tip-fixed rotation mode: when enabled, turning the angle knob also
+        # moves X and Z to keep the objective tip at the same absolute position.
+        self._keep_tip_fixed = False
+        obj_config = config.get('objective', {})
+        self._objective_length_um = float(obj_config.get('length', 0.0))
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -1063,6 +1070,25 @@ class AppController(QtCore.QObject):
     # Angle motor
     # ------------------------------------------------------------------
 
+    def set_keep_tip_fixed(self, enabled: bool) -> None:
+        """Enable or disable tip-fixed rotation mode.
+
+        When enabled, turning the angle knob (motor 3) also moves the X
+        (motor 2) and Z (motor 0) motors by the amounts required to keep the
+        tip of the objective at the same absolute position in space.  The
+        compensation is computed from the objective length stored in
+        ``config['objective']['length']``.
+
+        Has no effect if ``config['objective']['length']`` is zero or
+        absent.
+
+        Args:
+            enabled: ``True`` to activate tip-fixed mode; ``False`` to
+                return to normal angle-only rotation.
+        """
+        self._keep_tip_fixed = enabled
+        logger.info("set_keep_tip_fixed: %s", enabled)
+
     def zero_angle(self) -> bool:
         """Move the angle motor (A-axis, motor 3) to absolute step 0.
 
@@ -1202,6 +1228,48 @@ class AppController(QtCore.QObject):
                                 "move_absolute(motor=%d, pos=%d) failed: %s",
                                 motor_id, self._desired_steps[motor_id], exc,
                             )
+                        # Tip-fixed mode: when the angle motor moves, also
+                        # compensate X (motor 2) and Z (motor 0) so the
+                        # objective tip stays at the same absolute position.
+                        if (
+                            motor_id == 3
+                            and self._keep_tip_fixed
+                            and self._objective_length_um > 0
+                        ):
+                            angle_old_deg = hw_knobby.steps_to_units(
+                                3, self._desired_steps[3] - delta
+                            )
+                            angle_new_deg = hw_knobby.steps_to_units(
+                                3, self._desired_steps[3]
+                            )
+                            dx_um, dz_um = coordinate_transform.tip_compensation_delta(
+                                angle_old_deg, angle_new_deg,
+                                self._objective_length_um,
+                            )
+                            dx_steps = hw_knobby.units_to_steps(2, dx_um)
+                            dz_steps = hw_knobby.units_to_steps(0, dz_um)
+                            if dx_steps != 0:
+                                self._desired_steps[2] += dx_steps
+                                try:
+                                    self._motor.move_absolute(
+                                        2, self._desired_steps[2]
+                                    )
+                                except Exception as exc:
+                                    logger.warning(
+                                        "tip-fix move_absolute(X, %d) failed: %s",
+                                        self._desired_steps[2], exc,
+                                    )
+                            if dz_steps != 0:
+                                self._desired_steps[0] += dz_steps
+                                try:
+                                    self._motor.move_absolute(
+                                        0, self._desired_steps[0]
+                                    )
+                                except Exception as exc:
+                                    logger.warning(
+                                        "tip-fix move_absolute(Z, %d) failed: %s",
+                                        self._desired_steps[0], exc,
+                                    )
             except Exception as exc:
                 logger.warning("Knobby poll error: %s", exc)
 
