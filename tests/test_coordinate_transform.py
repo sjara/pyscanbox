@@ -54,13 +54,18 @@ class TestTipCompensationDelta(unittest.TestCase):
         self.assertAlmostEqual(dz, 0.0)
 
     def test_small_angle_from_vertical_default_convention(self):
-        """From 0° to 10°: dx/dz should match the analytic formula."""
+        """From 0° to 10°: dx/dz should match the analytic formula.
+
+        Default: positive_angle_increases_x=True (positive angle → tip moves
+        in +X direction).  Stage compensation must move in −X (negative dx)
+        to hold the tip fixed.
+        """
         L = 98000.0
         old_deg, new_deg = 0.0, 10.0
         old_rad = math.radians(old_deg)
         new_rad = math.radians(new_deg)
-        # Default: positive_angle_increases_x=False → X sign flipped.
-        expected_dx = L * (math.sin(new_rad) - math.sin(old_rad))
+        # Default: positive_angle_increases_x=True → dx is negative.
+        expected_dx = -L * (math.sin(new_rad) - math.sin(old_rad))
         expected_dz = L * (math.cos(new_rad) - math.cos(old_rad))
         dx, dz = ct.tip_compensation_delta(old_deg, new_deg, L)
         self.assertAlmostEqual(dx, expected_dx, places=6)
@@ -97,9 +102,9 @@ class TestTipCompensationDelta(unittest.TestCase):
     def test_compensation_cancels_tip_displacement(self):
         """Applying the compensation should return the tip to its original position.
 
-        Tip position in world coords (positive_angle_increases_x=False):
-            tip_x = -L * sin(θ)
-            tip_z = -L * cos(θ)
+        Tip position in world coords (positive_angle_increases_x=True):
+            tip_x = +L * sin(θ)   # positive angle → tip moves in +X
+            tip_z = -L * cos(θ)   # tip below pivot, moves up as θ increases
         After moving the stage by (delta_x, delta_z) the effective tip
         position shifts back by the same amount, so the net displacement
         from the original tip position should be zero.
@@ -108,8 +113,8 @@ class TestTipCompensationDelta(unittest.TestCase):
         old_deg, new_deg = 5.0, 25.0
         old_rad, new_rad = math.radians(old_deg), math.radians(new_deg)
 
-        # Tip displacement in world (positive_angle_increases_x=False → tip_x = -L*sinθ)
-        dtip_x = -L * (math.sin(new_rad) - math.sin(old_rad))
+        # Tip displacement in world (positive_angle_increases_x=True → tip_x = +L*sinθ)
+        dtip_x = L * (math.sin(new_rad) - math.sin(old_rad))
         dtip_z = L * (math.cos(old_rad) - math.cos(new_rad))
 
         dx, dz = ct.tip_compensation_delta(old_deg, new_deg, L)
