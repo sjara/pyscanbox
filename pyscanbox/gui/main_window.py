@@ -571,11 +571,35 @@ class MainWindow(QtWidgets.QMainWindow):
         self._connect_action.triggered.connect(self._on_connect_hardware)
         self._disconnect_action.triggered.connect(self._on_disconnect_hardware)
 
+        # Show a startup progress sequence in the image display placeholder.
+        image_display = self._right_panel.image_display
+        image_display.set_startup_message('Connecting to hardware...')
+        QtWidgets.QApplication.processEvents()
+
+        _startup_lines = []
+
+        def _on_startup_status(msg):
+            if _startup_lines and _startup_lines[-1].endswith('...'):
+                _startup_lines[-1] += ' ' + msg
+            else:
+                _startup_lines.append(msg)
+            image_display.set_startup_message('\n'.join(_startup_lines))
+            QtWidgets.QApplication.processEvents()
+
+        self._ctrl.startup_status.connect(_on_startup_status)
+
         try:
             self._ctrl.open()
         except RuntimeError as exc:
+            image_display.set_startup_message(
+                '\n'.join(_startup_lines) + f'\n\nError: {exc}'
+            )
             self.statusBar.showMessage(f"Hardware init failed: {exc}")
             return
+
+        # Append the steady-state prompt after all devices are connected.
+        _startup_lines.append('\nImage Display\n(Live preview will appear here)')
+        image_display.set_startup_message('\n'.join(_startup_lines))
 
         self._connect_hardware()
         emulation = config_dict.get('emulation', {}).get('enabled', False)

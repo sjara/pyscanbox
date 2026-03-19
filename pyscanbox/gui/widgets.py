@@ -842,6 +842,22 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         if self._is_fit:
             self._fit_in_view()
 
+    def set_startup_message(self, text: str) -> None:
+        """Replace the placeholder text shown before the first frame.
+
+        Used during startup to report hardware connection progress.
+        The text is re-centred automatically after the change.
+
+        Args:
+            text: Multi-line string to display in the placeholder area.
+        """
+        self._placeholder.setPlainText(text)
+        br = self._placeholder.boundingRect()
+        self._placeholder.setPos(
+            (self._PLACEHOLDER_W - br.width()) / 2,
+            (self._PLACEHOLDER_H - br.height()) / 2,
+        )
+
     def fit_to_window(self) -> None:
         """Switch to fit mode and scale the image to fill the view."""
         self._is_fit = True
@@ -1059,6 +1075,14 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         layout.addWidget(self._canvas)
         layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)
+
+    def set_startup_message(self, text: str) -> None:
+        """Update the placeholder text shown before the first frame arrives.
+
+        Args:
+            text: Status string to display (may contain newlines).
+        """
+        self._canvas.set_startup_message(text)
 
     def update_frame(self, frame_data: np.ndarray) -> None:
         """Update the display with a newly acquired frame.

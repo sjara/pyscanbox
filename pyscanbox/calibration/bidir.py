@@ -62,12 +62,18 @@ returns ``-d`` so that applying ``bishift = -d`` rolls backward lines left by
 
     {
         "bishift": [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 0],
+        "hsync_sign": 1,
         "date": "2026-03-16",
         "note": "optional free-text note"
     }
 
 The ``bishift`` list has 13 elements — one per magnification index (0 = lowest
 zoom, 12 = highest zoom).  Missing or extra elements are handled gracefully.
+
+``hsync_sign`` records the scanner polarity at calibration time (from
+``config['scanner']['hsync_sign']``).  If the file is loaded with a different
+``hsync_sign`` a warning is emitted because the stored shifts may have the
+wrong sign and may need to be re-calibrated.
 """
 
 import datetime
@@ -202,6 +208,7 @@ class BidirCalibration:
         self._avg: np.ndarray | None = None
         self._frame_count = 0
         self._shifts: list[int] = [0] * NUM_MAGNIFICATIONS
+        self._hsync_sign: int | None = None  # set by save(); checked on load
         self._load_from_disk()
 
     # ------------------------------------------------------------------
@@ -326,7 +333,7 @@ class BidirCalibration:
     # Persistence
     # ------------------------------------------------------------------
 
-    def save(self, note: str = '') -> None:
+    def save(self, note: str = '', hsync_sign: int | None = None) -> None:
         """Write the current calibration to ``bidir_cal.json``.
 
         The file is placed in the same directory as the config file used
@@ -334,11 +341,19 @@ class BidirCalibration:
 
         Args:
             note: Optional free-text annotation stored in the JSON.
+            hsync_sign: Value of ``config['scanner']['hsync_sign']`` at
+                calibration time.  Stored so that a mismatch can be
+                detected on the next load.  Pass ``None`` to omit the field
+                (calibration-file records from before this feature will lack
+                the key and no mismatch check will be performed).
         """
         data: dict = {
             'bishift': list(self._shifts),
             'date': datetime.date.today().isoformat(),
         }
+        if hsync_sign is not None:
+            data['hsync_sign'] = int(hsync_sign)
+            self._hsync_sign = int(hsync_sign)
         if note:
             data['note'] = note
         os.makedirs(os.path.dirname(self._calib_path), exist_ok=True)
@@ -361,9 +376,36 @@ class BidirCalibration:
             shifts = data.get('bishift', [])
             n = min(len(shifts), NUM_MAGNIFICATIONS)
             self._shifts[:n] = [int(s) for s in shifts[:n]]
+            self._hsync_sign = data.get('hsync_sign', None)
             logger.info('Bidir calibration loaded from %s', self._calib_path)
         except Exception as exc:  # pylint: disable=broad-except
             logger.warning(
                 'Could not load bidir calibration from %s: %s',
                 self._calib_path, exc,
             )
+
+    def check_hsync_sign(self, current_hsync_sign: int) -> bool:
+        """Return True if the stored hsync_sign matches *current_hsync_sign*.
+
+        Returns True (compatible) when the calibration file did not record
+        an ``hsync_sign`` (older file format) so no mismatch can be detected.
+        Logs a warning when a mismatch is detected.
+
+        Args:
+            current_hsync_sign: The ``scanner.hsync_sign`` value from the
+                active config.
+
+        Returns:
+            True if compatible or unknown; False if a mismatch is detected.
+        """
+        if self._hsync_sign is None:
+            return True  # field absent in old files — cannot check
+        if self._hsync_sign != int(current_hsync_sign):
+            logger.warning(
+                'Bidir calibration was recorded with hsync_sign=%d but '
+                'current config has hsync_sign=%d.  Stored shifts may have '
+                'the wrong sign — consider re-calibrating.',
+                self._hsync_sign, current_hsync_sign,
+            )
+            return False
+        return True

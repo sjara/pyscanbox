@@ -89,12 +89,12 @@ class BidirCalibrationDialog(QtWidgets.QDialog):
         steps = [
             '1. Switch the scan mode to <b>Bidirectional</b> in the Scanner '
             'Controls panel.',
-            '2. Set the desired <b>magnification</b> (the calibration is '
-            'stored per-magnification).',
-            '3. Start <b>Focus</b> so the live image is running.',
-            '4. Image a sample with fine horizontal structure (beads, pollen, '
-            'or any sample with visible lateral features).',
-            '5. Click <b>Start Calibration</b> below.',
+            '2. Set the desired <b>magnification</b> in the Scanner Controls '
+            'panel.',
+            '3. Adjust the <b>Bidir Alignment</b> spinbox until forward and '
+            'backward scan lines are aligned in the live image.',
+            '4. Repeat steps 2–3 for each magnification you use.',
+            '5. Click <b>Save Manual Calibration</b> to store all values.',
         ]
         for step in steps:
             lbl = QtWidgets.QLabel(step)
@@ -103,10 +103,12 @@ class BidirCalibrationDialog(QtWidgets.QDialog):
             instr_layout.addWidget(lbl)
 
         note = QtWidgets.QLabel(
-            '<i>Calibration collects ~25 live frames to build a low-noise '
-            'average, then measures the pixel offset between forward and '
-            'backward scan lines automatically.  The result is saved to '
-            '<tt>bidir_cal.json</tt> alongside your config file.</i>'
+            '<i><b>Auto Calibrate</b> (experimental): '
+            'start Focus on a sample with fine horizontal structure, then '
+            'click <b>Auto Calibrate</b>.  The software collects ~25 live '
+            'frames and estimates the pixel offset automatically.  '
+            'Fine-tune the result with the Bidir Alignment spinbox and '
+            'click <b>Save Manual Calibration</b> when satisfied.</i>'
         )
         note.setWordWrap(True)
         note.setTextFormat(QtCore.Qt.TextFormat.RichText)
@@ -146,9 +148,11 @@ class BidirCalibrationDialog(QtWidgets.QDialog):
 
         self._result_note = QtWidgets.QLabel(
             'Fine-tune the value with the Bidir Alignment spinbox in '
-            'Scanner Controls if the alignment is not perfect.'
+            'Scanner Controls, then click <b>Save Manual Calibration</b> '
+            'to keep the result.'
         )
         self._result_note.setWordWrap(True)
+        self._result_note.setTextFormat(QtCore.Qt.TextFormat.RichText)
         result_layout.addRow(self._result_note)
 
         self._result_box.setLayout(result_layout)
@@ -159,7 +163,14 @@ class BidirCalibrationDialog(QtWidgets.QDialog):
         btn_row = QtWidgets.QHBoxLayout()
         btn_row.addStretch()
 
-        self._start_btn = QtWidgets.QPushButton('Start Calibration')
+        self._save_btn = QtWidgets.QPushButton('Save Manual Calibration')
+        if self._ctrl is None:
+            self._save_btn.setEnabled(False)
+            self._save_btn.setToolTip('No hardware connected.')
+        self._save_btn.clicked.connect(self._on_save_clicked)
+        btn_row.addWidget(self._save_btn)
+
+        self._start_btn = QtWidgets.QPushButton('Auto Calibrate')
         self._start_btn.setDefault(True)
         if self._ctrl is None:
             self._start_btn.setEnabled(False)
@@ -201,8 +212,9 @@ class BidirCalibrationDialog(QtWidgets.QDialog):
             shift: Measured pixel shift stored for that magnification.
         """
         self._running = False
-        self._start_btn.setText('Start Calibration')
+        self._start_btn.setText('Auto Calibrate')
         self._start_btn.setEnabled(True)
+        self._save_btn.setEnabled(self._ctrl is not None)
         self._status_label.setText('Calibration complete.')
         self._progress_bar.setValue(self._progress_bar.maximum())
 
@@ -218,8 +230,9 @@ class BidirCalibrationDialog(QtWidgets.QDialog):
     def notify_cancelled(self) -> None:
         """Reset the dialog to the idle state after an external cancellation."""
         self._running = False
-        self._start_btn.setText('Start Calibration')
+        self._start_btn.setText('Auto Calibrate')
         self._start_btn.setEnabled(self._ctrl is not None)
+        self._save_btn.setEnabled(self._ctrl is not None)
         self._status_label.setText('Cancelled.')
         self._progress_bar.setValue(0)
 
@@ -228,11 +241,28 @@ class BidirCalibrationDialog(QtWidgets.QDialog):
     # ------------------------------------------------------------------
 
     def _on_start_cancel_clicked(self) -> None:
-        """Handle Start / Cancel button press."""
+        """Handle Auto Calibrate / Cancel button press."""
         if self._running:
             self._cancel()
         else:
             self._start()
+
+    def _on_save_clicked(self) -> None:
+        """Save all current bishift values (manual calibration)."""
+        if self._ctrl is None:
+            return
+        try:
+            path = self._ctrl.save_manual_bidir_calibration()
+        except RuntimeError as exc:
+            QtWidgets.QMessageBox.warning(
+                self, 'Save Failed', str(exc)
+            )
+            return
+        QtWidgets.QMessageBox.information(
+            self,
+            'Calibration Saved',
+            f'All bishift values saved to:\n{path}',
+        )
 
     def _start(self) -> None:
         """Validate preconditions and start calibration."""
@@ -298,6 +328,7 @@ class BidirCalibrationDialog(QtWidgets.QDialog):
 
         self._running = True
         self._start_btn.setText('Cancel')
+        self._save_btn.setEnabled(False)
 
         # Retrieve how many frames are expected and initialise progress bar.
         if self._ctrl._bidir_cal is not None:

@@ -201,6 +201,9 @@ class AppController(QtCore.QObject):
     bidir_calibration_progress = QtCore.pyqtSignal(int, int)
     #: Emitted when calibration completes: (mag_index, measured_shift).
     bidir_calibration_done = QtCore.pyqtSignal(int, int)
+    #: Emitted during open() before and after each device connection.
+    #: Carries a single human-readable status line (str).
+    startup_status = QtCore.pyqtSignal(str)
 
     def __init__(self, config: dict, config_path: str | None = None, parent=None):
         """Initialize the application controller.
@@ -298,33 +301,46 @@ class AppController(QtCore.QObject):
                 Knobby failures are non-fatal — position display will be
                 unavailable but the rest of the GUI continues to work.
         """
+        self.startup_status.emit(
+            f'Connecting to Scanbox controller ({self._hw_controller.com_port})...'
+        )
         try:
             self._hw_controller.open()
             self._log_event(
                 f'Controller connected ({self._hw_controller.com_port})'
             )
+            self.startup_status.emit('Connected!')
         except Exception as exc:
             msg = f"Could not open ScanboxController: {exc}"
             logger.error(msg)
             self.hardware_error.emit(msg)
             raise RuntimeError(msg) from exc
 
+        self.startup_status.emit(
+            f'Connecting to Knobby ({self._knobby.com_port})...'
+        )
         try:
             self._knobby.open()
             self._log_event(
                 f'Knobby connected ({self._knobby.com_port})'
             )
+            self.startup_status.emit('Connected!')
         except Exception as exc:
             # Non-fatal: GUI can run without Knobby position display.
             msg = f"Could not open Knobby (position display unavailable): {exc}"
             logger.warning(msg)
             self.hardware_error.emit(msg)
+            self.startup_status.emit('Not available.')
 
+        self.startup_status.emit(
+            f'Connecting to motors ({self._motor.com_port})...'
+        )
         try:
             self._motor.open()
             self._log_event(
                 f'Motor connected ({self._motor.com_port})'
             )
+            self.startup_status.emit('Connected!')
             # Apply per-motor freewheeling from config (TMCL SAP 204).
             motor_cfg = self.config.get('motor', {})
             freewheel = [
@@ -347,6 +363,7 @@ class AppController(QtCore.QObject):
             msg = f"Could not open motor controller (motor control unavailable): {exc}"
             logger.warning(msg)
             self.hardware_error.emit(msg)
+            self.startup_status.emit('Not available.')
 
         # Load ETL calibration coefficients from JSON file if available.
         # Resolve the filename relative to the config directory so that
@@ -386,6 +403,10 @@ class AppController(QtCore.QObject):
             self._log_event(
                 f'Bidir calibration loaded ({self._bidir_cal.calib_path})'
             )
+            # Warn if hsync_sign differs from what was used at calibration time.
+            current_hsync = self.config.get('scanner', {}).get('hsync_sign', None)
+            if current_hsync is not None:
+                self._bidir_cal.check_hsync_sign(current_hsync)
 
         self.is_open = True
         self._poll_timer.start()
@@ -868,7 +889,8 @@ class AppController(QtCore.QObject):
 
             mag_index = self.config.get('acquisition', {}).get('magnification', 0)
             shift = self._bidir_cal.calibrate_magnification(mag_index)
-            self._bidir_cal.save()
+            hsync_sign = self.config.get('scanner', {}).get('hsync_sign', None)
+            self._bidir_cal.save(hsync_sign=hsync_sign)
             self.set_bishift(shift)
             self.bidir_calibration_done.emit(mag_index, shift)
             self._log_event(
@@ -877,6 +899,36 @@ class AppController(QtCore.QObject):
             logger.info(
                 'Bidir calibration complete: mag=%d, shift=%d', mag_index, shift
             )
+
+    def save_manual_bidir_calibration(self) -> str:
+        """Save the current per-magnification bishift values to ``bidir_cal.json``.
+
+        Copies the live ``config['acquisition']['bishift']`` list (which
+        holds both auto-calibrated and manually adjusted values) into the
+        :class:`~pyscanbox.calibration.bidir.BidirCalibration` object and
+        writes it to disk alongside the config file.
+
+        Returns:
+            The absolute path of the file that was written.
+
+        Raises:
+            RuntimeError: If no calibration object is available (no
+                ``config_path`` was provided at construction time).
+        """
+        if self._bidir_cal is None:
+            raise RuntimeError(
+                'No calibration file path available — provide a config_path '
+                'when constructing AppController to enable saving.'
+            )
+        bishift = self.config.get('acquisition', {}).get('bishift', [])
+        for i, shift in enumerate(bishift):
+            self._bidir_cal.set_shift(i, int(shift))
+        hsync_sign = self.config.get('scanner', {}).get('hsync_sign', None)
+        self._bidir_cal.save(hsync_sign=hsync_sign)
+        path = self._bidir_cal.calib_path
+        self._log_event(f'Bidir calibration saved manually ({path})')
+        logger.info('Manual bidir calibration saved to %s', path)
+        return path
 
     # ------------------------------------------------------------------
     # ETL / Optotune
