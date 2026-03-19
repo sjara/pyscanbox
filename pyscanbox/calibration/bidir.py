@@ -38,18 +38,23 @@ Zero-padding to 2× the signal length avoids circular-correlation artefacts.
 
 **Sign convention:**
 
-A positive ``bishift`` value shifts backward-scan samples toward higher
-indices in ``reshape_pmt_data_bi`` (``s = lut_bi[px] + bishift``).  In the
-backward sweep the resonant mirror moves right-to-left, so higher sample
-indices correspond to positions further to the LEFT in the output image.
-Therefore a positive bishift moves backward lines LEFT in the displayed frame.
+A positive ``bishift`` value passed to
+:func:`~pyscanbox.acquisition.reshape.apply_bidirectional_correction` rolls
+backward scan lines to the **right** in the output image.  Therefore a
+positive bishift corrects a leftward offset of the backward lines.
 
-If the cross-correlation peak is at lag ``+d``, the backward lines are shifted
-``d`` pixels to the RIGHT.  Setting ``bishift = d`` compensates this.
+:func:`measure_bishift` returns a value whose sign already accounts for this:
+the returned value can be passed directly to
+:meth:`AppController.set_bishift` and will shift backward lines in the
+correction direction.  Specifically, if the cross-correlation peak is at lag
+``+d`` (backward lines shifted ``d`` pixels to the right), the function
+returns ``-d`` so that applying ``bishift = -d`` rolls backward lines left by
+``d`` pixels, restoring alignment.
 
-⚠  Always verify the sign on real hardware and fine-tune with the GUI spinbox.
-   In emulation mode the synthetic frames contain no real timing offset, so
-   the measured shift will be near zero and calibration is not meaningful.
+⚠  Always verify the result on real hardware and fine-tune with the GUI
+   spinbox.  In emulation mode the synthetic frames contain no real timing
+   offset, so the measured shift will be near zero and calibration is not
+   meaningful.
 
 **Calibration file format (JSON):**
 
@@ -129,9 +134,12 @@ def measure_bishift(frame: np.ndarray, max_shift: int = DEFAULT_MAX_SHIFT) -> in
             Default 64 is sufficient for typical 796-pixel lines.
 
     Returns:
-        Measured shift as a signed integer.  Positive means backward (odd)
-        lines are shifted to the right relative to forward (even) lines.
-        Pass this value directly to :meth:`AppController.set_bishift`.
+        Signed integer pixel shift to pass directly to
+        :meth:`AppController.set_bishift`.  Applying this value as a
+        pixel-space roll of the backward scan lines restores alignment:
+        positive = roll backward lines to the right (corrects leftward
+        offset); negative = roll backward lines to the left (corrects
+        rightward offset).
     """
     img = np.asarray(frame, dtype=np.float64)
     even = img[0::2, :].mean(axis=0)
@@ -142,7 +150,8 @@ def measure_bishift(frame: np.ndarray, max_shift: int = DEFAULT_MAX_SHIFT) -> in
     n = even.size
     # Zero-pad to 2n so lags in [-n, +n] are unambiguous.
     # conj(FFT(even)) * FFT(odd) → IFFT gives (even ⋆ odd)[k] = Σ even[m]·odd[m+k],
-    # which peaks at k = +d when odd = roll(even, d) — the correct sign convention.
+    # which peaks at k = +d when odd = roll(even, +d), i.e. when the backward
+    # (odd) lines are displaced d pixels to the RIGHT of the forward (even) lines.
     F_even = np.fft.rfft(even, n=2 * n)
     F_odd  = np.fft.rfft(odd,  n=2 * n)
     xcorr  = np.fft.irfft(np.conj(F_even) * F_odd, n=2 * n)
@@ -157,7 +166,11 @@ def measure_bishift(frame: np.ndarray, max_shift: int = DEFAULT_MAX_SHIFT) -> in
     # Convert circular index to signed lag.
     if peak > n:
         peak = peak - 2 * n
-    return peak
+    # Negate: the cross-correlation lag +d means backward is shifted RIGHT by d,
+    # so the correction needed (a rightward roll to cancel a leftward shift) is
+    # -d.  Returning -peak ensures the caller can pass the result directly to
+    # set_bishift / apply_bidirectional_correction without sign adjustment.
+    return -peak
 
 
 class BidirCalibration:
