@@ -6,7 +6,25 @@ All notable changes to this project are documented here. This file is append-onl
 
 ---
 
-## v0.9.0 - March 17, 2026 (Current)
+## v1.0.0 - March 18, 2026 (Current)
+- **First production-ready release — core milestones complete and validated on real hardware**
+  - All Phase 1 (backend) and Phase 2 (GUI) milestones complete; Phase 3 HIL testing substantially validated; selected Phase 4 integration testing verified
+- **Application entry point**
+  - New `pyscanbox/app.py`: `run(cfg, config_path, frame_data_callback=None)` creates the Qt application and enters the event loop; `main()` parses `--config`, `--emulation` (opt-in; real hardware is the default), and `--verbose` flags
+  - New `pyscanbox/__main__.py`: enables `python -m pyscanbox`
+  - `[project.scripts]` entry added to `pyproject.toml` registers the `pyscanbox` console command; `pyscanbox` runs on real hardware, `pyscanbox --emulation` for development
+  - `examples/gui_example.py` refactored as a developer-only launcher: own `main()` with `--no-emulation` (disables emulation), `--print-frames N` (prints per-frame statistics every N frames), `--verbose`, `--config`; emulation is ON by default, making it safe to run without hardware
+- **Hardware startup messages in Image Display placeholder**
+  - `AppController.startup_status = QtCore.pyqtSignal(str)`: new signal emitted before and after each device `open()` call; pre-open emits `"Connecting to X (portN)..."`, post-open emits `"Connected!"` or `"Not available."`; messages for the same device are collapsed onto one line: `"Connecting to ScanboxController (COM6)... Connected!"`
+  - `ImageDisplayWidget.set_startup_message(text)` / `_ImageCanvas.set_startup_message(text)`: replaces and re-centres placeholder text in real time during startup; `processEvents()` ensures GUI updates are visible before blocking `open()` calls complete
+
+## v0.10.0 - March 18, 2026
+- **Bidirectional calibration improvements** (Milestone 1.7.2 complete)
+  - `BidirCalibration.save(hsync_sign=None)`: adds `"hsync_sign"` field to `bidir_cal.json`; `_load_from_disk()` reads it back; new `check_hsync_sign(current_hsync_sign)` returns `False` and logs `WARNING` when the stored sign differs from the active config (stored shifts may have the wrong sign and re-calibration is recommended)
+  - `AppController.save_manual_bidir_calibration()`: new public method; reads the live `config['acquisition']['bishift']` list (as set by the per-magnification spinbox), calls `BidirCalibration.set_shift()` for each magnification, saves to `bidir_cal.json` with the current `hsync_sign`, logs the saved path, and returns the path for confirmation dialogs
+  - `BidirCalibrationDialog`: "Start Calibration" renamed → "Auto Calibrate" (flagged as experimental in the instructions panel); new "Save Manual Calibration" button (primary workflow) triggers `save_manual_bidir_calibration()` and shows a `QMessageBox` with the saved path; instructions panel rewritten to lead with the manual per-magnification workflow (adjust spinbox → Save Manual Calibration); buttons disable each other during active runs
+
+## v0.9.0 - March 17, 2026
 - **Bidirectional calibration dialog**
   - New `pyscanbox/gui/bidir_cal_dialog.py`: non-modal `BidirCalibrationDialog` replaces the bare status-bar-only feedback; features a numbered instruction panel (switch to bidir mode → set magnification → start Focus → image a suitable sample → click Start), a live `QProgressBar` showing `N / M frames`, and a result panel displaying the calibrated magnification label and measured bishift in pixels after convergence
   - Start button validates preconditions (hardware connected, bidirectional mode active, Focus running) with informative dialogs before launching; becomes a Cancel button while running; closing the window also cancels an in-progress run
