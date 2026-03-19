@@ -33,6 +33,9 @@ dependencies = [
     "pyqtdarktheme>=0.1.7",
 ]
 
+[project.scripts]
+pyscanbox = "pyscanbox.app:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
