@@ -6,7 +6,25 @@ All notable changes to this project are documented here. This file is append-onl
 
 ---
 
-## v1.0.0 - March 18, 2026 (Current)
+## v1.1.0 - March 19, 2026 (Current)
+- **Plugin system for auxiliary device integration**
+  - New `pyscanbox/acquisition/plugin.py`: `AcquisitionPlugin` abstract base class and `PluginManager` dispatcher in a single module
+  - `AcquisitionPlugin` defines four lifecycle hooks: `on_acquisition_start`, `on_frame`, `on_ttl_event`, `on_acquisition_stop`; all have no-op defaults so a plugin only overrides what it needs
+  - `sync_mode` is a `@property` on the base class that auto-infers active synchronisation strategies by inspecting which hooks the subclass overrides (`'per_frame'` if `on_frame` is overridden, `'ttl'` if `on_ttl_event` is overridden); plugin authors never set it explicitly
+  - `PluginManager` dispatches all lifecycle events to registered plugins in registration order; each call is wrapped in `try/except` so a misbehaving plugin cannot abort imaging
+  - Three synchronisation strategies supported: Strategy 1 (TTL edge timestamping, ~125 µs), Strategy 2 (per-frame polling, ~33 ms), Strategy 3 (PC-clock alignment, ~1–5 ms)
+  - New `pyscanbox/plugins/` package with three template plugins covering each strategy: `template_ttl_device.py`, `template_per_frame_device.py`, `template_async_device.py`
+- **Quadrature encoder plugin**
+  - New `pyscanbox/plugins/quadrature.py`: `QuadratureEncoder` hardware driver and `QuadraturePlugin` acquisition integration
+  - `QuadratureEncoder` communicates with an Arduino-based encoder reader over a dedicated serial port (115200 baud for DUE, 1 Mbaud for Mega); binary protocol only (`0x00` request count, `0x01` zero counter, `0x02`/`0x03` lamp off/on)
+  - Non-blocking poll pattern: `poll()` sends the request byte before the Alazar buffer wait; `read_count()` reads the 4-byte int32 response after the buffer completes, overlapping serial latency with Alazar wait
+  - `QuadraturePlugin` stores one int32 count per frame; saves a companion `.npy` file after acquisition; embeds calibration factor (cm/count) in `.mat` sidecar via `get_metadata()`
+  - Default calibration: `2π × 10 cm / 1440 ppr ≈ 0.04363 cm/count` (Scanbox default rig); Jaralab config: `2π × 7 cm / 2048 ppr ≈ 0.02150 cm/count`
+  - `mock_serial.Serial` extended with quadrature emulation: 1-byte command dispatch, `quad_count` state tracking, correct 4-byte little-endian int32 response for `0x00` requests
+- **Specification updated**
+  - `devel/specifications/plugin_system.md` updated to reflect auto-inferred `sync_mode`, merged module structure, and corrected `QuadraturePlugin` constructor signature
+
+## v1.0.0 - March 18, 2026
 - **First production-ready release — core milestones complete and validated on real hardware**
   - All Phase 1 (backend) and Phase 2 (GUI) milestones complete; Phase 3 HIL testing substantially validated; selected Phase 4 integration testing verified
 - **Application entry point**

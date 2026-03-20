@@ -86,6 +86,7 @@ class Serial:
             'hsync_sign': 0,  # horizontal sync polarity (0=normal, 1=flip)
             'pockels_range': (1, 2),  # (vdac, pga) DAC/PGA range
             'pockels_lut': list(range(256)),  # identity LUT by default
+            'quad_count': 0,  # quadrature encoder accumulated count
         }
 
         # Buffer for responses
@@ -112,8 +113,11 @@ class Serial:
 
         self._last_written = bytes(data)
 
-        # Determine command type by length and baudrate
-        if len(data) == 3:
+        # Determine command type by length
+        if len(data) == 1:
+            # Quadrature encoder command (115200 baud)
+            self._handle_quadrature_command(data)
+        elif len(data) == 3:
             # Scanbox controller command (1 Mbaud)
             self._handle_scanbox_command(data)
         elif len(data) == 9:
@@ -340,6 +344,39 @@ class Serial:
         response[8] = sum(response[0:8]) % 256
 
         return bytes(response)
+
+    def _handle_quadrature_command(self, data: bytes) -> None:
+        """Handle 1-byte quadrature encoder command.
+
+        Command bytes:
+            0x00  Request current count; queues a 4-byte little-endian int32.
+            0x01  Zero the counter; no response.
+            0x02  Lamp OFF (DUE only); no response.
+            0x03  Lamp ON (DUE only); no response.
+
+        Args:
+            data: 1-byte command.
+        """
+        cmd = data[0]
+        if cmd == 0x00:
+            import struct
+            count_bytes = struct.pack('<i', self.state['quad_count'])
+            self._response_buffer.extend(count_bytes)
+            if self.verbose:
+                logger.debug(
+                    'Quadrature: count request, returning %d',
+                    self.state['quad_count'],
+                )
+        elif cmd == 0x01:
+            self.state['quad_count'] = 0
+            if self.verbose:
+                logger.debug('Quadrature: counter zeroed')
+        elif cmd in (0x02, 0x03):
+            if self.verbose:
+                logger.debug('Quadrature: lamp %s', 'OFF' if cmd == 0x02 else 'ON')
+        else:
+            if self.verbose:
+                logger.debug('Quadrature: unknown command 0x%02x', cmd)
 
     def inject_ttl_event(self, frame: int, line: int, event_id: int) -> None:
         """Inject a synthetic TTL event packet into the input buffer.
