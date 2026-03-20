@@ -717,5 +717,164 @@ class TestTtlEventReader(unittest.TestCase):
         self.assertEqual(len(ctrl.get_ttl_events()), 1)
 
 
+class TestScannerGains(unittest.TestCase):
+    """Tests for scanner gain commands: set_galvo_dv, set_mag_x/y_gain,
+    update_scanner_gains, and the _encode_gain static method."""
+
+    CFG = {
+        'controller': {
+            'com_port': 'COM3',
+            'baud_rate': 1_000_000,
+            'timeout': 1.0,
+        }
+    }
+
+    # -- _encode_gain -----------------------------------------------------------
+
+    def test_encode_gain_integer(self):
+        """Integer gain encodes with zero fractional byte."""
+        xh, xl = controller.ScanboxController._encode_gain(4.0)
+        self.assertEqual(xh, 4)
+        self.assertEqual(xl, 0)
+
+    def test_encode_gain_fractional(self):
+        """Fractional gain: only one decimal digit is retained."""
+        xh, xl = controller.ScanboxController._encode_gain(1.42)
+        self.assertEqual(xh, 1)
+        # floor((1.42 - 1) * 10) = floor(4.2) = 4
+        self.assertEqual(xl, 4)
+
+    def test_encode_gain_exact_decimal(self):
+        """Gain 2.378 → xh=2, xl=3 (floor((0.378)*10)=3)."""
+        xh, xl = controller.ScanboxController._encode_gain(2.378)
+        self.assertEqual(xh, 2)
+        self.assertEqual(xl, 3)
+
+    def test_encode_gain_eight(self):
+        """Maximum default gain 8.0 → (8, 0)."""
+        xh, xl = controller.ScanboxController._encode_gain(8.0)
+        self.assertEqual(xh, 8)
+        self.assertEqual(xl, 0)
+
+    # -- set_galvo_dv -----------------------------------------------------------
+
+    @mock.patch('serial.Serial')
+    def test_set_galvo_dv_max(self, mock_serial):
+        """set_galvo_dv(64) sends [0x66, 64, 0]."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.CFG)
+        ctrl.open()
+        ctrl.set_galvo_dv(64)
+        mock_port.write.assert_called_with(bytes([0x66, 64, 0]))
+
+    @mock.patch('serial.Serial')
+    def test_set_galvo_dv_zero(self, mock_serial):
+        """set_galvo_dv(0) sends [0x66, 0, 0]."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.CFG)
+        ctrl.open()
+        ctrl.set_galvo_dv(0)
+        mock_port.write.assert_called_with(bytes([0x66, 0, 0]))
+
+    @mock.patch('serial.Serial')
+    def test_set_galvo_dv_exceeds_max(self, mock_serial):
+        """set_galvo_dv raises ValueError when dv > DV_GALVO_MAX."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.CFG)
+        ctrl.open()
+        with self.assertRaises(ValueError):
+            ctrl.set_galvo_dv(65)
+
+    # -- set_mag_x_gain ---------------------------------------------------------
+
+    @mock.patch('serial.Serial')
+    def test_set_mag_x_gain_index0(self, mock_serial):
+        """set_mag_x_gain(0, 1.0) sends [0xB0, 1, 0]."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.CFG)
+        ctrl.open()
+        ctrl.set_mag_x_gain(0, 1.0)
+        mock_port.write.assert_called_with(bytes([0xB0, 1, 0]))
+
+    @mock.patch('serial.Serial')
+    def test_set_mag_x_gain_index12(self, mock_serial):
+        """set_mag_x_gain(12, 8.0) sends [0xBC, 8, 0]."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.CFG)
+        ctrl.open()
+        ctrl.set_mag_x_gain(12, 8.0)
+        mock_port.write.assert_called_with(bytes([0xBC, 8, 0]))
+
+    # -- set_mag_y_gain ---------------------------------------------------------
+
+    @mock.patch('serial.Serial')
+    def test_set_mag_y_gain_index0(self, mock_serial):
+        """set_mag_y_gain(0, 1.0) sends [0xC0, 1, 0]."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.CFG)
+        ctrl.open()
+        ctrl.set_mag_y_gain(0, 1.0)
+        mock_port.write.assert_called_with(bytes([0xC0, 1, 0]))
+
+    @mock.patch('serial.Serial')
+    def test_set_mag_y_gain_fractional(self, mock_serial):
+        """set_mag_y_gain(3, 1.682) sends [0xC3, 1, 6]."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.CFG)
+        ctrl.open()
+        ctrl.set_mag_y_gain(3, 1.682)
+        # _encode_gain(1.682): xh=1, xl=floor(0.682*10)=floor(6.82)=6
+        mock_port.write.assert_called_with(bytes([0xC3, 1, 6]))
+
+    # -- update_scanner_gains ---------------------------------------------------
+
+    @mock.patch('serial.Serial')
+    def test_update_scanner_gains_packet_count(self, mock_serial):
+        """update_scanner_gains sends exactly 27 packets (1 dv + 13 X + 13 Y)."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.CFG)
+        ctrl.open()
+        gain_galvo = list(controller.ScanboxController.GAIN_GALVO_DEFAULT)
+        gain_resonant = [
+            controller.ScanboxController.GAIN_RESONANT_MULT_DEFAULT * g
+            for g in gain_galvo
+        ]
+        ctrl.update_scanner_gains(gain_galvo, gain_resonant, dv_galvo=64)
+        self.assertEqual(mock_port.write.call_count, 27)
+
+    @mock.patch('serial.Serial')
+    def test_update_scanner_gains_first_packet_is_dv(self, mock_serial):
+        """First packet sent by update_scanner_gains is the dv_galvo command."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.CFG)
+        ctrl.open()
+        gain_galvo = list(controller.ScanboxController.GAIN_GALVO_DEFAULT)
+        gain_resonant = [1.42 * g for g in gain_galvo]
+        ctrl.update_scanner_gains(gain_galvo, gain_resonant, dv_galvo=32)
+        first_call = mock_port.write.call_args_list[0]
+        self.assertEqual(first_call, mock.call(bytes([0x66, 32, 0])))
+
+    @mock.patch('serial.Serial')
+    def test_update_scanner_gains_wrong_length(self, mock_serial):
+        """update_scanner_gains raises ValueError for wrong-length gain lists."""
+        mock_port = mock.Mock()
+        mock_serial.return_value = mock_port
+        ctrl = controller.ScanboxController(self.CFG)
+        ctrl.open()
+        with self.assertRaises(ValueError):
+            ctrl.update_scanner_gains([1.0] * 5, [1.4] * 13)
+        with self.assertRaises(ValueError):
+            ctrl.update_scanner_gains([1.0] * 13, [1.4] * 5)
+
+
 if __name__ == '__main__':
     unittest.main()

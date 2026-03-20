@@ -18,6 +18,7 @@ from pyscanbox.gui import panels
 from pyscanbox.gui import bidir_cal_dialog
 from pyscanbox.gui import etl_cal_dialog
 from pyscanbox.gui import pockels_cal_dialog
+from pyscanbox.gui import scanner_gains_dialog
 from pyscanbox.gui import widgets
 from pyscanbox.io import sbx_reader
 from pyscanbox.utils import coordinate_transform
@@ -109,6 +110,11 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Create menu bar
         self._create_menu_bar()
+
+        # Maps plugin name → QAction (populated in _create_menu_bar).
+        # Declared after _create_menu_bar() because it returns a reference
+        # to _plugin_actions which is created inside that method.
+        # (The attribute is also accessible via self._plugin_actions directly.)
 
         # Histogram is hidden by default (can be enabled via View menu).
         self._right_panel.histogram.setVisible(False)
@@ -229,6 +235,41 @@ class MainWindow(QtWidgets.QMainWindow):
         calibrate_etl_action = QtGui.QAction("Calibrate &ETL...", self)
         calibrate_etl_action.triggered.connect(self._on_calibrate_etl)
         calibration_menu.addAction(calibrate_etl_action)
+
+        calibrate_scanner_gains_action = QtGui.QAction("Calibrate &Scanner Gains...", self)
+        calibrate_scanner_gains_action.triggered.connect(self._on_calibrate_scanner_gains)
+        calibration_menu.addAction(calibrate_scanner_gains_action)
+
+        # Plugins menu
+        # One checkable action per plugin configured under config['plugins'].
+        # Toggling connects/disconnects the plugin hardware without restarting
+        # the application.  The initial checked state comes from
+        # config['plugins'][name]['enabled']; auto-connection is triggered
+        # after AppController.open() in _init_app_controller().
+        plugins_menu = menubar.addMenu("P&lugins")
+        self._plugin_actions: dict[str, QtGui.QAction] = {}
+        plugin_cfg = {}
+        if self.config is not None:
+            raw = (
+                self.config.to_dict()
+                if hasattr(self.config, 'to_dict')
+                else self.config
+            )
+            plugin_cfg = raw.get('plugins', {})
+        for pname, pcfg in plugin_cfg.items():
+            label = pname.replace('_', ' ').title()
+            action = QtGui.QAction(label, self)
+            action.setCheckable(True)
+            action.setChecked(bool(pcfg.get('enabled', False)))
+            action.toggled.connect(
+                lambda checked, n=pname: self._on_plugin_toggled(n, checked)
+            )
+            plugins_menu.addAction(action)
+            self._plugin_actions[pname] = action
+        if not plugin_cfg:
+            placeholder = QtGui.QAction('(no plugins configured)', self)
+            placeholder.setEnabled(False)
+            plugins_menu.addAction(placeholder)
 
         # View menu
         view_menu = menubar.addMenu("&View")
@@ -544,6 +585,43 @@ class MainWindow(QtWidgets.QMainWindow):
             self._ctrl.reload_etl_calibration(coeffs)
         self.statusBar.showMessage('ETL calibration updated.')
 
+    # ------------------------------------------------------------------
+    # Scanner gains dialog
+    # ------------------------------------------------------------------
+
+    def _on_calibrate_scanner_gains(self) -> None:
+        """Open the non-modal Scanner Gains calibration dialog.
+
+        Creates the dialog on first call and re-shows it on subsequent
+        calls.  Passes the current AppController so the dialog can upload
+        gain values directly to hardware.
+        """
+        if not hasattr(self, '_scanner_gains_dialog') or self._scanner_gains_dialog is None:
+            self._scanner_gains_dialog = scanner_gains_dialog.ScannerGainsDialog(
+                controller=self._ctrl,
+                parent=None,
+            )
+            self._scanner_gains_dialog.gains_sent.connect(
+                self._on_scanner_gains_sent
+            )
+        else:
+            # Refresh the send-button enabled state in case the connection
+            # was opened or closed since the dialog was last shown.
+            self._scanner_gains_dialog._update_send_button_state()
+        self._scanner_gains_dialog.show()
+        self._scanner_gains_dialog.raise_()
+        self._scanner_gains_dialog.activateWindow()
+
+    def _on_scanner_gains_sent(self, gains: dict) -> None:
+        """Update status bar after scanner gains are uploaded from the dialog.
+
+        Args:
+            gains: Dict with keys ``gain_galvo``, ``gain_resonant``, and
+                ``dv_galvo`` as emitted by :class:`ScannerGainsDialog`.
+        """
+        self.statusBar.showMessage(
+            f"Scanner gains sent to hardware  (dv_galvo={gains['dv_galvo']})"
+        )
 
     def _init_app_controller(self):
         """Create AppController from config and open hardware connections.
@@ -566,6 +644,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._ctrl = app_controller.AppController(
             config_dict, config_path=self._config_path, parent=self
         )
+
+        self._ctrl.plugin_status_changed.connect(self._on_plugin_status_changed)
 
         # Wire menu actions regardless of whether open() succeeds.
         self._connect_action.triggered.connect(self._on_connect_hardware)
@@ -605,6 +685,14 @@ class MainWindow(QtWidgets.QMainWindow):
         emulation = config_dict.get('emulation', {}).get('enabled', False)
         suffix = " (emulation)" if emulation else ""
         self.statusBar.showMessage(f"Hardware connected{suffix}.")
+
+        # Auto-connect plugins that are checked (enabled: true in config).
+        # This runs after open() so hardware is ready, and in a background
+        # thread via enable_plugin(), so the GUI remains responsive during
+        # the Arduino reset delay.
+        for pname, action in self._plugin_actions.items():
+            if action.isChecked():
+                self._ctrl.enable_plugin(pname)
 
     def _connect_hardware(self):
         """Wire AppController signals to GUI widgets and vice versa."""
@@ -770,6 +858,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if hasattr(self, '_pockels_cal_dialog') and self._pockels_cal_dialog is not None:
             self._pockels_cal_dialog.close()
             self._pockels_cal_dialog = None
+        if hasattr(self, '_scanner_gains_dialog') and self._scanner_gains_dialog is not None:
+            self._scanner_gains_dialog.close()
+            self._scanner_gains_dialog = None
         if self._ctrl is not None and self._ctrl.is_open:
             # Zero PMTs and Pockels via hardware calls before closing.
             # Setting the GUI sliders fires valueChanged, which calls the
@@ -1260,6 +1351,43 @@ class MainWindow(QtWidgets.QMainWindow):
     # ------------------------------------------------------------------
     # Hardware menu handlers
     # ------------------------------------------------------------------
+
+    def _on_plugin_toggled(self, name: str, checked: bool) -> None:
+        """Slot for a Plugins menu action being checked or unchecked.
+
+        Delegates to AppController, which manages the background connection
+        thread and the PluginManager registration.
+
+        Args:
+            name: Plugin name (key in config['plugins']).
+            checked: True = enable (connect), False = disable (disconnect).
+        """
+        if self._ctrl is None:
+            return
+        if checked:
+            self._ctrl.enable_plugin(name)
+        else:
+            self._ctrl.disable_plugin(name)
+
+    def _on_plugin_status_changed(self, name: str, status: str) -> None:
+        """Slot for AppController.plugin_status_changed signal.
+
+        Shows a brief message in the status bar.  If the connection failed,
+        the corresponding menu action is unchecked to reflect the true state
+        (without re-triggering _on_plugin_toggled).
+
+        Args:
+            name: Plugin name.
+            status: Status string, e.g. 'connected', 'disconnected',
+                'connecting', or 'error: <message>'.
+        """
+        self.statusBar.showMessage(f"Plugin '{name}': {status}", 4000)
+        if status.startswith('error'):
+            action = self._plugin_actions.get(name)
+            if action is not None:
+                action.blockSignals(True)
+                action.setChecked(False)
+                action.blockSignals(False)
 
     def _on_connect_hardware(self):
         """Re-open hardware if it is currently closed."""

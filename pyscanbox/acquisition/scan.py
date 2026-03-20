@@ -55,7 +55,8 @@ class Scanner:
                  on_command=None,
                  hw_controller=None,
                  hw_motor=None,
-                 save_channels: int = 2):
+                 save_channels: int = 2,
+                 plugin_manager=None):
         """Initialize scanner with configuration.
 
         Args:
@@ -187,6 +188,7 @@ class Scanner:
         self.on_frame_data = on_frame_data
         self.on_command = on_command
         self.save_channels = save_channels
+        self.plugin_manager = plugin_manager
         # Apply GUI override first (0 means "forever", matching MATLAB convention).
         if frames_override is not None:
             self.frames_to_acquire = frames_override
@@ -425,6 +427,25 @@ class Scanner:
             logger.info("Configuring scan parameters...")
             self.configure_scan_params()
 
+            # Notify plugins that acquisition is about to start.  Called
+            # after initialize_writers() so output_path is already resolved.
+            if self.plugin_manager is not None:
+                res_freq = self.config.get('scanner', {}).get('resonant_freq', 7930)
+                bidirectional = not self.config.get(
+                    'acquisition', {}
+                ).get('unidirectional', True)
+                frame_rate = (
+                    res_freq * (2 if bidirectional else 1)
+                    / max(self.lines_per_frame, 1)
+                )
+                n_frames = (
+                    0 if self.frames_to_acquire == sys.maxsize
+                    else self.frames_to_acquire
+                )
+                self.plugin_manager.on_acquisition_start(
+                    n_frames, frame_rate, self.output_path or ''
+                )
+
             # Start acquisition — Pockels is at zero so no laser energy
             # reaches the sample yet; the user raises power via the GUI slider.
             # On this rig start_scan() (CMD_SCAN, ID 4) also opens the external
@@ -549,6 +570,9 @@ class Scanner:
 
             if self.on_frame is not None:
                 self.on_frame(self.frames_acquired)
+
+            if self.plugin_manager is not None:
+                self.plugin_manager.on_frame(self.frames_acquired - 1)
 
             if self.on_frame_data is not None:
                 self.on_frame_data(reshaped)
@@ -681,6 +705,11 @@ class Scanner:
             else:
                 self.motor.on_command = self._motor_orig_on_cmd
         
+        # Notify plugins that acquisition has stopped so they can flush
+        # and save their companion data files before the .mat is written.
+        if self.plugin_manager is not None:
+            self.plugin_manager.on_acquisition_stop(self.frames_acquired)
+
         # Close .sbx file and write companion .mat metadata.
         # extra_info is populated with the full acquisition metadata so that
         # ScanboxOriginalWriter.write_mat() embeds it in the info struct.
@@ -769,7 +798,7 @@ class Scanner:
         # ----------------------------------------------------------------
         # Metadata dict — MATLAB-compatible fields listed first
         # ----------------------------------------------------------------
-        return {
+        meta = {
             # --- MATLAB info struct fields (original Scanbox) ---
             'resfreq': np.int64(scanner_cfg.get('resonant_freq', 7930)),
             'postTriggerSamples': np.int64(post_trigger),
@@ -814,3 +843,6 @@ class Scanner:
             'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
             'pyscanbox_version': pyscanbox.__version__,
         }
+        if self.plugin_manager is not None:
+            meta.update(self.plugin_manager.collect_metadata())
+        return meta

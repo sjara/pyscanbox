@@ -59,10 +59,12 @@ def run(cfg, config_path, frame_data_callback=None):
             background-color: rgba(25, 45, 80, 1.0);
         }
         QDockWidget::title {
-            background-color: palette(window);
+            background-color: rgba(42, 43, 46, 1.0);
             padding-left: 6px;
         }
     """
+    # background-color: palette(window);
+    #3f4042
     app.setStyleSheet(stylesheet)
 
     # Allow Ctrl-C to terminate the application from the terminal.

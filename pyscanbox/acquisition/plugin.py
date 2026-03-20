@@ -86,12 +86,41 @@ class AcquisitionPlugin(abc.ABC):
             modes.append('ttl')
         return modes
 
-    def on_acquisition_start(self, n_frames: int, frame_rate: float) -> None:
+    def open(self) -> None:
+        """Open hardware connections required by this plugin.
+
+        Called once when the plugin is enabled from the GUI, before any
+        acquisition starts.  Open serial ports and initialise hardware here.
+        Hardware that takes several seconds to initialise (e.g. an Arduino
+        that resets on USB connect) should do so here, not in
+        on_acquisition_start(), so the delay is paid only once.
+
+        This method is called in a background thread by AppController so
+        that a slow connection does not block the GUI event loop.
+        """
+
+    def close(self) -> None:
+        """Close hardware connections opened in open().
+
+        Called when the plugin is disabled from the GUI.  Release serial
+        ports and free resources so the device can be used by other software.
+        """
+
+    def on_acquisition_start(
+        self,
+        n_frames: int,
+        frame_rate: float,
+        output_path: str = '',
+    ) -> None:
         """Prepare for acquisition.
 
         Args:
             n_frames: Total frames to acquire (0 in continuous/focus mode).
             frame_rate: Estimated frame rate in Hz.
+            output_path: Base path for output files (no extension).  Plugins
+                that save companion files should append their own suffix, e.g.
+                ``output_path + '_quadrature.npy'``.  Empty string in focus
+                mode (no files are written).
         """
 
     def on_frame(self, frame_index: int) -> None:
@@ -169,16 +198,32 @@ class PluginManager:
         """
         self._plugins.append(plugin)
 
-    def on_acquisition_start(self, n_frames: int, frame_rate: float) -> None:
+    def unregister(self, name: str) -> None:
+        """Remove a registered plugin by name.
+
+        If no plugin with the given name is registered this is a no-op.
+
+        Args:
+            name: Plugin name to remove (matched against plugin.name).
+        """
+        self._plugins = [p for p in self._plugins if p.name != name]
+
+    def on_acquisition_start(
+        self,
+        n_frames: int,
+        frame_rate: float,
+        output_path: str = '',
+    ) -> None:
         """Dispatch on_acquisition_start to all active plugins.
 
         Args:
             n_frames: Total frames to acquire (0 in continuous/focus mode).
             frame_rate: Estimated frame rate in Hz.
+            output_path: Base path for output files (no extension).
         """
         for p in self._active():
             try:
-                p.on_acquisition_start(n_frames, frame_rate)
+                p.on_acquisition_start(n_frames, frame_rate, output_path)
             except Exception:
                 _logger.exception(
                     'Plugin %s: on_acquisition_start failed', p.name

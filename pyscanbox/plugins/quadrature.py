@@ -183,26 +183,46 @@ class QuadraturePlugin(plugin_module.AcquisitionPlugin):
 
     name = 'quadrature'
 
-    def __init__(self, encoder: QuadratureEncoder, output_path: str):
+    def __init__(self, encoder: QuadratureEncoder, output_path: str = ''):
         """Initialise the plugin.
 
         Args:
-            encoder: Open QuadratureEncoder instance.
-            output_path: Full path for the output .npy file,
-                e.g. '/data/session001_quadrature.npy'.
+            encoder: QuadratureEncoder instance (not yet open; open() will
+                call encoder.open() in a background thread).
+            output_path: Optional initial output path.  Normally left empty
+                here and set via the output_path argument of
+                on_acquisition_start() when an acquisition begins.
         """
         self._encoder = encoder
         self._output_path = output_path
         self._data: list[int] = []
 
-    def on_acquisition_start(self, n_frames: int, frame_rate: float) -> None:
-        """Reset the count buffer and zero the encoder counter.
+    def open(self) -> None:
+        """Open the serial connection to the Arduino encoder."""
+        self._encoder.open()
+
+    def close(self) -> None:
+        """Close the serial connection to the Arduino encoder."""
+        self._encoder.close()
+
+    def on_acquisition_start(
+        self,
+        n_frames: int,
+        frame_rate: float,
+        output_path: str = '',
+    ) -> None:
+        """Reset the count buffer, set the output path, and zero the counter.
 
         Args:
             n_frames: Total frames to acquire (0 in continuous mode).
             frame_rate: Estimated frame rate in Hz.
+            output_path: Base path for output files.  The companion .npy
+                file is saved as ``output_path + '_quadrature.npy'``.
+                Ignored in focus mode (empty string).
         """
         self._data = []
+        if output_path:
+            self._output_path = output_path + '_quadrature.npy'
         self._encoder.reset_count()
 
     def on_frame(self, frame_index: int) -> None:

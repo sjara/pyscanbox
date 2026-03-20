@@ -30,6 +30,7 @@ from pyscanbox.hardware import controller as hw_controller
 from pyscanbox.hardware import knobby as hw_knobby
 from pyscanbox.hardware import motor as hw_motor
 from pyscanbox.acquisition import scan as acq_scan
+from pyscanbox.acquisition import plugin as acq_plugin
 from pyscanbox.utils import coordinate_transform
 
 
@@ -43,6 +44,40 @@ POCKELS_PERCENT_TO_HW = 255.0 / 100.0
 
 # Scale factor for PMT gain sliders (0-100 % -> 0-255 hardware range).
 PMT_PERCENT_TO_HW = 255.0 / 100.0
+
+
+class PluginConnectThread(QtCore.QThread):
+    """Opens a plugin's hardware connection in a background thread.
+
+    After AppController.enable_plugin() builds a plugin instance, this
+    thread calls plugin.open() so that slow hardware setup (e.g. Arduino
+    reset on USB connect, ~2 s) does not block the GUI event loop.
+
+    Signals:
+        succeeded: Emitted on successful open(); carries the plugin instance.
+        failed: Emitted on exception; carries a human-readable error string.
+    """
+
+    succeeded = QtCore.pyqtSignal(object)  # AcquisitionPlugin instance
+    failed = QtCore.pyqtSignal(str)        # error description
+
+    def __init__(self, plugin, parent=None):
+        """Initialise the thread.
+
+        Args:
+            plugin: The plugin whose open() should be called.
+            parent: Optional Qt parent.
+        """
+        super().__init__(parent)
+        self._plugin = plugin
+
+    def run(self) -> None:
+        """Call plugin.open() in the background thread."""
+        try:
+            self._plugin.open()
+            self.succeeded.emit(self._plugin)
+        except Exception as exc:
+            self.failed.emit(str(exc))
 
 
 class ScannerThread(QtCore.QThread):
@@ -81,6 +116,7 @@ class ScannerThread(QtCore.QThread):
                  controller=None,
                  motor=None,
                  save_channels: int = 2,
+                 plugin_manager=None,
                  parent=None):
         """Initialize the scanner thread.
 
@@ -113,6 +149,7 @@ class ScannerThread(QtCore.QThread):
         self._controller = controller
         self._motor = motor
         self._save_channels = save_channels
+        self._plugin_manager = plugin_manager
         self._scanner = None
 
     def run(self) -> None:
@@ -129,6 +166,7 @@ class ScannerThread(QtCore.QThread):
                 hw_controller=self._controller,
                 hw_motor=self._motor,
                 save_channels=self._save_channels,
+                plugin_manager=self._plugin_manager,
             )
             self._scanner.run()
         except Exception as exc:
@@ -204,6 +242,13 @@ class AppController(QtCore.QObject):
     #: Emitted during open() before and after each device connection.
     #: Carries a single human-readable status line (str).
     startup_status = QtCore.pyqtSignal(str)
+    #: Emitted when a plugin's connection status changes.
+    #: Carries (plugin_name, status) where status is one of:
+    #:   'connecting'  — background thread started
+    #:   'connected'   — open() succeeded; plugin is active
+    #:   'disconnected'— plugin disabled and close() called
+    #:   'error: ...'  — open() raised an exception
+    plugin_status_changed = QtCore.pyqtSignal(str, str)
 
     def __init__(self, config: dict, config_path: str | None = None, parent=None):
         """Initialize the application controller.
@@ -256,6 +301,15 @@ class AppController(QtCore.QObject):
 
         # Scanner thread (created by start_focus() / start_grab()).
         self._scanner_thread = None
+
+        # Plugin management.  The PluginManager is long-lived (owned here
+        # for the session) and passed to each ScannerThread so the Scanner
+        # can call lifecycle hooks.  _active_plugins maps plugin name to the
+        # live instance; _plugin_connect_threads tracks in-progress open()
+        # background threads to prevent duplicate connects.
+        self._plugin_manager: acq_plugin.PluginManager = acq_plugin.PluginManager()
+        self._active_plugins: dict[str, acq_plugin.AcquisitionPlugin] = {}
+        self._plugin_connect_threads: dict[str, PluginConnectThread] = {}
 
         # Most-recently sent hardware values for Pockels and PMT gains.
         # Used in emulation mode to scale mock signal brightness in real time.
@@ -432,6 +486,30 @@ class AppController(QtCore.QObject):
                 logger.error(msg)
                 self.hardware_error.emit(msg)
 
+        # Upload per-zoom-level scanner gain tables when gain_override is true.
+        # Mirrors the gain_override block in core/scanbox.m (lines 253–262).
+        scanner_cfg = self.config.get('scanner', {})
+        if scanner_cfg.get('gain_override', False):
+            try:
+                self.update_scanner_gains(
+                    gain_galvo=scanner_cfg.get(
+                        'gain_galvo',
+                        list(hw_controller.ScanboxController.GAIN_GALVO_DEFAULT),
+                    ),
+                    gain_resonant_mult=scanner_cfg.get(
+                        'gain_resonant_mult',
+                        hw_controller.ScanboxController.GAIN_RESONANT_MULT_DEFAULT,
+                    ),
+                    dv_galvo=int(scanner_cfg.get(
+                        'dv_galvo',
+                        hw_controller.ScanboxController.DV_GALVO_MAX,
+                    )),
+                )
+            except Exception as exc:
+                msg = f"Could not upload scanner gain tables: {exc}"
+                logger.error(msg)
+                self.hardware_error.emit(msg)
+
         emulation = self.config.get('emulation', {}).get('enabled', False)
         suffix = ' (emulation)' if emulation else ''
         self._log_event(f'All hardware ready{suffix}')
@@ -467,6 +545,15 @@ class AppController(QtCore.QObject):
 
         if self._motor.is_open:
             self._motor.close()
+
+        # Close all active plugins and rebuild a fresh empty PluginManager.
+        for plugin in list(self._active_plugins.values()):
+            try:
+                plugin.close()
+            except Exception:
+                pass  # best-effort; do not block shutdown
+        self._active_plugins.clear()
+        self._plugin_manager = acq_plugin.PluginManager()
 
         self.is_open = False
         logger.info("AppController: hardware closed.")
@@ -606,8 +693,108 @@ class AppController(QtCore.QObject):
         self._log_event('Motor disconnected')
 
     # ------------------------------------------------------------------
-    # Laser / Pockels cell
+    # Plugin management
     # ------------------------------------------------------------------
+
+    def enable_plugin(self, name: str) -> None:
+        """Connect a plugin's hardware and register it with the PluginManager.
+
+        Starts a background thread that calls plugin.open() so that slow
+        hardware setup (e.g. Arduino USB reset) does not block the GUI.
+        plugin_status_changed is emitted with 'connecting', then either
+        'connected' or 'error: <message>' when the thread finishes.
+
+        Calling enable_plugin() for an already-active plugin is a no-op.
+
+        Args:
+            name: Plugin name matching a key under config['plugins'].
+        """
+        if name in self._active_plugins or name in self._plugin_connect_threads:
+            return
+        plugin = self._build_plugin(name)
+        if plugin is None:
+            msg = f"Plugin '{name}' is not configured or not supported."
+            logger.warning(msg)
+            self.hardware_error.emit(msg)
+            return
+        self.plugin_status_changed.emit(name, 'connecting')
+        thread = PluginConnectThread(plugin, parent=self)
+        thread.succeeded.connect(
+            lambda p, n=name: self._on_plugin_connected(n, p)
+        )
+        thread.failed.connect(
+            lambda msg, n=name: self._on_plugin_connect_failed(n, msg)
+        )
+        # Remove thread reference after it finishes (success or failure).
+        thread.finished.connect(
+            lambda n=name: self._plugin_connect_threads.pop(n, None)
+        )
+        self._plugin_connect_threads[name] = thread
+        thread.start()
+        logger.info("AppController: starting connection for plugin '%s'.", name)
+
+    def disable_plugin(self, name: str) -> None:
+        """Close a plugin's hardware connection and remove it from the manager.
+
+        Calling disable_plugin() for a plugin that is not active is a no-op.
+
+        Args:
+            name: Plugin name to disable.
+        """
+        plugin = self._active_plugins.pop(name, None)
+        if plugin is None:
+            return
+        try:
+            plugin.close()
+        except Exception as exc:
+            logger.warning("Plugin '%s': close() raised: %s", name, exc)
+        self._plugin_manager.unregister(name)
+        self.plugin_status_changed.emit(name, 'disconnected')
+        logger.info("AppController: plugin '%s' disabled.", name)
+        self._log_event(f"Plugin '{name}' disconnected")
+
+    def _build_plugin(
+        self, name: str
+    ) -> 'acq_plugin.AcquisitionPlugin | None':
+        """Instantiate a plugin from config without opening hardware.
+
+        Args:
+            name: Plugin name matching a key under config['plugins'].
+
+        Returns:
+            A new plugin instance, or None if the plugin is not supported.
+        """
+        plugin_cfg = dict(self.config.get('plugins', {}).get(name, {}))
+        # Inherit the global emulation flag unless the plugin overrides it.
+        if 'emulation' not in plugin_cfg:
+            plugin_cfg['emulation'] = (
+                self.config.get('emulation', {}).get('enabled', False)
+            )
+        if name == 'quadrature':
+            from pyscanbox.plugins import quadrature as quad_module
+            encoder = quad_module.QuadratureEncoder(plugin_cfg)
+            return quad_module.QuadraturePlugin(encoder)
+        logger.warning("AppController: unknown plugin name '%s'.", name)
+        return None
+
+    def _on_plugin_connected(
+        self, name: str, plugin: 'acq_plugin.AcquisitionPlugin'
+    ) -> None:
+        """Slot called when PluginConnectThread.succeeded fires."""
+        self._active_plugins[name] = plugin
+        self._plugin_manager.register(plugin)
+        self.plugin_status_changed.emit(name, 'connected')
+        logger.info("AppController: plugin '%s' connected.", name)
+        self._log_event(f"Plugin '{name}' connected")
+
+    def _on_plugin_connect_failed(self, name: str, msg: str) -> None:
+        """Slot called when PluginConnectThread.failed fires."""
+        error_msg = f"Plugin '{name}': connection failed: {msg}"
+        self.hardware_error.emit(error_msg)
+        self.plugin_status_changed.emit(name, f'error: {msg}')
+        logger.error("AppController: %s", error_msg)
+
+
 
     def set_pockels(self, percent: int) -> None:
         """Set laser power via the Pockels cell.
@@ -802,6 +989,46 @@ class AppController(QtCore.QObject):
         if 0 <= mag_index < len(bishift):
             bishift[mag_index] = shift
         logger.debug("Bishift[%d] set to %d", mag_index, shift)
+
+    def update_scanner_gains(
+        self,
+        gain_galvo: list,
+        gain_resonant_mult: float,
+        dv_galvo: int = 64,
+    ) -> None:
+        """Upload the per-zoom-level scanner gain tables to the PSoC5.
+
+        Computes ``gain_resonant = gain_resonant_mult × gain_galvo`` and then
+        calls :meth:`~pyscanbox.hardware.controller.ScanboxController.update_scanner_gains`.
+        The call is a no-op if the hardware is not yet open, allowing this
+        method to be invoked safely by the scanner gains dialog at any time.
+
+        Args:
+            gain_galvo: 13-element list of Y-axis galvo gain values
+                (one per zoom level, logspaced 1.0–8.0 by default).
+            gain_resonant_mult: Resonant/galvo aspect-ratio multiplier
+                (default 1.42).
+            dv_galvo: Galvo voltage step per line (default 64, hardware max).
+
+        Raises:
+            RuntimeError: If hardware is not open.
+        """
+        if not self.is_open:
+            raise RuntimeError('AppController is not open. Call open() first.')
+        gain_resonant = [gain_resonant_mult * g for g in gain_galvo]
+        try:
+            self._hw_controller.update_scanner_gains(
+                gain_galvo=gain_galvo,
+                gain_resonant=gain_resonant,
+                dv_galvo=dv_galvo,
+            )
+            logger.debug(
+                'Scanner gains uploaded (mult=%.3f, dv=%d)', gain_resonant_mult, dv_galvo
+            )
+        except Exception as exc:
+            msg = f'update_scanner_gains failed: {exc}'
+            logger.error(msg)
+            self.hardware_error.emit(msg)
 
     # ------------------------------------------------------------------
     # Bidirectional calibration
@@ -1475,6 +1702,7 @@ class AppController(QtCore.QObject):
             controller=self._hw_controller,
             motor=self._motor if self._motor.is_open else None,
             save_channels=save_channels,
+            plugin_manager=self._plugin_manager,
             parent=self,
         )
         self._scanner_thread.frame_acquired.connect(self.frame_acquired)

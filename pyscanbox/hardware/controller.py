@@ -118,6 +118,27 @@ class ScanboxController:
     CMD_POCKELS_LUT_ENTRY = 0x43    # [0x43, idx, val] — set one LUT entry
     CMD_POCKELS_LUT_IDENTITY = 0x44 # [0x44, 0, 0] — reset LUT to identity
     CMD_HSYNC_SIGN = 0x80           # [0x80, val, 0] — flip horizontal scan axis
+    CMD_GALVO_DV = 0x66             # [0x66, dv, 0] — galvo voltage step per line
+    CMD_MAG_X_GAIN_BASE = 0xB0      # [0xB0+i, xh, xl] — resonant (X) gain for zoom i
+    CMD_MAG_Y_GAIN_BASE = 0xC0      # [0xC0+i, yh, yl] — galvo (Y) gain for zoom i
+
+    # Maximum galvo differential voltage value (hardware limit).
+    # Reference: sbconfig.dv_galvo = 64; % dv per line (64 is the maximum) -- don't touch!
+    DV_GALVO_MAX = 64
+
+    # Default resonant/galvo aspect-ratio multiplier.
+    # Compensates for the resonant mirror having a different voltage-to-angle
+    # curve than the galvo.  Reference: sbconfig.gain_resonant_mult = 1.42
+    GAIN_RESONANT_MULT_DEFAULT = 1.42
+
+    # Default per-zoom galvo gain table: 13 values logspace(1, 8, 13).
+    # Reference: sbconfig.gain_galvo = logspace(log10(1), log10(8), 13)
+    # These are the single source of truth consumed by the scanner gains
+    # dialog and the startup gain-override sequence.
+    GAIN_GALVO_DEFAULT = (
+        1.0, 1.189, 1.414, 1.682, 2.0, 2.378, 2.828,
+        3.364, 4.0, 4.757, 5.657, 6.727, 8.0,
+    )
 
     # Number of bytes in one TTL event packet returned by the PSoC5 over serial.
     # Packet layout: [frame_low, frame_high, line_low, line_high, event_id]
@@ -179,6 +200,7 @@ class ScanboxController:
         CMD_POCKELS_LUT_ENTRY: 'set_pockels_lut_entry',
         CMD_POCKELS_LUT_IDENTITY: 'set_pockels_lut_identity',
         CMD_HSYNC_SIGN: 'set_hsync_sign',
+        CMD_GALVO_DV: 'set_galvo_dv',
     }
 
     @staticmethod
@@ -271,6 +293,16 @@ class ScanboxController:
             return f'set_hsync_sign(flip={bool(param1)})'
         if cmd_id == ScanboxController.CMD_WARMUP_DELAY:
             return f'set_warmup_delay(delay={param2})'
+        if cmd_id == ScanboxController.CMD_GALVO_DV:
+            return f'set_galvo_dv(dv={param1})'
+        base_x = ScanboxController.CMD_MAG_X_GAIN_BASE
+        base_y = ScanboxController.CMD_MAG_Y_GAIN_BASE
+        if base_x <= cmd_id < base_x + 13:
+            value = param1 + param2 / 10.0
+            return f'set_mag_x_gain(index={cmd_id - base_x}, value={value:.1f})'
+        if base_y <= cmd_id < base_y + 13:
+            value = param1 + param2 / 10.0
+            return f'set_mag_y_gain(index={cmd_id - base_y}, value={value:.1f})'
         name = ScanboxController.CMD_NAMES.get(cmd_id, f'cmd_{cmd_id}')
         return f'{name}(param1={param1}, param2={param2})'
 
@@ -865,6 +897,146 @@ class ScanboxController:
                     f'LUT entry {idx} must be 0-255, got {val}'
                 )
             self._send_command(self.CMD_POCKELS_LUT_ENTRY, idx, val)
+
+    # ------------------------------------------------------------------
+    # Scanner gain / amplitude control
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _encode_gain(x: float) -> tuple:
+        """Encode a float gain value as the two-byte PSoC5 wire format.
+
+        The PSoC5 expects the integer part in byte 1 and the tenths digit
+        in byte 2: ``xh = floor(x)``, ``xl = floor((x - xh) * 10)``.
+        Only one decimal digit of precision is representable.
+
+        Reference: sb/sb_set_mag_x_i.m, sb/sb_set_mag_y_i.m
+
+        Args:
+            x: Gain value (non-negative float with up to one decimal digit).
+
+        Returns:
+            Tuple (xh, xl) of byte values (each 0–255).
+        """
+        xh = int(x)
+        xl = int((x - xh) * 10)
+        return xh, xl
+
+    def set_galvo_dv(self, dv: int) -> None:
+        """Set the galvo mirror voltage step per scan line.
+
+        Controls how far the Y-axis (galvo) mirror advances between
+        consecutive scan lines.  The hardware maximum is 64; the standard
+        value used in all normal configurations is 64.
+
+        Args:
+            dv: Differential voltage value (0–64).
+
+        Reference:
+            See sb/sb_galvo_dv.m: ``fwrite(sb, uint8([0x66, val, 0]))``.
+            Config key: ``scanner.dv_galvo`` (default 64).
+
+        Raises:
+            ValueError: If dv is outside 0–DV_GALVO_MAX.
+        """
+        if not (0 <= dv <= self.DV_GALVO_MAX):
+            raise ValueError(
+                f'dv_galvo must be 0–{self.DV_GALVO_MAX}, got {dv}'
+            )
+        self._send_command(self.CMD_GALVO_DV, dv, 0)
+
+    def set_mag_x_gain(self, index: int, value: float) -> None:
+        """Set the resonant (X-axis) gain for one zoom level.
+
+        Encodes *value* using the PSoC5 float format (integer part + tenths
+        digit) and sends ``[0xB0 + index, xh, xl]``.
+
+        Args:
+            index: Zoom-level index (0–12; 0 = widest FOV).
+            value: Resonant-axis gain amplitude (float, e.g. 1.42–11.36).
+
+        Reference:
+            See sb/sb_set_mag_x_i.m.
+            Config key: ``scanner.gain_galvo`` + ``scanner.gain_resonant_mult``.
+
+        Raises:
+            ValueError: If index is outside 0–12 or value is negative.
+        """
+        if not (0 <= index <= 12):
+            raise ValueError(f'Zoom index must be 0–12, got {index}')
+        if value < 0:
+            raise ValueError(f'Gain value must be non-negative, got {value}')
+        xh, xl = self._encode_gain(value)
+        self._send_command(self.CMD_MAG_X_GAIN_BASE + index, xh, xl)
+
+    def set_mag_y_gain(self, index: int, value: float) -> None:
+        """Set the galvo (Y-axis) gain for one zoom level.
+
+        Encodes *value* using the PSoC5 float format (integer part + tenths
+        digit) and sends ``[0xC0 + index, yh, yl]``.
+
+        Args:
+            index: Zoom-level index (0–12; 0 = widest FOV).
+            value: Galvo-axis gain amplitude (float, e.g. 1.0–8.0).
+
+        Reference:
+            See sb/sb_set_mag_y_i.m.
+            Config key: ``scanner.gain_galvo``.
+
+        Raises:
+            ValueError: If index is outside 0–12 or value is negative.
+        """
+        if not (0 <= index <= 12):
+            raise ValueError(f'Zoom index must be 0–12, got {index}')
+        if value < 0:
+            raise ValueError(f'Gain value must be non-negative, got {value}')
+        yh, yl = self._encode_gain(value)
+        self._send_command(self.CMD_MAG_Y_GAIN_BASE + index, yh, yl)
+
+    def update_scanner_gains(
+        self,
+        gain_galvo: list,
+        gain_resonant: list,
+        dv_galvo: int = 64,
+    ) -> None:
+        """Upload the full per-zoom-level gain table to the PSoC5.
+
+        Mirrors the ``gain_override`` block in ``core/scanbox.m``:
+
+        1. Send the galvo differential voltage (``[0x66, dv_galvo, 0]``).
+        2. For each of the 13 zoom levels, send the resonant (X) gain
+           (``[0xB0 + i, xh, xl]``).
+        3. For each of the 13 zoom levels, send the galvo (Y) gain
+           (``[0xC0 + i, yh, yl]``).
+
+        Args:
+            gain_galvo: 13-element sequence of Y-axis galvo gain values
+                (one per zoom level, logspaced 1.0–8.0 by default).
+            gain_resonant: 13-element sequence of X-axis resonant gain
+                values (typically ``gain_resonant_mult × gain_galvo``).
+            dv_galvo: Galvo voltage step per line (default 64, hardware max).
+
+        Reference:
+            MATLAB: ``core/scanbox.m`` lines 253–262, ``sb/sb_update_gains.m``.
+            Config keys: ``scanner.gain_override``, ``scanner.dv_galvo``,
+            ``scanner.gain_galvo``, ``scanner.gain_resonant_mult``.
+
+        Raises:
+            ValueError: If either gain list does not have exactly 13 entries.
+        """
+        if len(gain_galvo) != 13:
+            raise ValueError(
+                f'gain_galvo must have 13 entries, got {len(gain_galvo)}'
+            )
+        if len(gain_resonant) != 13:
+            raise ValueError(
+                f'gain_resonant must have 13 entries, got {len(gain_resonant)}'
+            )
+        self.set_galvo_dv(dv_galvo)
+        for i, gx in enumerate(gain_resonant):
+            self.set_mag_x_gain(i, gx)
+        for i, gy in enumerate(gain_galvo):
+            self.set_mag_y_gain(i, gy)
 
     # ------------------------------------------------------------------
     # TTL event reader

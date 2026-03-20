@@ -63,6 +63,7 @@ class ScanboxConfig:
         self.external_events = config_dict.get('external_events', {})
         self.ni_events = config_dict.get('ni_events', {})
         self.quadrature = config_dict.get('quadrature', {})
+        self.plugins = config_dict.get('plugins', {})
         self.display = config_dict.get('display', {})
 
     def __getitem__(self, key: str) -> Any:
