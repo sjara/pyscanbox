@@ -178,6 +178,7 @@ TMCL commands used:
 7. PC accumulates the delta into an absolute `desired_steps` tracker (seeded from the motor controller's hardware position at startup).
 8. PC issues a TMCL MVP Type 0 (absolute) move command to the new `desired_steps` target.
 9. Motor moves to the absolute target position.
+```
 
 > **Why absolute, not relative?** While the original documentation (and some older implementations) suggested sending relative commands (`MVP Type 1`), the `pyscanbox` implementation specifically uses absolute moves (`MVP Type 0`) to a locally tracked coordinate. Using absolute moves is much smoother: if the knobs are turned faster than the motor can settle, each new command simply updates the target to the correct final destination, rather than compounding trajectory errors from executing multiple relative steps while the motor is already in motion. The PC-side `desired_steps` tracker is seeded at startup with the motor board's absolute hardware counter, ensuring that Knobby's `dpos` coordinate system and the hardware coordinates stay correctly aligned.
 
