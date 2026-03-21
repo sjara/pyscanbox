@@ -1,7 +1,7 @@
-# pyscanbox: AI Agent Development Guide
+# pyscanbox: Development Guide
 
 ## 1. Project Overview & Scope
-* **Objective:** Rewrite the core functionality of the MATLAB-based Scanbox two-photon microscope software in Python.
+* **Objective:** Develop a Python software package to collect data using Neurolabware two-photon microscopes, based on the original MATLAB-based Scanbox software (https://scanbox.org/).
 * **Project Name:** pyscanbox
 * **Target Environment:** Windows OS (to use existing hardware drivers).
 
@@ -32,29 +32,22 @@ Reference: https://scanbox.org/2014/03/13/welcome-to-scanbox/
   * Memory-mapped streaming for real-time data access (advanced feature)
   * TTL events recording
   * Saving data in standard `.sbx` and `.mat` formats
-### **Out of Scope:**
+#### **Via Plugins:**
   * Quadrature encoder for rotation platform monitoring
+  * Auxiliary cameras (eye/ball/path)
+### **Out of Scope:**
   * Laser serial control (use manufacturer software)
   * Optogenetics (SLM, LED)
-  * Auxiliary cameras (eye/ball/path)
   * Ephys/external event recording via NI-DAQ
   * Laser automatic gain control
-### **Detailed Specifications:**
-For in-scope advanced features, see:
-  * `optotune_specification.md` - ETL control and z-stack acquisition
-  * `bidirectional_scanning_specification.md` - Bidirectional mode implementation
-  * `quadrature_encoder_specification.md` - Rotation platform monitoring
-  * `streaming_plugins_specification.md` - Real-time data streaming and plugins
-  * `OUT_OF_SCOPE_FEATURES.md` - Complete list of excluded features
 
 ## 2. Development Environment
 * **Primary Development OS:** Ubuntu Linux (development is performed mostly on Ubuntu using hardware emulation).
 * **Target Deployment OS:** Windows OS (required for actual hardware drivers).
-* **Python Virtual Environment Management:** This Linux system uses `virtualenvwrapper` to manage Python virtual environments. 
-* **Virtual Environment Activation:** Before running any code, tests, or examples, you must activate the `pyscanbox` virtual environment.
-* **Hardware Emulation:** Since the physical hardware (AlazarTech digitizer, Scanbox controller, Trinamic motors) is not accessible during development, all development uses the hardware emulation layer described in Section 9 (Hardware Emulation for Linux/Offline Development).
+* **Python Virtual Environment Management:** The development Linux system uses `virtualenvwrapper` to manage Python virtual environments. Before running any code, tests, or examples, you must activate the `pyscanbox` virtual environment.
+* **Hardware Emulation:** Since the physical hardware (AlazarTech digitizer, Scanbox controller, Trinamic motors) is not accessible during development, all development uses the hardware emulation layer described in Section "Hardware Emulation for Linux/Offline Development" below.
 * **Renaming files:** When renaming files, use 'git mv' to keep track of the history.
-* **Temporary benchmarks:** Any new files with demonstrations or benchmarks (and associated documentation of these) should be placed in the temporary folder pyscanbox/tmp/ unless explicitly told to implement that feature in the main code.
+* **Temporary benchmarks:** Any new files with demonstrations or benchmarks (and associated documentation of these) should be placed in the temporary folder pyscanbox/tmp/ unless we want to explicitly implement that feature in the main code.
 
 ## 3. Coding Standards
 * **Style Guide:** Strictly follow the Google Python Style Guide.
@@ -63,25 +56,16 @@ For in-scope advanced features, see:
 * **Single Source of Truth:** Every hardware parameter, value range, conversion factor, or lookup table must be defined in exactly one place — always in the lowest-level module that owns the concept (e.g., hardware limits belong in the hardware class, not the GUI). All other code must import and reference that definition. Never duplicate a constant or restate a range in a comment or widget; use the symbol directly. Examples: ETL current limits live in `ScanboxController.ETL_CURRENT_MIN/MAX`; magnification labels are computed from `logspace(…)` parameters stored once; PMT scale factors are module-level constants in `app_controller.py`. Violation of this rule means that changing a hardware parameter requires hunting down multiple copies, which is error-prone.
 
 ## 4. Development Phases & Guidelines
-* **Phase 1: Core Backend Translation:** Translate the hardware communication and data acquisition logic module-by-module. Implement hardware emulation layer to enable development without physical hardware access. **Write unit tests alongside each module** using the emulator (`mock_serial`, `mock_alazar`) to verify byte-level serial protocols and hardware interactions. All backend modules should have comprehensive test coverage before proceeding to Phase 2.
+* **Phase 1: Core Backend Translation:** Implement the hardware communication and data acquisition logic module-by-module. Implement hardware emulation layer to enable development without physical hardware access. **Write unit tests alongside each module** using the emulator (`mock_serial`, `mock_alazar`, etc) to verify byte-level serial protocols and hardware interactions. All backend modules should have comprehensive test coverage before proceeding to Phase 2.
 * **Phase 2: GUI Development:** Build the user interface using **PyQt** and integrate with hardware modules using emulation mode. This allows GUI development to proceed in parallel without waiting for hardware access. Test all GUI functionality using the emulator.
 * **Phase 3: Hardware-in-the-Loop (HIL) Testing:** Validate all backend modules and GUI functionality on the actual Windows rig with physical hardware. Replace emulation with real hardware drivers and verify that byte-level protocols work correctly with actual devices. Test performance benchmarks and identify any hardware-specific issues.
 * **Phase 4: Integration and Optimization:** Once hardware validation is complete, perform full system integration testing, optimize performance on actual hardware, and conduct long-duration stability testing.
+* **Phase 5: Plugins:** Develop plugins for additional functionality.
 
 ## 5. Reference File Mapping
 
-When translating logic, refer to these specific files in the original codebase:
+When translating logic, refer to these specific files in the original codebase. For example, the main acquisition loop is in `core/scanbox.m` and the high-speed reshaping is in `core/alazarReshapeCData2.c`, while the Alazar configuration is in `core/configureLsb9440.m` and `core/scanbox.m` (lines 743-893).
 
-* **Main Acquisition Loop:** `core/scanbox.m` (Contains the `while ~captureDone` loop, Alazar API calls, and raw data writing).
-* **High-Speed Reshaping:** `core/alazarReshapeCData2.c` (Contains the bit-shifting logic that must be optimized in Python).
-* **Alazar Configuration:** `core/configureLsb9440.m` and `core/scanbox.m` (lines 743-893).
-  * Uses **EXTERNAL_CLOCK (0x2)** from the **laser sync-out** (~80 MHz), not internal clock (line 757). The sync-out is cleaned with a BBP-70+ band-pass filter. This synchronizes sampling to laser pulses to avoid beat-pattern artifacts. ([source](https://scanbox.org/2014/03/18/synchronize-to-the-laser/))
-  * The **line trigger** is sent by the Scanbox controller card (PSoC5) to trigger acquisition of each line. ([source](https://scanbox.org/2014/03/13/the-heart-of-scanbox/))
-  * Uses **DC_COUPLING (0x2)**, not AC coupling (line 807).
-  * Input range: 200mV for variable gain amps, 1V for fixed gain amps (lines 786-798).
-  * Complete configuration details in [hardware_protocols.md](hardware_protocols.md#alazartech-api-constants).
-* **Main Controller Box (Pockels, Shutter, Mirror):** See [hardware_protocols/scanbox_controller.md](hardware_protocols/scanbox_controller.md) for the complete list of MATLAB reference files per command (`sb/sb_open.m`, `sb/sb_pockels.m`, `sb/sb_shutter.m`, `sb/sb_mirror.m`, etc.).
-* **Motor Control (Knobby):** `trinamic/tri_open.m`, `trinamic/tri_send.m`, and the Python intermediary `scanknob/scanknob.py` (the legacy mmap IPC glue, not replicated in pyscanbox).
 
 ## 6. Architectural Constraints & Bottlenecks
 * **The GIL & High-Speed Data:** The system handles a ~500 MB/s continuous data stream (125 MS/s, 14-bit, 2-channel) from the Alazar card. Standard Python `for` loops will drop frames.
@@ -94,9 +78,9 @@ For complete protocol specifications, see the [hardware_protocols/](hardware_pro
 
 * **Main Scanbox Controller:** 3-byte serial packets at 1 Mbaud. Use `pyserial`. See [hardware_protocols/scanbox_controller.md](hardware_protocols/scanbox_controller.md).
 
-* **Motor Control & Knobby:** 9-byte TMCL packets at 57600 baud. Use `pyserial` directly and run a dedicated background polling thread. In the original MATLAB implementation, MATLAB could not own the serial port itself, so it launched a Python subprocess (`scanknob/scanknob.py`) and communicated with it via two **memory-mapped files**: `scanknob.pos` (motor positions) and `scanknob.cmd` (commands), with a busy-wait flag handshake. In pyscanbox this entire IPC layer is eliminated — Python owns the serial port directly. See [hardware_protocols/trinamic_motor.md](hardware_protocols/trinamic_motor.md).
+* **Motor Control & Knobby:** 9-byte TMCL packets at 57600 baud. Use `pyserial` directly and run a dedicated background polling thread. In the original MATLAB implementation, MATLAB could not own the serial port itself, so it launched a Python subprocess (`scanknob/scanknob.py`) and communicated with it via two **memory-mapped files**: `scanknob.pos` (motor positions) and `scanknob.cmd` (commands), with a busy-wait flag handshake. In pyscanbox this entire IPC layer is eliminated — Python owns the serial port directly. See [hardware_protocols/trinamic_motor.md](hardware_protocols/trinamic_motor.md) and [hardware_protocols/knobby.md](hardware_protocols/knobby.md).
 
-* **AlazarTech Digitizer:** Use the official `atsapi.py` wrapper. **External clock comes from the laser sync-out (~80 MHz), not the internal clock** — using the wrong clock source causes beat-pattern artifacts. The line trigger is sent by the Scanbox controller card. See [hardware_protocols/alazar_digitizer.md](hardware_protocols/alazar_digitizer.md) and [alazar_digitizer.md](alazar_digitizer.md).
+* **AlazarTech Digitizer:** Use the official `atsapi.py` wrapper. **External clock comes from the laser sync-out (~80 MHz), not the internal clock**; using the wrong clock source causes beat-pattern artifacts. The line trigger is sent by the Scanbox controller card. See [hardware_protocols/alazar_digitizer.md](hardware_protocols/alazar_digitizer.md) and [alazar_digitizer.md](alazar_digitizer.md).
 
 ## 8. Data Output Specification (.sbx format)
 * **Binary Dump (`.sbx`):** Write the raw, reshaped `uint16` arrays directly to a headerless binary file (e.g., using `buffer.tofile()`), exactly as MATLAB's `fwrite` does. 
@@ -146,17 +130,15 @@ See `pyscanbox/hardware/controller.py` (`ScanboxController`) for the complete re
 
 Apply this pattern to every hardware class that sends commands to a device — serial or API-level.  Any class that has a low-level send method (e.g. `_send_command`, `_send_packet`, or a direct `port.write`) should accept `on_command=None` and fire the callback there.
 
----
-
 ## 10. Hardware Emulation for Linux/Offline Development
-Because the physical hardware is not accessible during development, you must build a lightweight software emulator. Do not build a full-fidelity hardware simulator; focus on a "mock interface" that prevents the software from crashing and generates synthetic data.
+Because the physical hardware is not accessible during development, we built a lightweight software emulator. We do not need to build a full-fidelity hardware simulator; focus on a "mock interface" that prevents the software from crashing and generates synthetic data.
 
-### 9.1 Mocking Serial Connections (Scanbox Box & Knobby)
+### 10.1 Mocking Serial Connections (Scanbox Box & Knobby)
 Create a dummy class to replace `serial.Serial` when running in emulation mode. 
 * **State Tracking (Scanbox):** When the application sends a 3-byte array (e.g., `[8, 10, 85]` for the Pockels cell), the mock class should not throw an error. Instead, it should parse the command and update an internal state dictionary (`self.state['pockels'] = (10, 85)`). 
 * **Polling Loop (Knobby):** The Trinamic motor controller requires constant polling. The mock serial class must intercept the 9-byte Trinamic Motion Control Language (TMCL) queries and immediately return a valid 9-byte TMCL acknowledgment array so the background polling thread does not freeze or timeout.
 
-### 9.2 Mocking the AlazarTech Digitizer (High-Speed Data)
+### 10.2 Mocking the AlazarTech Digitizer (High-Speed Data)
 Create a dummy Python class that mirrors the methods of the `atsapi` wrapper. 
 * **Synthetic Data Generation:** Instead of reading from a PCIe bus, the mock `AlazarWaitAsyncBufferComplete` method should yield NumPy arrays populated with random 14-bit integers (e.g., `np.random.randint(0, 16384, size=...)`) to simulate PMT noise.
 * **Stress Testing:** Use this synthetic data stream to stress-test the Linux development environment. Verify that:
