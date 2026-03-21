@@ -1,5 +1,7 @@
 # AlazarTech ATS9440 Protocol
 
+> **Note**: This document contains low-level developer specifications (API constants, bitmasks, and strict initialization sequences). For high-level theory of operation, PCle/cable setup, and data formatting, see the user-facing [AlazarTech ATS9440 Digitizer Reference](../alazar_digitizer.md).
+
 Low-level protocol specification for the AlazarTech ATS9440 digitizer used for PMT data acquisition.
 
 ## Overview
@@ -336,5 +338,5 @@ See `pyscanbox/hardware/alazar.py` for complete implementation and `examples/che
 
 ## Additional Resources
 
-- `docs/alazar_digitizer.md` - User-facing documentation
+- `../alazar_digitizer.md` - User-facing documentation
 - `pyscanbox/vendor/alazar/atsapi.py` - Complete API constant definitions

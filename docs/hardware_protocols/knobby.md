@@ -7,11 +7,12 @@ The Knobby is an Arduino-based hardware controller that provides manual position
 ## Hardware Components
 
 ### 1. Arduino Microcontroller
-- Runs the knobby firmware (`Scanbox/scanknob/knobby2/knobby2.ino`)
+- Runs the knobby firmware (`Scanbox/scanknob/knobby2/knobby2.ino` or newer like `knobby3_1.ino`)
 - Connects to PC via Serial at **57600 baud** (COM5)
 - Manages all I/O between encoders, display, and PC
+- **Note**: Newer firmwares (like `knobby3_1.ino` for Model 3) support setups with only 3 physical knobs, utilizing a "Virtual A-axis" mode where the Z knob controls the A-axis when toggled via the touchscreen.
 
-### 2. Rotary Encoders (4x)
+### 2. Rotary Encoders (4x or 3x)
 - **X-axis encoder**: Pins 36, 34 (horizontal stage movement)
 - **Y-axis encoder**: Pins 32, 30 (vertical stage movement)
 - **Z-axis encoder**: Pins 40, 38 (focus/depth)
@@ -123,12 +124,19 @@ The PC can send **9-byte command packets** to control Knobby:
 ```
 
 Where `cmd_id` includes:
-- 0-2: Move motors by X microns
+- 0-2: Move motors Z, Y, X by X microns (converted to steps internally based on current velocity mode and gain)
+- 3-5: Move motors Z, Y, X by explicit hardware steps
 - 10-12: Set velocity (coarse, fine, superfine)
 - 20-21: Set mode (normal, rotate)
-- 30-31: Zero positions
-- 40-42, 50-52: Store/recall memory positions
+- 30-31: Zero positions (XYZ or XYZA)
+- 40-42: Store memory positions (A, B, C)
+- 50-52: Recall memory positions
 - 60-61: Lock/unlock knobs
+- 70: Reset hardware scheduler delta table
+- 71-75: Append values to hardware scheduler table (Z delta, Y delta, X delta, memory flags, frame jumps)
+- 76-78: Set delta modes for X, Y, Z axes
+- 80-81: Arm/Disarm hardware scheduler (interrupt-driven stepping, e.g., for automated Z-stacks)
+- 100-103: Force a position report packet back to the PC for a specific axis (Z, Y, X, A)
 
 ### 3. PC → Motor Controller (COM4)
 
@@ -303,7 +311,7 @@ knobby.close()
 
 ## References
 
-- **Knobby firmware**: `Scanbox/scanknob/knobby2/knobby2.ino`
+- **Knobby firmware**: `Scanbox/scanknob/knobby2/knobby2.ino`, `Scanbox/scanknob/knobby3_1/knobby3_1.ino`
 - **TMCL protocol**: `pyscanbox/hardware/protocols.py`
 - **Motor controller**: `pyscanbox/hardware/motor.py`
 - **Original MATLAB**: `trinamic/tri_send.m`, `scanknob/scanknob.py`

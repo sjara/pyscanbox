@@ -80,7 +80,7 @@ When translating logic, refer to these specific files in the original codebase:
   * Uses **DC_COUPLING (0x2)**, not AC coupling (line 807).
   * Input range: 200mV for variable gain amps, 1V for fixed gain amps (lines 786-798).
   * Complete configuration details in [hardware_protocols.md](hardware_protocols.md#alazartech-api-constants).
-* **Main Controller Box (Pockels, Shutter, Mirror):** See [protocols/scanbox_controller.md](protocols/scanbox_controller.md) for the complete list of MATLAB reference files per command (`sb/sb_open.m`, `sb/sb_pockels.m`, `sb/sb_shutter.m`, `sb/sb_mirror.m`, etc.).
+* **Main Controller Box (Pockels, Shutter, Mirror):** See [hardware_protocols/scanbox_controller.md](hardware_protocols/scanbox_controller.md) for the complete list of MATLAB reference files per command (`sb/sb_open.m`, `sb/sb_pockels.m`, `sb/sb_shutter.m`, `sb/sb_mirror.m`, etc.).
 * **Motor Control (Knobby):** `trinamic/tri_open.m`, `trinamic/tri_send.m`, and the Python intermediary `scanknob/scanknob.py` (the legacy mmap IPC glue, not replicated in pyscanbox).
 
 ## 6. Architectural Constraints & Bottlenecks
@@ -90,13 +90,13 @@ When translating logic, refer to these specific files in the original codebase:
 
 ## 7. Hardware Interfacing & Protocols
 
-For complete protocol specifications, see the [protocols/](protocols/) directory.
+For complete protocol specifications, see the [hardware_protocols/](hardware_protocols/) directory.
 
-* **Main Scanbox Controller:** 3-byte serial packets at 1 Mbaud. Use `pyserial`. See [protocols/scanbox_controller.md](protocols/scanbox_controller.md).
+* **Main Scanbox Controller:** 3-byte serial packets at 1 Mbaud. Use `pyserial`. See [hardware_protocols/scanbox_controller.md](hardware_protocols/scanbox_controller.md).
 
-* **Motor Control & Knobby:** 9-byte TMCL packets at 57600 baud. Use `pyserial` directly and run a dedicated background polling thread. In the original MATLAB implementation, MATLAB could not own the serial port itself, so it launched a Python subprocess (`scanknob/scanknob.py`) and communicated with it via two **memory-mapped files**: `scanknob.pos` (motor positions) and `scanknob.cmd` (commands), with a busy-wait flag handshake. In pyscanbox this entire IPC layer is eliminated — Python owns the serial port directly. See [protocols/trinamic_motor.md](protocols/trinamic_motor.md).
+* **Motor Control & Knobby:** 9-byte TMCL packets at 57600 baud. Use `pyserial` directly and run a dedicated background polling thread. In the original MATLAB implementation, MATLAB could not own the serial port itself, so it launched a Python subprocess (`scanknob/scanknob.py`) and communicated with it via two **memory-mapped files**: `scanknob.pos` (motor positions) and `scanknob.cmd` (commands), with a busy-wait flag handshake. In pyscanbox this entire IPC layer is eliminated — Python owns the serial port directly. See [hardware_protocols/trinamic_motor.md](hardware_protocols/trinamic_motor.md).
 
-* **AlazarTech Digitizer:** Use the official `atsapi.py` wrapper. **External clock comes from the laser sync-out (~80 MHz), not the internal clock** — using the wrong clock source causes beat-pattern artifacts. The line trigger is sent by the Scanbox controller card. See [protocols/alazar_digitizer.md](protocols/alazar_digitizer.md) and [../docs/alazar_digitizer.md](../docs/alazar_digitizer.md).
+* **AlazarTech Digitizer:** Use the official `atsapi.py` wrapper. **External clock comes from the laser sync-out (~80 MHz), not the internal clock** — using the wrong clock source causes beat-pattern artifacts. The line trigger is sent by the Scanbox controller card. See [hardware_protocols/alazar_digitizer.md](hardware_protocols/alazar_digitizer.md) and [alazar_digitizer.md](alazar_digitizer.md).
 
 ## 8. Data Output Specification (.sbx format)
 * **Binary Dump (`.sbx`):** Write the raw, reshaped `uint16` arrays directly to a headerless binary file (e.g., using `buffer.tofile()`), exactly as MATLAB's `fwrite` does. 
