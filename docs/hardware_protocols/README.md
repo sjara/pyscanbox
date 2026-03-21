@@ -1,0 +1,39 @@
+# Hardware Communication Protocols
+
+Low-level protocol specifications for Scanbox hardware components.
+
+## Protocol Documentation
+
+This directory contains detailed protocol specifications for each hardware device:
+
+- **[Scanbox Controller](protocol_scanbox_controller.md)** - PSoC 5LP controller for scan control, Pockels cell, shutter, and PMT gain
+- **[Trinamic Motor](protocol_trinamic_motor.md)** - TMCL protocol for focus motor positioning
+- **[AlazarTech Digitizer](protocol_alazar_digitizer.md)** - ATS9440 high-speed PMT data acquisition
+
+## Quick Reference
+
+### Communication Parameters
+
+| Device | Baud Rate | Protocol | Port Type |
+|--------|-----------|----------|-----------|
+| Scanbox Controller | 1,000,000 | 3-byte commands | Serial |
+| Trinamic Motor | 57,600 | 9-byte TMCL | Serial |
+| AlazarTech Digitizer | N/A | C API | PCIe |
+
+### Example Implementations
+
+- **Python:** `pyscanbox/hardware/`
+  - `controller.py` - Scanbox controller
+  - `motor.py` - Trinamic motor
+  - `alazar.py` - AlazarTech digitizer
+
+- **Examples:** `examples/`
+  - `check_controller.py` - Controller connection check with emulation support
+  - `check_motor.py` - Motor connection check and control examples (with emulation support)
+  - `check_alazar.py` - Digitizer connection check with emulation support
+
+### Original MATLAB References
+
+- **Scanbox Controller:** `Scanbox/sb/*.m`
+- **Trinamic Motor:** `Scanbox/trinamic/*.m`
+- **AlazarTech Digitizer:** `Scanbox/core/scanbox.m`, `Scanbox/alazartech/*.m`
