@@ -6,7 +6,22 @@ All notable changes to this project are documented here. This file is append-onl
 
 ---
 
-## v1.1.0 - March 19, 2026 (Current)
+## v1.2.0 - March 20, 2026 (Current)
+- **Scanner gain override — `gain_override`, `gain_galvo`, `gain_resonant`, `dv_galvo`**
+  - `ScanboxController`: new constants `CMD_GALVO_DV = 0x66`, `CMD_MAG_X_GAIN_BASE = 0xB0`, `CMD_MAG_Y_GAIN_BASE = 0xC0`; `DV_GALVO_MAX = 64`, `GAIN_RESONANT_MULT_DEFAULT = 1.42`, `GAIN_GALVO_DEFAULT` (13-element logspaced tuple)
+  - New methods: `_encode_gain(x)` (static; encodes float as `(xh, xl)` with 1-digit fractional precision), `set_galvo_dv(dv)`, `set_mag_x_gain(index, value)`, `set_mag_y_gain(index, value)`, `update_scanner_gains(gain_galvo, gain_resonant, dv_galvo)` (sends 27 packets: 1 dv + 13 X gains + 13 Y gains)
+  - `CMD_GALVO_DV: 'set_galvo_dv'` added to `CMD_NAMES`; `format_command()` updated to decode dv and indexed X/Y gain packets
+  - `AppController.update_scanner_gains(gain_galvo, gain_resonant_mult, dv_galvo)`: new public method; computes `gain_resonant = mult × gain_galvo` and delegates to `ScanboxController.update_scanner_gains()`
+  - `AppController.open()`: gain-override startup block runs when `scanner.gain_override: true` in config, mirroring `core/scanbox.m` lines 253–262
+  - `examples/config_examples/default_config.yaml`: new `scanner` keys `gain_override`, `dv_galvo`, `gain_galvo` (13-element list), `gain_resonant_mult`
+  - New `pyscanbox/gui/scanner_gains_dialog.py`: non-modal `ScannerGainsDialog`; shows `dv_galvo` spinbox, `gain_resonant_mult` spinbox, and a 13-row table (Zoom, Galvo Y, Resonant X); "Recompute X Gains" reapplies the multiplier; "Reset to Defaults" restores factory log-spaced values; "Send to Hardware" writes the table directly via `ScanboxController.update_scanner_gains()`; `gains_sent` signal emitted on success
+  - `MainWindow`: `scanner_gains_dialog` import; "Calibrate &Scanner Gains…" entry added to Calibration menu; `_on_calibrate_scanner_gains()` / `_on_scanner_gains_sent()` handlers; dialog closed in `closeEvent`
+  - 14 new tests in `tests/test_controller.py::TestScannerGains`: `_encode_gain` (4 cases), `set_galvo_dv` (max, zero, exceeds-max ValueError), `set_mag_x/y_gain` (index 0, index 12/3), `update_scanner_gains` (packet count = 27, first packet = dv, wrong-length ValueError)
+- **Bug fix: Lines/frame spinbox not connected**
+  - `MainWindow._connect_hardware()`: added missing `lines_per_frame_spinbox.valueChanged` → `_on_lines_per_frame_changed` → `AppController.set_lines_per_frame()` signal connection; spinbox was live in the GUI but silently had no effect on the acquisition
+  - Added `_sync_lines_per_frame_spinbox()` to initialise the spinbox from `config['acquisition']['lines_per_frame']` at startup so GUI and acquisition agree from the first frame
+
+## v1.1.0 - March 19, 2026
 - **Plugin system for auxiliary device integration**
   - New `pyscanbox/acquisition/plugin.py`: `AcquisitionPlugin` abstract base class and `PluginManager` dispatcher in a single module
   - `AcquisitionPlugin` defines four lifecycle hooks: `on_acquisition_start`, `on_frame`, `on_ttl_event`, `on_acquisition_stop`; all have no-op defaults so a plugin only overrides what it needs
