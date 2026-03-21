@@ -969,6 +969,20 @@ class AppController(QtCore.QObject):
                 logger.error(msg)
                 self.hardware_error.emit(msg)
 
+    def set_lines_per_frame(self, lines: int) -> None:
+        """Set the number of scan lines per frame in the acquisition config.
+
+        Updates ``config['acquisition']['lines_per_frame']`` so the next
+        scan started via :meth:`start_focus` or :meth:`start_grab` uses
+        the new value.  Does not affect an already-running acquisition.
+
+        Args:
+            lines: Lines per frame (must be a positive even integer, e.g.
+                16–2048 in steps of 16).
+        """
+        self.config.setdefault('acquisition', {})['lines_per_frame'] = lines
+        logger.debug("Lines per frame set to %d", lines)
+
     def set_bishift(self, shift: int) -> None:
         """Set the bidirectional pixel shift for the current magnification.
 

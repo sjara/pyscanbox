@@ -743,6 +743,13 @@ class MainWindow(QtWidgets.QMainWindow):
         # Set the initial spinbox value from config for the default magnification.
         self._sync_bishift_spinbox(scanner.magnification_combobox.currentIndex())
 
+        # Lines/frame spinbox -> acquisition config
+        scanner.lines_per_frame_spinbox.valueChanged.connect(
+            self._on_lines_per_frame_changed
+        )
+        # Initialise spinbox from config so GUI and acquisition agree at startup.
+        self._sync_lines_per_frame_spinbox()
+
         # ETL slider -> hardware (spinbox is bidirectionally linked to slider
         # inside OptotuneGroup, so wiring the slider covers both widgets)
         optotune = self._right_panel.optotune_group
@@ -942,6 +949,35 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._ctrl is None:
             return
         self._ctrl.set_bishift(shift)
+
+    def _on_lines_per_frame_changed(self, lines: int) -> None:
+        """Handle Lines/frame spinbox change.
+
+        Updates ``config['acquisition']['lines_per_frame']`` so the next
+        Focus or Grab uses the value shown in the GUI.
+
+        Args:
+            lines: New lines-per-frame value from the spinbox.
+        """
+        if self._ctrl is None:
+            return
+        self._ctrl.set_lines_per_frame(lines)
+
+    def _sync_lines_per_frame_spinbox(self) -> None:
+        """Initialise the Lines/frame spinbox from the acquisition config.
+
+        Reads ``config['acquisition']['lines_per_frame']`` and sets the
+        spinbox value without emitting a signal (to avoid a feedback loop).
+        """
+        if self._ctrl is None:
+            return
+        lines = self._ctrl.config.get('acquisition', {}).get(
+            'lines_per_frame', 512
+        )
+        scanner = self._left_panel.scanner_group
+        scanner.lines_per_frame_spinbox.blockSignals(True)
+        scanner.lines_per_frame_spinbox.setValue(lines)
+        scanner.lines_per_frame_spinbox.blockSignals(False)
 
     def _sync_bishift_spinbox(self, mag_index: int) -> None:
         """Update the bidir alignment spinbox to show the stored bishift.
