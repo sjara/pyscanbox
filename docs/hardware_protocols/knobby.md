@@ -174,19 +174,12 @@ TMCL commands used:
 3. Knobby converts to microns: position_um = dpos[i] * motor_gain[i]
 4. Knobby updates display: "Z = +1234.56 um"
 5. Knobby sends position to PC via COM5  (5-byte packet: motor_id + dpos as int32 LE)
-6. PC computes delta = dpos_new − dpos_prev and forwards it to the motor controller
-   as a TMCL MVP Type 1 (relative) command — NOT an absolute move.  See note below.
-7. Motor moves by the delta amount
-```
+6. PC computes `delta = dpos_new − dpos_prev`.
+7. PC accumulates the delta into an absolute `desired_steps` tracker (seeded from the motor controller's hardware position at startup).
+8. PC issues a TMCL MVP Type 0 (absolute) move command to the new `desired_steps` target.
+9. Motor moves to the absolute target position.
 
-> **Why relative, not absolute?**  The Knobby firmware tracks an accumulated
-> offset (`dpos`) that starts at 0 after each reset or zero-button press.  This
-> value is *not* the motor controller's hardware step counter.  Forwarding
-> `dpos` directly as an MVP Type 0 (absolute) command would drive all motors to
-> hardware position 0 on startup (when `dpos` is still 0) and would produce
-> wrong positions whenever the motor counter was not also zeroed.  Using the
-> delta between consecutive `dpos` packets keeps the two coordinate systems
-> independent and makes startup zero-packets harmless.
+> **Why absolute, not relative?** While the original documentation (and some older implementations) suggested sending relative commands (`MVP Type 1`), the `pyscanbox` implementation specifically uses absolute moves (`MVP Type 0`) to a locally tracked coordinate. Using absolute moves is much smoother: if the knobs are turned faster than the motor can settle, each new command simply updates the target to the correct final destination, rather than compounding trajectory errors from executing multiple relative steps while the motor is already in motion. The PC-side `desired_steps` tracker is seeded at startup with the motor board's absolute hardware counter, ensuring that Knobby's `dpos` coordinate system and the hardware coordinates stay correctly aligned.
 
 ## Step Multipliers (mstep)
 
@@ -275,16 +268,16 @@ knobby.close()
    Arduino `loop()`, the firmware detects that `page` (initialised to 1) differs
    from `oldpage` (initialised to -1) and immediately transmits a 5-byte
    position packet for each of the four axes with `dpos = 0`.  This happens
-   before any knob has been turned.  Any PC-side code that forwards these
-   packets as *absolute* MVP moves will drive all motors to hardware step
-   position 0, which can be dangerous.  Always translate Knobby packets into
-   *relative* (delta) moves to the motor controller, so that a zero-delta
-   startup packet produces no physical movement.
+   before any knob has been turned.  Because `pyscanbox` computes the delta first
+   (`delta = 0 - 0 = 0`), this results in a safe no-op that leaves the PC's
+   absolute movement target unchanged. This cleanly resolves the danger of
+   driving motors to hardware position 0 on startup.
 
 6. **`dpos` is not the motor hardware counter:** The Knobby `dpos` array
    accumulates encoder deltas from the last zero/reset and is independent of
    the Trinamic board's absolute step counter.  Never use `dpos` directly as an
-   MVP Type 0 (absolute) target.
+   MVP Type 0 (absolute) target. Instead, compute the delta and apply it as an
+   offset to the current hardware step counter.
 
 7. **Normal / Rotated mode button — no packet sent to the PC:** Knobby has a
    physical button that toggles between *Normal* mode (each encoder controls its
