@@ -13,115 +13,49 @@ Example:
     >>> digitizer.start_acquisition()
 """
 
+import sys
 import ctypes
 import logging
+
+def _import_ats_enums():
+    try:
+        import atsbindings.enumerations as enum_module
+        return enum_module
+    except (OSError, RuntimeError):
+        # Fallback for systems without the Alazar driver (Linux, or win32 emulation)
+        # We must clean up partially loaded modules before re-importing
+        for mod in list(sys.modules.keys()):
+            if mod.startswith('atsbindings'):
+                del sys.modules[mod]
+                
+        _real_cdll = ctypes.CDLL
+        class _DummyFunc:
+            def __call__(self, *args, **kwargs): return 0
+        _dummy_func = _DummyFunc()
+        class MockCDLL:
+            def __init__(self, name, *args, **kwargs): pass
+            def __getattr__(self, item): return _dummy_func
+
+        ctypes.CDLL = MockCDLL
+        try:
+            import atsbindings.enumerations as enum_module
+            return enum_module
+        finally:
+            ctypes.CDLL = _real_cdll
+
+ATS_ENUM = _import_ats_enums()
 import numpy as np
 from typing import Tuple, Optional, List
 
 logger = logging.getLogger(__name__)
 
-def _convert_sample_rate_to_id(sample_rate_hz: int) -> int:
-    """Convert sample rate in Hz to AlazarTech API constant.
-    
-    Args:
-        sample_rate_hz: Sample rate in samples per second (Hz)
-        
-    Returns:
-        AlazarTech API constant for the sample rate
-        
-    Raises:
-        ValueError: If sample rate is not supported
-    """
-    # Mapping from Hz to AlazarTech API constants
-    # Based on AlazarDefs.m and atsapi.py
-    rate_map = {
-        1000: 0x1,          # SAMPLE_RATE_1KSPS
-        2000: 0x2,          # SAMPLE_RATE_2KSPS
-        5000: 0x4,          # SAMPLE_RATE_5KSPS
-        10000: 0x8,         # SAMPLE_RATE_10KSPS
-        20000: 0xA,         # SAMPLE_RATE_20KSPS
-        50000: 0xC,         # SAMPLE_RATE_50KSPS
-        100000: 0xE,        # SAMPLE_RATE_100KSPS
-        200000: 0x10,       # SAMPLE_RATE_200KSPS
-        500000: 0x12,       # SAMPLE_RATE_500KSPS
-        1000000: 0x14,      # SAMPLE_RATE_1MSPS
-        2000000: 0x18,      # SAMPLE_RATE_2MSPS
-        5000000: 0x1A,      # SAMPLE_RATE_5MSPS
-        10000000: 0x1C,     # SAMPLE_RATE_10MSPS
-        20000000: 0x1E,     # SAMPLE_RATE_20MSPS
-        25000000: 0x21,     # SAMPLE_RATE_25MSPS
-        50000000: 0x22,     # SAMPLE_RATE_50MSPS
-        100000000: 0x24,    # SAMPLE_RATE_100MSPS
-        125000000: 0x25,    # SAMPLE_RATE_125MSPS
-        160000000: 0x26,    # SAMPLE_RATE_160MSPS
-        180000000: 0x27,    # SAMPLE_RATE_180MSPS
-        200000000: 0x28,    # SAMPLE_RATE_200MSPS
-        250000000: 0x2B,    # SAMPLE_RATE_250MSPS
-        400000000: 0x2D,    # SAMPLE_RATE_400MSPS
-        500000000: 0x30,    # SAMPLE_RATE_500MSPS
-        800000000: 0x32,    # SAMPLE_RATE_800MSPS
-        1000000000: 0x35,   # SAMPLE_RATE_1000MSPS
-        1200000000: 0x37,   # SAMPLE_RATE_1200MSPS
-        1500000000: 0x3A,   # SAMPLE_RATE_1500MSPS
-        1600000000: 0x3B,   # SAMPLE_RATE_1600MSPS
-        1800000000: 0x3D,   # SAMPLE_RATE_1800MSPS
-        2000000000: 0x3F,   # SAMPLE_RATE_2000MSPS
-        2400000000: 0x6A,   # SAMPLE_RATE_2400MSPS
-        3000000000: 0x75,   # SAMPLE_RATE_3000MSPS
-        3600000000: 0x7B,   # SAMPLE_RATE_3600MSPS
-        4000000000: 0x80,   # SAMPLE_RATE_4000MSPS
-    }
-    
-    if sample_rate_hz not in rate_map:
-        raise ValueError(
-            f"Unsupported sample rate: {sample_rate_hz} Hz. "
-            f"Supported rates: {list(rate_map.keys())}"
-        )
-    
-    return rate_map[sample_rate_hz]
 
 def _get_alazar_module(use_emulation: bool):
-    """Get appropriate Alazar module based on emulation setting.
-    
-    Priority order:
-        1. If emulation enabled: use mock_alazar
-        2. Try system-installed atsapi (from AlazarTech SDK)
-        3. Fall back to vendored atsapi (development)
-        4. Raise error if neither available
-    
-    Args:
-        use_emulation: If True, use mock Alazar
-        
-    Returns:
-        Alazar module (either atsapi or mock_alazar)
-        
-    Raises:
-        ImportError: If atsapi not available and not in emulation mode
-    """
     if use_emulation:
-        from pyscanbox.emulator import mock_alazar
-        return mock_alazar
-    
-    # Try system-installed atsapi first (production)
-    try:
-        import atsapi
-        return atsapi
-    except ImportError:
-        pass
-    
-    # Fall back to vendored copy (development)
-    try:
-        from pyscanbox.vendor.alazar import atsapi
-        return atsapi
-    except ImportError:
-        pass
-    
-    # Neither available
-    raise ImportError(
-        "AlazarTech API (atsapi.py) not found. "
-        "Please install AlazarTech SDK or place atsapi.py in "
-        "pyscanbox/vendor/alazar/ for development."
-    )
+        from pyscanbox.emulator import mock_alazar as ats
+    else:
+        import atsbindings as ats
+    return ats
 
 
 class AlazarDigitizer:
@@ -333,18 +267,18 @@ class AlazarDigitizer:
         # (~80 MHz from the Chameleon, filtered by a BBP-70+ bandpass filter).
         # Each ADC sample is thereby synchronised to one laser pulse.
         # The sample rate constant here is ignored when using external clock.
-        if hasattr(self.board_handle, 'setCaptureClock'):
-            self.board_handle.setCaptureClock(
-                2,    # FAST_EXTERNAL_CLOCK (0x2)
-                0x40, # SAMPLE_RATE_USER_DEF (ignored when using external clock)
-                0,    # CLOCK_EDGE_RISING
+        if hasattr(self.board_handle, 'set_capture_clock'):
+            self.board_handle.set_capture_clock(
+                ATS_ENUM.ClockSources.FAST_EXTERNAL_CLOCK,
+                ATS_ENUM.SampleRates.SAMPLE_RATE_USER_DEF, # (ignored when using external clock)
+                ATS_ENUM.ClockEdges.CLOCK_EDGE_RISING,
                 0     # decimation
             )
         
         # Set external clock level (required for ATS9440)
         # Reference: scanbox.m lines 771-778
-        if hasattr(self.board_handle, 'setExternalClockLevel'):
-            self.board_handle.setExternalClockLevel(65.0)  # 65% level
+        if hasattr(self.board_handle, 'set_external_clock_level'):
+            self.board_handle.set_external_clock_level(65.0)  # 65% level
         
         # Configure input channels (DC coupling, input range)
         # INPUT_RANGE_PM_200_MV (0x6) for variable-gain amps (default)
@@ -353,23 +287,23 @@ class AlazarDigitizer:
         # pyscanbox: config['pmt']['amplifier_type'] = 'variable' or 'fixed'
         pmt_amp_type = self.config.get('pmt', {}).get('amplifier_type', 'variable')
         if pmt_amp_type == 'fixed':
-            input_range = 0xA  # INPUT_RANGE_PM_1_V
+            input_range = ATS_ENUM.InputRanges.INPUT_RANGE_PM_1_V
         else:
-            input_range = 0x6  # INPUT_RANGE_PM_200_MV (default)
-        if hasattr(self.board_handle, 'inputControl'):
+            input_range = ATS_ENUM.InputRanges.INPUT_RANGE_PM_200_MV # (default)
+        if hasattr(self.board_handle, 'input_control_ex'):
             # Channel A
-            self.board_handle.inputControl(
-                1,           # CHANNEL_A (0x1)
-                2,           # DC_COUPLING (0x2)
+            self.board_handle.input_control_ex(
+                ATS_ENUM.Channels.CHANNEL_A,
+                ATS_ENUM.Couplings.DC_COUPLING,
                 input_range, # 0x6 = ±200 mV (variable) or 0xA = ±1 V (fixed)
-                2            # IMPEDANCE_50_OHM (0x2)
+                ATS_ENUM.Impedances.IMPEDANCE_50_OHM
             )
             # Channel B
-            self.board_handle.inputControl(
-                2,           # CHANNEL_B (0x2)
-                2,           # DC_COUPLING (0x2)
+            self.board_handle.input_control_ex(
+                ATS_ENUM.Channels.CHANNEL_B,
+                ATS_ENUM.Couplings.DC_COUPLING,
                 input_range, # same as channel A
-                2            # IMPEDANCE_50_OHM (0x2)
+                ATS_ENUM.Impedances.IMPEDANCE_50_OHM
             )
         
         # Configure trigger operation (external trigger, no second engine)
@@ -381,35 +315,35 @@ class AlazarDigitizer:
         # Second engine (K): disabled with TRIG_ENGINE_K = 1, TRIG_DISABLE = 3
         trig_level = self.config.get('alazar', {}).get('trigger_level', 160)
         trig_slope = self.config.get('alazar', {}).get('trigger_slope', 0)
-        if hasattr(self.board_handle, 'setTriggerOperation'):
-            self.board_handle.setTriggerOperation(
-                0,               # TRIG_ENGINE_OP_J
-                0,               # TRIG_ENGINE_J
-                2,               # TRIG_EXTERNAL
-                1 + trig_slope,  # TRIGGER_SLOPE_POSITIVE + trig_slope offset
+        if hasattr(self.board_handle, 'set_trigger_operation'):
+            self.board_handle.set_trigger_operation(
+                ATS_ENUM.TriggerOperations.TRIG_ENGINE_OP_J,
+                ATS_ENUM.TriggerEngines.TRIG_ENGINE_J,
+                ATS_ENUM.TriggerSources.TRIG_EXTERNAL,
+                ATS_ENUM.TriggerSlopes(1 + trig_slope),
                 trig_level,      # 0-255; sbconfig.trig_level (default 160)
-                1,               # TRIG_ENGINE_K
-                3,               # TRIG_DISABLE
-                1,               # TRIGGER_SLOPE_POSITIVE (ignored for engine K)
+                ATS_ENUM.TriggerEngines.TRIG_ENGINE_K,
+                ATS_ENUM.TriggerSources.TRIG_DISABLE,
+                ATS_ENUM.TriggerSlopes.TRIGGER_SLOPE_POSITIVE,
                 128              # Level (ignored for engine K)
             )
         
         # Configure external trigger input (DC coupling, TTL range)
-        if hasattr(self.board_handle, 'setExternalTrigger'):
-            self.board_handle.setExternalTrigger(
-                2,  # DC_COUPLING
-                2   # ETR_TTL
+        if hasattr(self.board_handle, 'set_external_trigger'):
+            self.board_handle.set_external_trigger(
+                ATS_ENUM.Couplings.DC_COUPLING,
+                ATS_ENUM.ExternalTriggerRanges.ETR_TTL
             )
         
         # Set trigger delay (0 samples = no delay)
         # Reference: scanbox.m lines 853-859
-        if hasattr(self.board_handle, 'setTriggerDelay'):
-            self.board_handle.setTriggerDelay(0)
+        if hasattr(self.board_handle, 'set_trigger_delay'):
+            self.board_handle.set_trigger_delay(0)
         
         # Set trigger timeout (0 = wait forever)
         # Reference: scanbox.m lines 861-874
-        if hasattr(self.board_handle, 'setTriggerTimeOut'):
-            self.board_handle.setTriggerTimeOut(0)
+        if hasattr(self.board_handle, 'set_trigger_time_out'):
+            self.board_handle.set_trigger_time_out(0)
         
         # Configure LSB outputs for frame/line sync
         # LSB[0] = AUX_IN[0] (2), LSB[1] = AUX_IN[1] (3)
@@ -439,8 +373,8 @@ class AlazarDigitizer:
             raise RuntimeError("Board not opened. Call open() first.")
         
         # Use SDK's built-in configureLSB if available
-        if hasattr(self.board_handle, 'configureLSB'):
-            self.board_handle.configureLSB(lsb0_source, lsb1_source)
+        if hasattr(self.board_handle, 'configure_lsb'):
+            self.board_handle.configure_lsb(lsb0_source, lsb1_source)
         else:
             # If not available (shouldn't happen with real hardware),
             # this would be where manual register manipulation goes
@@ -472,11 +406,24 @@ class AlazarDigitizer:
         # Allocate specified number of DMA buffers
         for i in range(self.buffer_count):
             # Use DMABuffer from atsapi if available, otherwise create numpy array
-            if hasattr(self.alazar, 'DMABuffer'):
-                # Use SDK's DMABuffer class for pinned memory
-                dma_buffer = self.alazar.DMABuffer(ctypes.c_uint16, bytes_per_buffer)
-                self.buffers.append(dma_buffer.buffer)  # NumPy array view
-                self.buffer_pointers.append(dma_buffer.addr)  # C pointer for posting
+            if hasattr(self.alazar, 'Buffer'):
+                # Use atsbindings Buffer class for pinned memory
+                # It accepts records_per_buffer and samples_per_record. We calculate these based on mode.
+                unidirectional = self.config.get('acquisition', {}).get('unidirectional', True)
+                if self._use_raw_mode:
+                    if unidirectional:
+                        recs = self.lines_per_frame
+                        samps = self.samples_per_line
+                    else:
+                        recs = self.lines_per_frame // 2
+                        samps = self.config.get('acquisition', {}).get('samples_per_line_bidir', 9000)
+                else:
+                    recs = 1
+                    samps = self.samples_per_buffer
+                    
+                dma_buffer = self.alazar.Buffer(self.board_handle, self.channels, recs, samps, interleave_samples=True)
+                self.buffers.append(dma_buffer.buffer.reshape(-1))
+                self.buffer_pointers.append(dma_buffer.address)
             else:
                 # Fall back to numpy array (emulation mode).
                 # Use bytes_per_buffer to correctly handle bidirectional geometry,
@@ -547,22 +494,22 @@ class AlazarDigitizer:
 
         # Set record size (pre-trigger = 0, post-trigger = samples_per_record)
         # Reference: scanbox.m AlazarSetRecordSize call before AlazarBeforeAsyncRead
-        if hasattr(self.board_handle, 'setRecordSize'):
-            self.board_handle.setRecordSize(0, samples_per_record)
+        if hasattr(self.board_handle, 'set_record_size'):
+            self.board_handle.set_record_size(0, samples_per_record)
 
         # Configure acquisition mode for NPT streaming with interleaved samples.
         # Flags must match MATLAB scanbox.m line 2223:
         #   admaFlags = ADMA_EXTERNAL_STARTCAPTURE + ADMA_NPT + ADMA_INTERLEAVE_SAMPLES
         # NOTE: ADMA_CONTINUOUS_MODE (0x100) and ADMA_NPT (0x200) are mutually
         # exclusive acquisition modes — combining them causes ApiInvalidData.
-        channels_mask = 1 | 2   # CHANNEL_A | CHANNEL_B
+        channels_mask = ATS_ENUM.Channels.CHANNEL_A.value | ATS_ENUM.Channels.CHANNEL_B.value   # CHANNEL_A | CHANNEL_B
         adma_flags = (
-            0x0001 |   # ADMA_EXTERNAL_STARTCAPTURE
-            0x0200 |   # ADMA_NPT
-            0x1000     # ADMA_INTERLEAVE_SAMPLES
+            0x0001 | # ADMA_EXTERNAL_STARTCAPTURE
+            ATS_ENUM.ADMAModes.ADMA_NPT.value |
+            0x1000 # ADMA_INTERLEAVE_SAMPLES
         )
-        if hasattr(self.board_handle, 'beforeAsyncRead'):
-            self.board_handle.beforeAsyncRead(
+        if hasattr(self.board_handle, 'before_async_read'):
+            self.board_handle.before_async_read(
                 channels_mask,          # U32: channels to acquire
                 0,                      # c_long: transferOffset (no pre-trigger in NPT)
                 samples_per_record,     # U32: samplesPerRecord (per channel, per line)
@@ -574,12 +521,12 @@ class AlazarDigitizer:
         # Post all buffers to the board for DMA
         bytes_per_buffer = samples_per_record * records_per_buffer * self.channels * 2
         for buffer_ptr in self.buffer_pointers:
-            if hasattr(self.board_handle, 'postAsyncBuffer'):
-                self.board_handle.postAsyncBuffer(buffer_ptr, bytes_per_buffer)
+            if hasattr(self.board_handle, 'post_async_buffer'):
+                self.board_handle.post_async_buffer(buffer_ptr, bytes_per_buffer)
         
         # Start the acquisition
-        if hasattr(self.board_handle, 'startCapture'):
-            self.board_handle.startCapture()
+        if hasattr(self.board_handle, 'start_capture'):
+            self.board_handle.start_capture()
         
         # Persist for use by read_buffer / stop_acquisition
         self._samples_per_record = samples_per_record
@@ -618,18 +565,18 @@ class AlazarDigitizer:
         # Wait for buffer to be filled by the board
         buffer_ptr = self.buffer_pointers[buffer_index]
         try:
-            if hasattr(self.board_handle, 'waitAsyncBufferComplete'):
-                self.board_handle.waitAsyncBufferComplete(buffer_ptr, timeout_ms)
+            if hasattr(self.board_handle, 'wait_async_buffer_complete'):
+                self.board_handle.wait_async_buffer_complete(buffer_ptr, timeout_ms)
             
             # Copy data from DMA buffer (to prevent race conditions)
             data = self.buffers[buffer_index].copy()
             
             # Repost buffer for continuous acquisition
-            if hasattr(self.board_handle, 'postAsyncBuffer'):
+            if hasattr(self.board_handle, 'post_async_buffer'):
                 bytes_per_buffer = (
                     self._samples_per_record * self._records_per_buffer * self.channels * 2
                 )
-                self.board_handle.postAsyncBuffer(buffer_ptr, bytes_per_buffer)
+                self.board_handle.post_async_buffer(buffer_ptr, bytes_per_buffer)
             
             return data
             
@@ -641,8 +588,8 @@ class AlazarDigitizer:
             # state and callers cannot accidentally loop on a broken session.
             logger.error("Error reading buffer: %s", e)
             try:
-                if hasattr(self.board_handle, 'abortAsyncRead'):
-                    self.board_handle.abortAsyncRead()
+                if hasattr(self.board_handle, 'abort_async_read'):
+                    self.board_handle.abort_async_read()
             except Exception:
                 pass
             # Mirror what stop_acquisition() does so a subsequent call to it
@@ -662,9 +609,9 @@ class AlazarDigitizer:
             return
         
         # Abort the asynchronous acquisition
-        if hasattr(self.board_handle, 'abortAsyncRead'):
+        if hasattr(self.board_handle, 'abort_async_read'):
             try:
-                self.board_handle.abortAsyncRead()
+                self.board_handle.abort_async_read()
             except Exception as e:
                 logger.warning("Error aborting acquisition: %s", e)
         

@@ -37,7 +37,7 @@ SAMPLE_RATE_USER_DEF  = 0x40  # Used with external clock
 
 **Scanbox uses:** `SAMPLE_RATE_USER_DEF (0x40)` with external clock
 
-For complete list of sample rates, see `pyscanbox/vendor/alazar/atsapi.py` lines 55-92.
+For complete list of sample rates, see the `atsbindings.enumerations` module.
 
 ### Input Range Constants
 
@@ -339,4 +339,4 @@ See `pyscanbox/hardware/alazar.py` for complete implementation and `examples/che
 ## Additional Resources
 
 - `../alazar_digitizer.md` - User-facing documentation
-- `pyscanbox/vendor/alazar/atsapi.py` - Complete API constant definitions
+- `atsbindings.enumerations` - Complete API constant definitions

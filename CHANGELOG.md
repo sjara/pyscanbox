@@ -6,6 +6,12 @@ All notable changes to this project are documented here. This file is append-onl
 
 ---
 
+## v1.3.0 - March 21, 2026
+- **Alazar bindings update**
+  - Replaced proprietary `atsapi.py` with open-source `atsbindings` library for AlazarTech ATS9440 communication
+  - Updated codebase, documentation, and emulation to use `atsbindings` and `atsbindings.Buffer`
+
+
 ## v1.2.0 - March 20, 2026 (Current)
 - **Scanner gain override — `gain_override`, `gain_galvo`, `gain_resonant`, `dv_galvo`**
   - `ScanboxController`: new constants `CMD_GALVO_DV = 0x66`, `CMD_MAG_X_GAIN_BASE = 0xB0`, `CMD_MAG_Y_GAIN_BASE = 0xC0`; `DV_GALVO_MAX = 64`, `GAIN_RESONANT_MULT_DEFAULT = 1.42`, `GAIN_GALVO_DEFAULT` (13-element logspaced tuple)

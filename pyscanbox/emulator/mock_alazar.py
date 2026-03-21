@@ -112,7 +112,7 @@ class Board:
 
         logger.info(f"Mock Alazar board initialized: System {system_id}, Board {board_id}")
 
-    def setCaptureClock(self, source: int, rate: int,
+    def set_capture_clock(self, source: int, rate: int,
                        edge: int = 0, decimation: int = 0) -> int:
         """Configure capture clock.
 
@@ -133,14 +133,14 @@ class Board:
         # one (> 1 kHz).  API placeholder constants (e.g. SAMPLE_RATE_USER_DEF
         # = 0x40 = 64) are tiny integers and would cause the generation thread
         # to sleep for hours if used for timing.
-        if rate > 1000:
-            self.sample_rate = rate
+        if getattr(rate, "value", rate) > 1000:
+            self.sample_rate = getattr(rate, "value", rate)
         # else: external-clock mode — keep the default 125 MS/s for timing
-        logger.debug(f"Clock configured: source={source}, rate={rate}, "
+        logger.debug(f"Clock configured: source={getattr(source, 'name', source)}, rate={getattr(rate, 'name', rate)}, "
                      f"effective_sample_rate={self.sample_rate}")
         return 512  # ApiSuccess
 
-    def inputControl(self, channel: int, coupling: int, inputRange: int,
+    def input_control_ex(self, channel: int, coupling: int, inputRange: int,
                     impedance: int) -> int:
         """Configure input channel.
 
@@ -157,7 +157,7 @@ class Board:
         logger.debug(f"Channel {channel} configured")
         return 512
 
-    def setTriggerOperation(self, operation: int, engine1: int, source1: int,
+    def set_trigger_operation(self, operation: int, engine1: int, source1: int,
                            slope1: int, level1: int, engine2: int,
                            source2: int, slope2: int, level2: int) -> None:
         """Configure trigger operation.
@@ -171,7 +171,7 @@ class Board:
         """
         logger.debug("Trigger configured")
 
-    def setExternalTrigger(self, coupling: int, range: int) -> None:
+    def set_external_trigger(self, coupling: int, range: int) -> None:
         """Configure external trigger.
 
         Args:
@@ -180,7 +180,7 @@ class Board:
         """
         logger.debug("External trigger configured")
 
-    def configureLSB(self, valueLSB0: int, valueLSB1: int) -> None:
+    def configure_lsb(self, valueLSB0: int, valueLSB1: int) -> None:
         """Configure LSB output bits embedded in the data stream.
 
         In Scanbox, called as configureLsb9440(boardHandle, 0, 3):
@@ -306,7 +306,7 @@ class Board:
             "bidirectional" if bidirectional else "unidirectional",
         )
 
-    def beforeAsyncRead(self, channels: int, transferOffset: int,
+    def before_async_read(self, channels: int, transferOffset: int,
                        samplesPerRecord: int, recordsPerBuffer: int,
                        recordsPerAcquisition: int, flags: int) -> None:
         """Setup asynchronous acquisition.
@@ -326,7 +326,7 @@ class Board:
         self.buffer_size_samples = samplesPerRecord * num_channels * recordsPerBuffer
         logger.debug(f"Async read configured: {self.buffer_size_samples} samples/buffer ({num_channels} channels interleaved)")
 
-    def postAsyncBuffer(self, buffer: np.ndarray, bufferLength: Optional[int] = None) -> None:
+    def post_async_buffer(self, buffer: np.ndarray, bufferLength: Optional[int] = None) -> None:
         """Post buffer for DMA.
 
         Args:
@@ -336,7 +336,7 @@ class Board:
         with self.buffer_lock:
             self.posted_buffers.append(buffer)
 
-    def startCapture(self) -> None:
+    def start_capture(self) -> None:
         """Start data acquisition."""
         self.is_acquiring = True
         logger.info("Mock acquisition started")
@@ -348,7 +348,7 @@ class Board:
         )
         self._generation_thread.start()
 
-    def waitAsyncBufferComplete(self, buffer: np.ndarray,
+    def wait_async_buffer_complete(self, buffer: np.ndarray,
                                timeout_ms: int = 5000) -> None:
         """Wait for buffer to be filled with data.
 
@@ -380,7 +380,7 @@ class Board:
         # Acquisition stopped
         raise Exception(f"Acquisition aborted (code {ApiWaitTimeout})")
 
-    def abortAsyncRead(self) -> None:
+    def abort_async_read(self) -> None:
         """Abort asynchronous acquisition."""
         self.is_acquiring = False
         logger.info("Mock acquisition aborted")
@@ -795,7 +795,7 @@ class Board:
             n, lines, n_samp, n_neurons,
         )
 
-    def getChannelInfo(self) -> dict:
+    def get_channel_info(self) -> dict:
         """Get channel configuration info.
 
         Returns:
@@ -825,3 +825,11 @@ def Board() -> Board:
 # API success code
 ApiSuccess = 512
 ApiWaitTimeout = 573
+
+class Buffer:
+    def __init__(self, board, channels, records_per_buffer, samples_per_record, **kwargs):
+        self.board = board
+        size = records_per_buffer * samples_per_record * channels
+        self.buffer = np.empty(size, dtype=np.uint16)
+        # Mock exposes the numpy array as `address` so post_async_buffer gets the array directly
+        self.address = self.buffer

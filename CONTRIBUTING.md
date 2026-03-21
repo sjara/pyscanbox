@@ -74,13 +74,13 @@ When translating logic, refer to these specific files in the original codebase. 
 
 ## 7. Hardware Interfacing & Protocols
 
-For complete protocol specifications, see the [hardware_protocols/](hardware_protocols/) directory.
+For complete protocol specifications, see the [docs/hardware_protocols/](docs/hardware_protocols/) directory.
 
-* **Main Scanbox Controller:** 3-byte serial packets at 1 Mbaud. Use `pyserial`. See [hardware_protocols/scanbox_controller.md](hardware_protocols/scanbox_controller.md).
+* **Main Scanbox Controller:** 3-byte serial packets at 1 Mbaud. Use `pyserial`. See [docs/hardware_protocols/scanbox_controller.md](docs/hardware_protocols/scanbox_controller.md).
 
-* **Motor Control & Knobby:** 9-byte TMCL packets at 57600 baud. Use `pyserial` directly and run a dedicated background polling thread. In the original MATLAB implementation, MATLAB could not own the serial port itself, so it launched a Python subprocess (`scanknob/scanknob.py`) and communicated with it via two **memory-mapped files**: `scanknob.pos` (motor positions) and `scanknob.cmd` (commands), with a busy-wait flag handshake. In pyscanbox this entire IPC layer is eliminated — Python owns the serial port directly. See [hardware_protocols/trinamic_motor.md](hardware_protocols/trinamic_motor.md) and [hardware_protocols/knobby.md](hardware_protocols/knobby.md).
+* **Motor Control & Knobby:** 9-byte TMCL packets at 57600 baud. Use `pyserial` directly and run a dedicated background polling thread. In the original MATLAB implementation, MATLAB could not own the serial port itself, so it launched a Python subprocess (`scanknob/scanknob.py`) and communicated with it via two **memory-mapped files**: `scanknob.pos` (motor positions) and `scanknob.cmd` (commands), with a busy-wait flag handshake. In pyscanbox this entire IPC layer is eliminated — Python owns the serial port directly. See [docs/hardware_protocols/trinamic_motor.md](docs/hardware_protocols/trinamic_motor.md) and [docs/hardware_protocols/knobby.md](docs/hardware_protocols/knobby.md).
 
-* **AlazarTech Digitizer:** Use the official `atsapi.py` wrapper. **External clock comes from the laser sync-out (~80 MHz), not the internal clock**; using the wrong clock source causes beat-pattern artifacts. The line trigger is sent by the Scanbox controller card. See [hardware_protocols/alazar_digitizer.md](hardware_protocols/alazar_digitizer.md) and [alazar_digitizer.md](alazar_digitizer.md).
+* **AlazarTech Digitizer:** Use the wrapper provided by the `atsbindings` package. **External clock comes from the laser sync-out (~80 MHz), not the internal clock**; using the wrong clock source causes beat-pattern artifacts. The line trigger is sent by the Scanbox controller card. See [docs/hardware_protocols/alazar_digitizer.md](docs/hardware_protocols/alazar_digitizer.md) and [alazar_digitizer.md](alazar_digitizer.md).
 
 ## 8. Data Output Specification (.sbx format)
 * **Binary Dump (`.sbx`):** Write the raw, reshaped `uint16` arrays directly to a headerless binary file (e.g., using `buffer.tofile()`), exactly as MATLAB's `fwrite` does. 
@@ -139,7 +139,7 @@ Create a dummy class to replace `serial.Serial` when running in emulation mode.
 * **Polling Loop (Knobby):** The Trinamic motor controller requires constant polling. The mock serial class must intercept the 9-byte Trinamic Motion Control Language (TMCL) queries and immediately return a valid 9-byte TMCL acknowledgment array so the background polling thread does not freeze or timeout.
 
 ### 10.2 Mocking the AlazarTech Digitizer (High-Speed Data)
-Create a dummy Python class that mirrors the methods of the `atsapi` wrapper. 
+Create a dummy Python class that mirrors the methods of the `atsbindings` wrapper. 
 * **Synthetic Data Generation:** Instead of reading from a PCIe bus, the mock `AlazarWaitAsyncBufferComplete` method should yield NumPy arrays populated with random 14-bit integers (e.g., `np.random.randint(0, 16384, size=...)`) to simulate PMT noise.
 * **Stress Testing:** Use this synthetic data stream to stress-test the Linux development environment. Verify that:
   1. The C++/Cython/Numba reshaping functions can process the simulated 500 MB/s data rate.
