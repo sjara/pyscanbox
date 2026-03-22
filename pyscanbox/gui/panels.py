@@ -39,14 +39,16 @@ class LeftControlPanel(QtWidgets.QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
         
         # Add control group boxes
+        self.light_path_group = widgets.LightPathGroup()
         self.laser_group = widgets.LaserControlGroup(self.config)
-        self.camera_group = widgets.CameraPathGroup()
+        self.pmt_group = widgets.PMTControlGroup()
         self.scanner_group = widgets.ScannerControlGroup()
         self.acquisition_group = widgets.AcquisitionControlGroup()
         self.file_group = widgets.FileStorageGroup(self.config)
 
+        layout.addWidget(self.light_path_group)
         layout.addWidget(self.laser_group)
-        layout.addWidget(self.camera_group)
+        layout.addWidget(self.pmt_group)
         layout.addWidget(self.scanner_group)
         layout.addWidget(self.acquisition_group)
         layout.addWidget(self.file_group)
@@ -65,7 +67,7 @@ class RightDisplayPanel(QtWidgets.QWidget):
     Contains (top to bottom):
     - Main image display area
     - Pixel-intensity histogram (thin strip, full width)
-    - Secondary control panels (camera, PMT, display, optotune)
+    - Secondary control panels (light path, PMT, display, optotune)
     """
     
     def __init__(self, config=None):
@@ -150,7 +152,6 @@ class RightDisplayPanel(QtWidgets.QWidget):
 
         # Add control group boxes side-by-side
         self.position_group = widgets.PositionDisplayGroup()
-        self.pmt_group = widgets.PMTControlGroup()
         self.image_display_group = widgets.ImageDisplayControlGroup(config=self.config)
         # Extract ETL default value from config; OptotuneGroup uses it as its
         # initial slider position.  Falls back to ETL_CURRENT_MID when absent.
@@ -165,20 +166,19 @@ class RightDisplayPanel(QtWidgets.QWidget):
         # Left side: Objective Position (resizable via splitter handle).
         splitter.addWidget(self.position_group)
 
-        # Right side: PMT Control, Image Display, Optotune in a plain
+        # Right side: Image Display, Optotune in a plain
         # QHBoxLayout — equal stretch, no handles between them.
         right_container = QtWidgets.QWidget()
         right_layout = QtWidgets.QHBoxLayout(right_container)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(4)
-        right_layout.addWidget(self.pmt_group, 1)
         right_layout.addWidget(self.image_display_group, 1)
         right_layout.addWidget(self.optotune_group, 2)
         splitter.addWidget(right_container)
 
-        # Objective Position 300 px; right container takes the rest.
+        # Objective Position 340 px; right container takes the rest.
         # Optotune panel is twice as wide as PMT/ImageDisplay, so right
-        # container needs ~800 px (vs 600 before) for equal base widths.
-        splitter.setSizes([300, 800])
+        # container needs ~760 px (vs 600 before) for equal base widths.
+        splitter.setSizes([340, 760])
 
         return splitter

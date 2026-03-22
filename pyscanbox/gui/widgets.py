@@ -9,7 +9,7 @@ This module defines individual control groups and display widgets:
 - ImageDisplayWidget: Main image display
 - HistogramWidget: Pixel-intensity histogram below the image
 - FrameSelectorWidget: Compact slider to browse frames of a loaded recording
-- CameraPathGroup: Camera controls
+- LightPathGroup: Light path controls
 - PMTControlGroup: PMT gain controls
 - ImageDisplayControlGroup: Display settings
 - OptotuneGroup: ETL control
@@ -155,8 +155,9 @@ class LaserControlGroup(QtWidgets.QGroupBox):
         wavelength_layout = QtWidgets.QHBoxLayout()
         wavelength_layout.addWidget(QtWidgets.QLabel("Wavelength:"))
         self.wavelength_spinbox = QtWidgets.QSpinBox()
-        self.wavelength_spinbox.setRange(680, 1100)
-        self.wavelength_spinbox.setValue(920)
+        self.wavelength_spinbox.setRange(679, 1100)
+        self.wavelength_spinbox.setValue(679)
+        self.wavelength_spinbox.setSpecialValueText("Undefined")
         self.wavelength_spinbox.setSuffix(" nm")
         wavelength_layout.addWidget(self.wavelength_spinbox)
         layout.addLayout(wavelength_layout)
@@ -551,7 +552,7 @@ class FileStorageGroup(QtWidgets.QGroupBox):
         self.subject_edit.textChanged.connect(self._update_filename)
         layout.addWidget(self.subject_edit, 2, 1)
         
-        layout.addWidget(QtWidgets.QLabel("Date:"), 3, 0)
+        layout.addWidget(QtWidgets.QLabel("Date/suffix:"), 3, 0)
         self.date_edit = QtWidgets.QLineEdit()
         self.date_edit.setPlaceholderText("YYYYMMDD")
         from datetime import datetime
@@ -1752,7 +1753,7 @@ class FrameSelectorWidget(QtWidgets.QWidget):
             self._counter_label.setText("0 / 0")
 
 
-class CameraPathGroup(QtWidgets.QGroupBox):
+class LightPathGroup(QtWidgets.QGroupBox):
     """Light path toggle group box.
 
     Presents two large labeled buttons — ``2p`` and ``Epi`` — as an
@@ -1866,8 +1867,19 @@ class PMTControlGroup(QtWidgets.QGroupBox):
         
         # PMT0 gain
         pmt0_layout = QtWidgets.QVBoxLayout()
+        pmt0_top_layout = QtWidgets.QHBoxLayout()
         self.pmt0_label = QtWidgets.QLabel("PMT0 Gain:  0%")
-        pmt0_layout.addWidget(self.pmt0_label)
+        pmt0_top_layout.addWidget(self.pmt0_label)
+        pmt0_top_layout.addStretch()
+        self.pmt0_50_btn = QtWidgets.QPushButton("50%")
+        self.pmt0_50_btn.setMaximumWidth(42)
+        self.pmt0_50_btn.clicked.connect(lambda: self.pmt0_slider.setValue(50))
+        pmt0_top_layout.addWidget(self.pmt0_50_btn)
+        self.pmt0_75_btn = QtWidgets.QPushButton("75%")
+        self.pmt0_75_btn.setMaximumWidth(42)
+        self.pmt0_75_btn.clicked.connect(lambda: self.pmt0_slider.setValue(75))
+        pmt0_top_layout.addWidget(self.pmt0_75_btn)
+        pmt0_layout.addLayout(pmt0_top_layout)
 
         self.pmt0_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.pmt0_slider.setRange(0, 100)
@@ -1882,8 +1894,19 @@ class PMTControlGroup(QtWidgets.QGroupBox):
         
         # PMT1 gain
         pmt1_layout = QtWidgets.QVBoxLayout()
+        pmt1_top_layout = QtWidgets.QHBoxLayout()
         self.pmt1_label = QtWidgets.QLabel("PMT1 Gain:  0%")
-        pmt1_layout.addWidget(self.pmt1_label)
+        pmt1_top_layout.addWidget(self.pmt1_label)
+        pmt1_top_layout.addStretch()
+        self.pmt1_50_btn = QtWidgets.QPushButton("50%")
+        self.pmt1_50_btn.setMaximumWidth(42)
+        self.pmt1_50_btn.clicked.connect(lambda: self.pmt1_slider.setValue(50))
+        pmt1_top_layout.addWidget(self.pmt1_50_btn)
+        self.pmt1_75_btn = QtWidgets.QPushButton("75%")
+        self.pmt1_75_btn.setMaximumWidth(42)
+        self.pmt1_75_btn.clicked.connect(lambda: self.pmt1_slider.setValue(75))
+        pmt1_top_layout.addWidget(self.pmt1_75_btn)
+        pmt1_layout.addLayout(pmt1_top_layout)
 
         self.pmt1_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.pmt1_slider.setRange(0, 100)
@@ -1958,8 +1981,16 @@ class ImageDisplayControlGroup(QtWidgets.QGroupBox):
 
         # Display gain
         gain_layout = QtWidgets.QVBoxLayout()
+        gain_top_layout = QtWidgets.QHBoxLayout()
         self.gain_label = QtWidgets.QLabel("Gain:  1.0x")
-        gain_layout.addWidget(self.gain_label)
+        gain_top_layout.addWidget(self.gain_label)
+        gain_top_layout.addStretch()
+        self.gain_reset_btn = QtWidgets.QPushButton("Reset")
+        self.gain_reset_btn.setMaximumWidth(50)
+        self.gain_reset_btn.clicked.connect(lambda: self.gain_slider.setValue(10))
+        gain_top_layout.addWidget(self.gain_reset_btn)
+        gain_top_layout.addStretch()
+        gain_layout.addLayout(gain_top_layout)
 
         self.gain_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.gain_slider.setRange(1, 100)
@@ -2045,7 +2076,7 @@ class OptotuneGroup(QtWidgets.QGroupBox):
         # Depth display: shows depth in µm (e.g. "42 µm") once a calibration
         # file is loaded; empty when no calibration is available (the raw ETL
         # value is already visible in the spinbox above).
-        self.depth_label = QtWidgets.QLabel('')
+        self.depth_label = QtWidgets.QLabel('Not calibrated')
         self.depth_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         left_layout.addWidget(self.depth_label)
 

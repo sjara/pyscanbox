@@ -705,15 +705,15 @@ class MainWindow(QtWidgets.QMainWindow):
         # Laser power slider -> Pockels cell
         laser.power_slider.valueChanged.connect(self._on_pockels_changed)
 
-        # CameraPath toggle -> mirror control
-        camera = self._left_panel.camera_group
-        camera.path_changed.connect(self._on_camera_path_changed)
+        # LightPath toggle -> mirror control
+        light_path = self._left_panel.light_path_group
+        light_path.path_changed.connect(self._on_light_path_changed)
         # Force the hardware mirror to match the GUI default (Epi) at startup
         # since there is no way to read back the current mirror position.
-        self._on_camera_path_changed(camera.current_path)
+        self._on_light_path_changed(light_path.current_path)
 
         # PMT gain sliders -> hardware
-        pmt = self._right_panel.pmt_group
+        pmt = self._left_panel.pmt_group
         pmt.pmt0_slider.valueChanged.connect(
             lambda v: self._on_pmt_gain_changed(0, v)
         )
@@ -872,7 +872,7 @@ class MainWindow(QtWidgets.QMainWindow):
             # Zero PMTs and Pockels via hardware calls before closing.
             # Setting the GUI sliders fires valueChanged, which calls the
             # hardware through the existing signal connections.
-            pmt = self._right_panel.pmt_group
+            pmt = self._left_panel.pmt_group
             pmt.pmt0_slider.setValue(0)
             pmt.pmt1_slider.setValue(0)
             laser = self._left_panel.laser_group
@@ -884,10 +884,10 @@ class MainWindow(QtWidgets.QMainWindow):
         super().closeEvent(event)
 
     # ------------------------------------------------------------------
-    # Camera path / mirror
+    # Light path / mirror
     # ------------------------------------------------------------------
 
-    def _on_camera_path_changed(self, mode: str):
+    def _on_light_path_changed(self, mode: str):
         """Toggle epi/2P mirror when the Light Path toggle changes.
 
         Disables Focus and Grab in Epi mode (scanning is not available on
@@ -897,7 +897,7 @@ class MainWindow(QtWidgets.QMainWindow):
         acquisition start/stop logic.
 
         Args:
-            mode: ``'epi'`` or ``'2p'`` as emitted by CameraPathGroup.
+            mode: ``'epi'`` or ``'2p'`` as emitted by LightPathGroup.
         """
         in_2p = (mode == '2p')
         acq = self._left_panel.acquisition_group
@@ -1356,7 +1356,7 @@ class MainWindow(QtWidgets.QMainWindow):
         acq.grab_button.setChecked(False)
         acq.grab_button.setText("Grab")
         # Re-enable scan buttons only when in 2p mode; Epi keeps them disabled.
-        in_2p = (self._left_panel.camera_group.current_path == '2p')
+        in_2p = (self._left_panel.light_path_group.current_path == '2p')
         acq.focus_button.setEnabled(in_2p)
         acq.grab_button.setEnabled(in_2p)
         self._left_panel.scanner_group.scan_mode_combobox.setEnabled(True)
