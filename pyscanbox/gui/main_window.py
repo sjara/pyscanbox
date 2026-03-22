@@ -1017,7 +1017,7 @@ class MainWindow(QtWidgets.QMainWindow):
             else None
         )
         optotune.set_depth_display(
-            f'{depth} \u00b5m' if depth is not None else ''
+            f'{depth} \u00b5m' if depth is not None else 'Not calibrated'
         )
         # Forward to hardware (no-op if not yet connected).
         if self._ctrl is not None:

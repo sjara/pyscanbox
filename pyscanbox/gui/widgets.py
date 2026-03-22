@@ -2152,13 +2152,13 @@ class OptotuneGroup(QtWidgets.QGroupBox):
         """Update the ETL depth display label.
 
         Called on every slider move by MainWindow._on_etl_current_changed.
-        Shows depth in µm once a calibration file is loaded; empty string
+        Shows depth in µm once a calibration file is loaded; 'Not calibrated'
         when no calibration is available (the raw ETL value is already
         visible in the spinbox).
 
         Args:
             text: Formatted string, e.g. ``'42 µm'`` (calibrated) or
-                ``''`` (uncalibrated).
+                ``'Not calibrated'`` (uncalibrated).
         """
         self.depth_label.setText(text)
 

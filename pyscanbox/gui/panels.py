@@ -105,7 +105,7 @@ class RightDisplayPanel(QtWidgets.QWidget):
         # selector are thin strips, controls take a fixed chunk.
         # stretch factor 0 prevents the controls row from growing when the
         # window is resized vertically.
-        splitter.setSizes([500, 90, 36, 130])
+        splitter.setSizes([800, 90, 36, 200])
         splitter.setStretchFactor(3, 0)
 
         # Wire the Image Display gain slider to the image display widget so
