@@ -371,14 +371,67 @@ class AlazarDigitizer:
         """
         if self.board_handle is None:
             raise RuntimeError("Board not opened. Call open() first.")
-        
-        # Use SDK's built-in configureLSB if available
+
+        # Emulation / mock path: mock Board exposes configure_lsb directly.
         if hasattr(self.board_handle, 'configure_lsb'):
             self.board_handle.configure_lsb(lsb0_source, lsb1_source)
+            return
+
+        # Real hardware path: atsbindings.Board does not wrap
+        # AlazarReadRegister / AlazarWriteRegister, so call the DLL directly.
+        # This mirrors core/configureLsb9440.m exactly.
+        if hasattr(self.board_handle, 'bsi') and not self.board_handle.bsi.configure_lsb:
+            logger.warning('Board does not support LSB configuration; skipping.')
+            return
+
+        import atsbindings.bindings as _ats_bindings
+
+        ats_dll = _ats_bindings.ats
+        board_h = self.board_handle._handle
+        password = ctypes.c_uint32(0x32145876)
+
+        ats_dll.AlazarReadRegister.restype = ctypes.c_uint32
+        ats_dll.AlazarReadRegister.argtypes = [
+            ctypes.c_void_p, ctypes.c_uint32,
+            ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32,
+        ]
+        ats_dll.AlazarWriteRegister.restype = ctypes.c_uint32
+        ats_dll.AlazarWriteRegister.argtypes = [
+            ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint32,
+        ]
+
+        _API_SUCCESS = 512
+
+        # REG 29 — LSB source selection:
+        #   bits [13:12] = lsb0_source, bits [15:14] = lsb1_source
+        reg_value = ctypes.c_uint32(0)
+        ret = ats_dll.AlazarReadRegister(board_h, 29, ctypes.byref(reg_value), password)
+        if ret != _API_SUCCESS:
+            raise RuntimeError(f'AlazarReadRegister(29) failed with code {ret}')
+        v = reg_value.value
+        v = (v & ~(3 << 12)) | ((lsb0_source & 3) << 12)
+        v = (v & ~(3 << 14)) | ((lsb1_source & 3) << 14)
+        ret = ats_dll.AlazarWriteRegister(board_h, 29, ctypes.c_uint32(v), password)
+        if ret != _API_SUCCESS:
+            raise RuntimeError(f'AlazarWriteRegister(29) failed with code {ret}')
+
+        # REG 15 — AUX_IN[1] direction: set as input (bit 27 = 1) when
+        # either LSB source is 3 (AUX_IN[1]), otherwise set as output.
+        reg_value = ctypes.c_uint32(0)
+        ret = ats_dll.AlazarReadRegister(board_h, 15, ctypes.byref(reg_value), password)
+        if ret != _API_SUCCESS:
+            raise RuntimeError(f'AlazarReadRegister(15) failed with code {ret}')
+        v = reg_value.value
+        if lsb0_source == 3 or lsb1_source == 3:
+            v |= (1 << 27)
         else:
-            # If not available (shouldn't happen with real hardware),
-            # this would be where manual register manipulation goes
-            raise NotImplementedError("configureLSB not available in this SDK version")
+            v &= ~(1 << 27)
+        ret = ats_dll.AlazarWriteRegister(board_h, 15, ctypes.c_uint32(v), password)
+        if ret != _API_SUCCESS:
+            raise RuntimeError(f'AlazarWriteRegister(15) failed with code {ret}')
+
+        logger.debug('LSB outputs configured: LSB[0]=%d, LSB[1]=%d',
+                     lsb0_source, lsb1_source)
 
     def allocate_buffers(self) -> None:
         """Allocate DMA buffers for data acquisition.
