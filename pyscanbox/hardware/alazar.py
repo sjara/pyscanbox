@@ -132,6 +132,7 @@ class AlazarDigitizer:
         # Buffer management
         self.buffers: List[np.ndarray] = []
         self.buffer_pointers: List[ctypes.c_void_p] = []
+        self._dma_buffers: List = []  # holds atsbindings.Buffer objects alive (prevents __del__ freeing pinned memory)
         self.current_buffer_index = 0
         
         # Per-record DMA parameters (set in start_acquisition)
@@ -448,6 +449,7 @@ class AlazarDigitizer:
         # Clear any existing buffers
         self.buffers.clear()
         self.buffer_pointers.clear()
+        self._dma_buffers.clear()
         
         # Calculate buffer size in bytes.
         # Real hardware always uses raw ADC layout:
@@ -475,6 +477,7 @@ class AlazarDigitizer:
                     samps = self.samples_per_buffer
                     
                 dma_buffer = self.alazar.Buffer(self.board_handle, self.channels, recs, samps, interleave_samples=True)
+                self._dma_buffers.append(dma_buffer)  # keep object alive so __del__ does not free pinned memory prematurely
                 self.buffers.append(dma_buffer.buffer.reshape(-1))
                 self.buffer_pointers.append(dma_buffer.address)
             else:
@@ -557,9 +560,9 @@ class AlazarDigitizer:
         # exclusive acquisition modes — combining them causes ApiInvalidData.
         channels_mask = ATS_ENUM.Channels.CHANNEL_A.value | ATS_ENUM.Channels.CHANNEL_B.value   # CHANNEL_A | CHANNEL_B
         adma_flags = (
-            0x0001 | # ADMA_EXTERNAL_STARTCAPTURE
-            ATS_ENUM.ADMAModes.ADMA_NPT.value |
-            0x1000 # ADMA_INTERLEAVE_SAMPLES
+            ATS_ENUM.ADMAFlags.ADMA_EXTERNAL_STARTCAPTURE |
+            ATS_ENUM.ADMAModes.ADMA_NPT |
+            ATS_ENUM.ADMAFlags.ADMA_INTERLEAVE_SAMPLES
         )
         if hasattr(self.board_handle, 'before_async_read'):
             self.board_handle.before_async_read(
@@ -649,6 +652,7 @@ class AlazarDigitizer:
             # (or close()) is safely a no-op.
             self.buffers.clear()
             self.buffer_pointers.clear()
+            self._dma_buffers.clear()
             self.current_buffer_index = 0
             self.is_acquiring = False
             return None
@@ -668,10 +672,12 @@ class AlazarDigitizer:
             except Exception as e:
                 logger.warning("Error aborting acquisition: %s", e)
         
-        # Clear buffer lists (actual memory cleanup handled by garbage collector
-        # or SDK's DMABuffer.__exit__ when objects are destroyed)
+        # Clear buffer lists. Clearing _dma_buffers drops the atsbindings.Buffer
+        # references, which triggers __del__ → AlazarFreeBufferU16 in the correct order
+        # (after abortAsyncRead has already stopped DMA).
         self.buffers.clear()
         self.buffer_pointers.clear()
+        self._dma_buffers.clear()
         self.current_buffer_index = 0
         
         self.is_acquiring = False
