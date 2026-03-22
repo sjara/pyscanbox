@@ -6,6 +6,19 @@ All notable changes to this project are documented here. This file is append-onl
 
 ---
 
+## v1.3.1 - March 22, 2026
+- **GUI enhancements and layout adjustments**
+  - Moved "Light Path" to the top of the left control panel, and "PMT Control" below the "Laser" group
+  - Added 50% and 75% quick-set buttons for both PMT gains, right-justified for better layout
+  - Added a "Reset" button to the Image Display gain control
+  - Set the Optotune depth label to display "Not calibrated" instead of remaining blank
+  - Modified the initial Laser wavelength spinbox to show "Undefined" and require user input
+  - Adjusted RightDisplayPanel splitter width so the "Objective Position" panel initializes correctly
+  - Renamed `CameraPathGroup` to `LightPathGroup` throughout the application for clarity
+- **atsbindings bug fixes**
+  - Updated `wait_async_buffer_complete` exception handling in `mock_alazar.py` to match `atsbindings` behavior
+  - Fixed references checking for `Buffer` instead of `DMABuffer`
+
 ## v1.3.0 - March 21, 2026
 - **Alazar bindings update**
   - Replaced proprietary `atsapi.py` with open-source `atsbindings` library for AlazarTech ATS9440 communication
