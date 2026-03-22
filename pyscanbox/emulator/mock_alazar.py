@@ -2,7 +2,7 @@
 
 This module provides a mock implementation of the AlazarTech ATS9440 digitizer
 for Linux/offline development. It generates synthetic 14-bit PMT data and
-mimics the atsapi interface.
+mimics the atsbindings interface.
 
 Example:
     >>> import pyscanbox.emulator.mock_alazar as mock_alazar
@@ -40,7 +40,7 @@ _BACKGROUND_NOISE_SIGMA = 2000
 class Board:
     """Mock AlazarTech board interface.
 
-    Emulates the AlazarTech Python API (atsapi) for development without
+    Emulates the atsbindings Python API for development without
     hardware. Generates synthetic 14-bit data streams.
 
     Attributes:
@@ -357,7 +357,7 @@ class Board:
             timeout_ms: Timeout in milliseconds
             
         Raises:
-            Exception: If timeout occurs (matching atsapi behavior)
+            Exception: If timeout occurs (matching atsbindings behavior)
         """
         start_time = time.time()
         timeout_sec = timeout_ms / 1000.0

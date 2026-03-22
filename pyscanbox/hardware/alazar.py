@@ -460,7 +460,7 @@ class AlazarDigitizer:
         
         # Allocate specified number of DMA buffers
         for i in range(self.buffer_count):
-            # Use DMABuffer from atsapi if available, otherwise create numpy array
+            # Use Buffer from atsbindings if available, otherwise create numpy array
             if hasattr(self.alazar, 'Buffer'):
                 # Use atsbindings Buffer class for pinned memory
                 # It accepts records_per_buffer and samples_per_record. We calculate these based on mode.
