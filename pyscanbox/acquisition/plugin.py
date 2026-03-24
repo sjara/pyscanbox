@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Plugin interface and plugin manager for pyscanbox acquisition.
 
 This module contains two classes:

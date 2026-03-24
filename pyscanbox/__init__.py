@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """pyscanbox: Python implementation of Scanbox two-photon microscope software.
 
 This package provides hardware control and data acquisition for two-photon

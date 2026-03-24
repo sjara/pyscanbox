@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Widget components for pyscanbox GUI.
 
 This module defines individual control groups and display widgets:

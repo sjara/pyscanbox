@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Template: high-rate device with PC-clock alignment (Strategy 3).
 
 Copy this file and adapt it for any device that runs faster than the frame

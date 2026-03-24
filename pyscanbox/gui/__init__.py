@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """pyscanbox GUI module.
 
 This module provides the PyQt6-based graphical user interface for the

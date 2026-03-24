@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Template: sparse-event device using TTL edge timestamping (Strategy 1).
 
 Copy this file and adapt it for any device that asserts a TTL output pulse on

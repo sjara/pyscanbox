@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Tests for pyscanbox.hardware.motor (TrinamicMotor class).
 
 All tests use emulation mode (mock_serial), so no physical hardware is

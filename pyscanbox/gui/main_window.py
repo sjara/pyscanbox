@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Main window for pyscanbox GUI application.
 
 This module defines the main application window with a two-panel layout:

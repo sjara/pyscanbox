@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Coordinate transformation utilities for objective angle compensation.
 
 This module provides geometry functions for converting between world (stage)

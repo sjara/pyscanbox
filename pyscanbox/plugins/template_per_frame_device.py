@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Template: continuously streaming device polled once per frame (Strategy 2).
 
 Copy this file and adapt it for any device where one sample per imaging frame

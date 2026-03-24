@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Test script for Alazar integration implementation.
 
 Tests the complete acquisition pipeline with emulation mode.

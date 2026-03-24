@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Logging utilities for pyscanbox.
 
 Provides structured logging for hardware events, acquisition progress,

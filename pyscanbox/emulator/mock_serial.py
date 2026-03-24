@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Mock serial interface for controller and motor emulation.
 
 This module provides a mock serial.Serial replacement that:

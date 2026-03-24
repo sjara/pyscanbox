@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Tests for data reshaping functions.
 
 Tests the high-speed Numba-optimized reshaping functions.

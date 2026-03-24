@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Hardware emulation for Linux/offline development.
 
 This module provides mock implementations of hardware interfaces to enable

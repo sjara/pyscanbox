@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Tests for pyscanbox.hardware.knobby.
 
 Covers both the module-level utility functions (steps_to_units,

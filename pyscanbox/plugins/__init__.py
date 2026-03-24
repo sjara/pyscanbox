@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """pyscanbox acquisition plugins.
 
 Each plugin integrates an auxiliary hardware or behavioural device with the

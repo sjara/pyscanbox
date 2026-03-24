@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Threading and async utilities for pyscanbox.
 
 Provides utilities for managing background threads and async operations

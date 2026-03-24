@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Main application entry point for pyscanbox.
 
 This module provides ``main()`` (the installed console-script entry point)

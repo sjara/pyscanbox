@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """AlazarTech digitizer interface for PMT data acquisition.
 
 This module provides a Python interface to the AlazarTech ATS9440 digitizer

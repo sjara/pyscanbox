@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """File I/O modules for .sbx format.
 
 This package handles reading and writing data in the Scanbox-compatible format:

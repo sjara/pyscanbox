@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Main Scanbox controller interface for Pockels, mirror, and scan control.
 
 This module provides serial communication with the main Scanbox controller

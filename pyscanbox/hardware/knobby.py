@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Knobby display and control interface.
 
 This module provides serial communication with the Knobby Arduino-based controller

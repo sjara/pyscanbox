@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Tests for pyscanbox.hardware.protocols.
 
 Covers all encode/decode functions for the three wire formats used in

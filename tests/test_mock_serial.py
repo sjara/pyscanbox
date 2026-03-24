@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Tests for mock serial interface emulator.
 
 Tests the mock_serial module which emulates serial communication

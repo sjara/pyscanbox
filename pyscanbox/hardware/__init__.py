@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Hardware interface modules for Scanbox system.
 
 This package contains modules for interfacing with:

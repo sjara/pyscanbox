@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Serial communication protocols for Scanbox hardware.
 
 This module is the canonical reference for all wire formats used between

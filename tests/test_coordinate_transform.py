@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Tests for pyscanbox.utils.coordinate_transform.
 
 Covers world_to_rotated, rotated_to_world, and tip_compensation_delta.

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """High-speed data reshaping for PMT data.
 
 This module contains optimized functions for reshaping interleaved 16-bit

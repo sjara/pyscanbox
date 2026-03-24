@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Pockels cell linearisation calibration dialog.
 
 Provides a non-modal dialog for:

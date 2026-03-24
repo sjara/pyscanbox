@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Main acquisition loop and scanner control.
 
 This module implements the main acquisition loop that coordinates:

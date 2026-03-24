@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Tests for mock AlazarTech digitizer emulator.
 
 Tests the mock_alazar module which emulates the AlazarTech ATS9440

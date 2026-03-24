@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (c) 2026 Santiago Jaramillo
+
 """Application controller for pyscanbox GUI.
 
 This module bridges the GUI widgets and the hardware backend modules.
