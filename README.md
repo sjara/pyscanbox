@@ -61,11 +61,11 @@ Copy the example configuration and customize for your rig:
 ```bash
 # Linux/Mac
 mkdir -p ~/.config/pyscanbox
-cp examples/config_examples/default_config.yaml ~/.config/pyscanbox/config.yaml
+cp config_template.yaml ~/.config/pyscanbox/config.yaml
 
 # Windows
 mkdir %APPDATA%\pyscanbox
-copy examples\config_examples\default_config.yaml %APPDATA%\pyscanbox\config.yaml
+copy config_template.yaml %APPDATA%\pyscanbox\config.yaml
 ```
 
 ### Configuration File Locations

@@ -1,0 +1,270 @@
+# Default Scanbox Configuration
+# This file maps to the MATLAB sbconfig structure in scanbox_config.m
+
+# ============================================================================
+# Serial Communication Ports
+# ============================================================================
+
+# Main Scanbox Controller (PSoC 5LP-based hardware in Scanbox box)
+# MATLAB: sbconfig.scanbox_com
+controller:
+  com_port: COM6              # Serial port for Scanbox controller
+  baud_rate: 1000000          # Fixed at 1 Mbaud for Scanbox protocol
+  timeout: 1.0                # Communication timeout in seconds
+
+# Trinamic Motor Controller (for positioning/focus control)
+# MATLAB: sbconfig.tri_com, sbconfig.tri_baud
+motor:
+  com_port: COM4              # Serial port for Trinamic motor controller
+  baud_rate: 57600            # Trinamic TMCL communication baud rate
+  timeout: 1.0                # Communication timeout in seconds
+  # Per-motor freewheeling (TMCL SAP 204): when true, the motor de-energizes
+  # after reaching its target position (less heat, less vibration).  When
+  # false, the motor stays energized and actively holds position.
+  # Z (focus) is a gravity axis and must hold position.  Y and X are
+  # horizontal and safe to freewheel.  A (rotation/tilt) holds by default.
+  # MATLAB: sbconfig.freewheel (single value applied to all motors).
+  freewheel_z: false          # Motor 0 (focus)
+  freewheel_y: true           # Motor 1 (Y translation)
+  freewheel_x: true           # Motor 2 (X translation)
+  freewheel_a: false          # Motor 3 (rotation/tilt)
+
+# Knobby Position Display/Control (separate from motor controller)
+# MATLAB: sbconfig.tri_knob, sbconfig.tri_knob_ver
+knobby:
+  com_port: COM5              # Serial port or IP address for Knobby display
+  version: 2                  # Knobby version (1=small screen, 2=large screen)
+  reset_on_startup: true      # Auto-reset Knobby on startup - sbconfig.knobbyreset
+
+# ============================================================================
+# Objective Configuration
+# ============================================================================
+# MATLAB: sbconfig.obj_length, sbconfig.objectives
+objective:
+  length: 98000               # Objective length from rotation center to focal point (μm) - sbconfig.obj_length
+  type: Nikon_16x/0.8w/WD3.0  # Objective details
+
+# ============================================================================
+# AlazarTech Digitizer Settings (PMT data acquisition)
+# ============================================================================
+# MATLAB: Alazar configuration done via configureLsb9440.m
+
+alazar:
+  sample_rate: 125000000      # 125 MS/s sampling rate
+  bits_per_sample: 14         # 14-bit ADC resolution
+  channels: 2                 # Number of PMT channels
+  buffer_count: 16            # Number of DMA buffers in ring - sbconfig.nbuffer
+  trigger_level: 160          # Trigger level (0-255) - sbconfig.trig_level
+  trigger_slope: 0            # Trigger slope (0=positive, 1=negative) - sbconfig.trig_slope
+
+# ============================================================================
+# Scanning Parameters
+# ============================================================================
+
+# Scanner Configuration
+# MATLAB: Computed from sbconfig.resfreq, sbconfig.gain_*, etc.
+scanner:
+  resonant_freq: 7930         # Resonant mirror frequency in Hz - sbconfig.resfreq
+  deadband: [120, 150]        # Laser deadband at margins [left, right] - sbconfig.deadband
+  hsync_sign: 1               # Horizontal sync polarity (0=normal, 1=flip) - sbconfig.hsync_sign
+  warmup_delay: 50            # Resonant scanner warmup delay (×10ms) - sbconfig.wdelay
+  # Galvo/resonant gain tables uploaded to PSoC5 at startup.
+  # When gain_override is true the three keys below are sent once via
+  # update_scanner_gains(); when false the PSoC5 uses its built-in defaults.
+  # Reference: core/scanbox.m lines 253–262 (sbconfig.gain_override block).
+  gain_override: true         # Send custom gain tables at startup - sbconfig.gain_override
+  dv_galvo: 64                # Galvo voltage step per line (max 64) - sbconfig.dv_galvo
+  # 13 galvo (Y-axis) gain values, logspaced from 1.0 to 8.0.
+  # Index 0 = widest FOV (1.0x); index 12 = narrowest FOV (8.0x).
+  # Reference: sbconfig.gain_galvo = logspace(log10(1), log10(8), 13)
+  gain_galvo: [1.0, 1.189, 1.414, 1.682, 2.0, 2.378, 2.828, 3.364, 4.0, 4.757, 5.657, 6.727, 8.0]
+  # Resonant/galvo aspect-ratio multiplier.  gain_resonant = gain_resonant_mult × gain_galvo.
+  # Calibrate with sbxspatialcalibration.m or the Scanner Gains dialog.
+  # Reference: sbconfig.gain_resonant_mult = 1.42
+  gain_resonant_mult: 1.42    # Resonant (X-axis) multiplier - sbconfig.gain_resonant_mult
+
+# Acquisition Parameters
+# Frame geometry and acquisition settings
+acquisition:
+  lines_per_frame: 512        # Number of scan lines per frame
+  pixels_per_line: 796        # Pixels per scan line
+  frames: 1000                # Number of frames to acquire
+  magnification: 0            # Magnification zoom index (0-12; 0 = largest FOV)
+  samples_per_line: 5000      # Raw ADC samples per scan line, unidirectional
+                              # (MATLAB: postTriggerSamples = 5000)
+  samples_per_line_bidir: 9000  # Raw ADC samples per full resonant cycle,
+                              # bidirectional (MATLAB: postTriggerSamples = 9000
+                              # in bidirectional mode; captures both forward and
+                              # backward sweeps in one Alazar record)
+  unidirectional: true        # Scan mode: true = unidirectional, false = bidirectional
+                              # MATLAB: sbconfig.unidirectional
+  # Per-magnification pixel shift for backward scan lines in bidirectional mode.
+  # Each element corresponds to one of the 13 zoom levels (index 0 = lowest zoom).
+  # Positive = shift right, negative = shift left.  Calibrated on real hardware
+  # (see Milestone 3.8).  MATLAB: sbconfig.bishift
+  bishift: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  bidir_calibration_file: bidir_cal.json  # Bidir scan calibration filename (relative to config dir)
+
+# ============================================================================
+# Laser and Pockels Cell Control
+# ============================================================================
+
+# Pockels Cell Configuration (laser power modulation)
+# MATLAB: sbconfig.pockels_range, sbconfig.pockels_lut
+pockels:
+  range: [1, 2]               # Pockels range [vdac, pga] - sbconfig.pockels_range
+  lut_enabled: true           # Use lookup table for linearization
+  base_power: 0               # Base power during flyback (0-255)
+  active_power: 85            # Active power during scan (0-255)
+  calibration_file: pockels_cal.json  # Pockels calibration filename (relative to config dir)
+  # 256-entry linearisation LUT from sbconfig.pockels_lut in scanbox_config.jaralab.m.
+  # Maps each requested power level (0-255) to the PSoC DAC voltage required
+  # to produce linearly-scaled laser output (compensates sin^2 response).
+  # Recalibrate with core/pockels_920nm.m when changing laser wavelength.
+  # Reference: sb/sb_pockels_lut.m, core/pockels_920nm.m, core/scanbox.m lines 262-275.
+  lut: [
+      0,   5,  10,  16,  20,  21,  23,  24,  25,  26,  27,  29,  30,  31,  32,  33,
+     34,  36,  37,  38,  39,  40,  41,  42,  42,  43,  43,  44,  45,  45,  46,  47,
+     47,  48,  49,  49,  50,  51,  51,  52,  53,  53,  54,  54,  55,  56,  56,  57,
+     58,  58,  59,  60,  60,  61,  62,  62,  63,  64,  64,  65,  66,  66,  67,  68,
+     68,  69,  70,  70,  71,  72,  72,  73,  74,  74,  75,  76,  76,  77,  78,  78,
+     79,  80,  80,  81,  81,  82,  82,  83,  83,  84,  85,  85,  86,  86,  87,  87,
+     88,  88,  89,  89,  90,  90,  91,  91,  92,  92,  93,  93,  94,  94,  95,  96,
+     96,  97,  97,  98,  98,  99,  99, 100, 100, 101, 101, 102, 102, 103, 103, 104,
+    104, 105, 105, 106, 107, 107, 108, 108, 109, 109, 110, 110, 111, 111, 112, 112,
+    113, 113, 114, 114, 115, 115, 116, 116, 117, 118, 118, 119, 119, 120, 120, 121,
+    121, 122, 122, 123, 124, 124, 125, 125, 126, 126, 127, 128, 128, 129, 129, 130,
+    130, 131, 132, 132, 133, 133, 134, 134, 135, 136, 136, 137, 137, 138, 138, 139,
+    140, 140, 141, 142, 142, 143, 144, 144, 145, 146, 146, 147, 148, 148, 149, 150,
+    150, 151, 152, 152, 153, 154, 154, 155, 156, 156, 157, 158, 158, 159, 160, 160,
+    161, 162, 163, 164, 165, 166, 167, 168, 168, 169, 170, 171, 172, 173, 174, 175,
+    176, 177, 177, 178, 179, 180, 182, 184, 186, 248, 190, 192, 194, 196, 198, 200,
+  ]
+
+# Laser Configuration
+# MATLAB: sbconfig.laser_com, sbconfig.laser_type, sbconfig.lasfreq
+laser:
+  com_port: null              # Laser serial port (null = use manufacturer's GUI)  # ⚠️ not yet used
+  laser_type: null            # Laser type: CHAMELEON, DISCOVERY, or null  # ⚠️ not yet used
+  frequency: 80180000         # Laser frequency at 920nm in Hz - sbconfig.lasfreq
+  shutter_default: false      # Default shutter state (false=closed, true=open)  # ⚠️ not yet used
+
+# ============================================================================
+# Optotune ETL (Electrically Tunable Lens for volumetric imaging)
+# ============================================================================
+# MATLAB: sbconfig.etl, sbconfig.optocal, sbconfig.optoval, etc.
+
+optotune:
+  enabled: true               # Enable Optotune ETL  # ⚠️ not yet used
+  default_value: 860          # Default ETL current value - sbconfig.etl
+  calibration_file: etl_cal.json  # JSON calibration file (relative to working dir or absolute)
+                              # Contains 3 polynomial coefficients mapping ETL current → depth (µm)
+                              # Created by the ETL calibration procedure; absent = raw value shown
+  calibration_range: -320     # Range to cover during calibration (μm) - sbconfig.optorange  # ⚠️ not yet used
+  calibration_step: -10       # Step size for calibration (μm) - sbconfig.optostep  # ⚠️ not yet used
+  calibration_frames: 10      # Frames per step during calibration - sbconfig.optoframes  # ⚠️ not yet used
+  calibration_values: [0, 170, 340, 510, 680, 850, 1020, 1190, 1360, 1530, 1700]  # sbconfig.optoval  # ⚠️ not yet used
+
+# ============================================================================
+# PMT and Signal Processing
+# ============================================================================
+# MATLAB: sbconfig.pmt_amp_type, sbconfig.bishift
+
+pmt:
+  amplifier_type: variable    # PMT amplifier type: 'variable' or 'fixed' - sbconfig.pmt_amp_type
+  channels: 2                 # Number of PMT channels  # ⚠️ not yet used (alazar.channels is used instead)
+
+# ============================================================================
+# File I/O and Data Storage
+# ============================================================================
+# MATLAB: sbconfig.datadir, sbconfig.autoinc, sbconfig.mmap
+
+io:
+  output_directory: /tmp/      # Default data directory - sbconfig.datadir
+  file_prefix: scan            # File prefix for output files
+  auto_increment: true         # Auto-increment experiment number - sbconfig.autoinc  # ⚠️ not yet used
+  memory_mapped: true          # Enable memory-mapped file stream - sbconfig.mmap  # ⚠️ not yet used
+
+# ============================================================================
+# GUI Display Settings
+# ============================================================================
+# Controls the appearance of the image display canvas and related widgets.
+# All settings here have hard-coded defaults in widgets.py that are used
+# when this section is absent or a key is omitted.
+
+display:
+  # Zoom multiplier applied per mouse-wheel step (e.g. 1.25 = 25% per step).
+  zoom_factor: 1.25
+
+  # Available time-constant values (in frames) for the rolling-average display.
+  # The Image Display control group offers these as choices in addition to "Off".
+  rolling_avg_taus: [5, 10, 20]
+
+  # Colour of the plus-sign location markers placed in marker mode.
+  # Any CSS / Qt colour string is accepted (hex ARGB or named colour).
+  # The leading two hex digits are the alpha channel (00=transparent, ff=opaque).
+  marker_color: "#80AAAA00"    # semi-transparent olive/yellow
+
+  # Half-length of each arm of the plus-sign marker, in image pixels.
+  marker_size: 5
+
+  # Perceptual brightness boost for the PMT1 red_white colormap.
+  # Increase to make the red channel appear brighter; decrease to dim it.
+  # Default (ITU-R theoretical): 1.963.  Tune to taste for your monitor.
+  red_boost: 1.4
+
+# External TTL Event Monitoring
+# The Scanbox PSoC5 controller card has two SMA TTL input connectors on the
+# front panel (TTL0 and TTL1). Both settings below control how these physical
+# inputs are used; neither requires any NI-DAQ hardware.
+#
+# interrupt_mask — which inputs generate timestamped event records during
+#   acquisition. Each edge (or level change for TTL1) causes the PSoC5 to
+#   send a 5-byte packet [frame_low, frame_high, line_low, line_high, event_id]
+#   back over the controller serial port. Saved as frame/line/event_id arrays
+#   in the .mat metadata file. MATLAB: sbconfig.imask (sb/sb_imask.m)
+#
+# ttl_trigger — when true, TTL1 also acts as an acquisition start/stop
+#   trigger (PSoC5 CMD 0xE2). This is separate from and independent of event
+#   recording. MATLAB: sbconfig.trig_sel (sb/sb_trig_sel.m)
+external_events:
+  interrupt_mask: 0           # Which TTL inputs fire timestamped event records:
+                              # 0=none (default/safe), 1=TTL0 only (rising edge),
+                              # 2=TTL1 only (both edges), 3=both TTL0 and TTL1.
+                              # Never enable without a signal connected (floating
+                              # inputs will produce a storm of spurious events).
+  ttl_trigger: false          # ⚠️ not yet used
+                              # If true, TTL1 acts as an acquisition start/stop
+                              # trigger in addition to (or instead of) event recording.
+
+# ============================================================================
+# Plugin Configuration
+# ============================================================================
+# Plugins record data from auxiliary hardware devices alongside imaging.
+# Each plugin listed here appears as a checkable item in the GUI Plugins menu.
+# Set enabled: true to auto-connect the device when the application starts.
+# Leave enabled: false to show the item in the menu without auto-connecting
+# (the user can connect manually by checking the menu item at any time).
+#
+# Hardware connection happens in a background thread, so a slow device (e.g.
+# an Arduino that resets on USB connect, ~2 s) never blocks the GUI.
+plugins:
+  # Quadrature encoder: Arduino-based rotation platform monitor.
+  # Saves one int32 count per frame as <base>_quadrature.npy alongside .sbx.
+  quadrature:
+    enabled: false              # Set true to auto-connect at startup
+    port: COM8                  # Serial port for the Arduino
+    baud_rate: 115200           # 115200 for DUE firmware, 1000000 for Mega
+    calibration: 0.04363        # Arc length per encoder count (cm/count):
+                                # 2 * pi * radius_cm / pulses_per_revolution
+    # emulation: false          # Override global emulation for this device only
+
+# ============================================================================
+# Hardware Emulation Settings (for development without physical hardware)
+# ============================================================================
+
+emulation:
+  enabled: true              # Set to true to use mock hardware (enables Linux development)
+  verbose: true              # Set to true for detailed emulation logging
+  raw_mode: true             # false = pre-shaped buffers (lines × pixels); true = raw ADC layout (lines × samples_per_line)
+  samples_per_buffer: 407552 # Pre-shaped buffer size when raw_mode=false: lines × pixels × 2 = 512*796*2

@@ -128,27 +128,13 @@ def main():
 
     sys.excepthook = _qt_exception_hook
 
-    # Bundled fallback config (used when no user/system config is found).
-    _pkg_dir = os.path.dirname(__file__)
-    dev_fallback = os.path.join(
-        _pkg_dir, '..', 'examples', 'config_examples', 'default_config.yaml'
-    )
-
     config_path = args.config
     try:
         cfg = config_mod.load_config(config_path)
         config_path = config_path or config_mod.find_config()
-    except FileNotFoundError:
-        if config_path is not None:
-            print(f'Error: config file not found: {config_path}')
-            sys.exit(1)
-        try:
-            cfg = config_mod.load_config(dev_fallback)
-            config_path = dev_fallback
-            print('Note: no user config found, using bundled example config.')
-        except FileNotFoundError as exc:
-            print(f'Error: {exc}')
-            sys.exit(1)
+    except FileNotFoundError as exc:
+        print(f'Error: {exc}')
+        sys.exit(1)
 
     cfg.emulation['enabled'] = args.emulation
     if args.emulation:
