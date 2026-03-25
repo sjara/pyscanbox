@@ -793,10 +793,7 @@ class Scanner:
         # Objective label
         # ----------------------------------------------------------------
         obj_cfg = self.config.get('objective', {})
-        obj_list = obj_cfg.get('objectives', [])
-        obj_index = acq_cfg.get('magnification', 0)  # placeholder; GUI passes mag index
-        # Use the configured objective name if available, otherwise empty string.
-        objective_str = obj_cfg.get('current', '') or (obj_list[0] if obj_list else '')
+        objective_str = obj_cfg.get('type', '')
 
         # ----------------------------------------------------------------
         # Metadata dict — MATLAB-compatible fields listed first
@@ -845,6 +842,8 @@ class Scanner:
             'pockels_active': np.int64(pockels.get('active', 0)),
             'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
             'pyscanbox_version': pyscanbox.__version__,
+            'objective_type': self.config.get('objective', {}).get('type', ''),
+            'laser_type': self.config.get('laser', {}).get('type', ''),
         }
         if self.plugin_manager is not None:
             meta.update(self.plugin_manager.collect_metadata())

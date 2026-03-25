@@ -144,7 +144,7 @@ class LaserControlGroup(QtWidgets.QGroupBox):
         """Initialize the laser control group.
         
         Args:
-            config: Optional ScanboxConfig object (unused but kept for compatibility).
+            config: Optional AppConfig object (unused but kept for compatibility).
         """
         super().__init__("Laser")
         self.config = config
@@ -515,7 +515,7 @@ class FileStorageGroup(QtWidgets.QGroupBox):
         """Initialize the file storage group.
 
         Args:
-            config: Optional configuration dict or ScanboxConfig.  When
+            config: Optional configuration dict or AppConfig.  When
                 provided, the directory field is seeded from
                 config['io']['output_directory'].
         """
@@ -1051,7 +1051,7 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         # Separate LUT for PMT1 (red_white by default).
         # red_boost can be overridden via the 'display.red_boost' config key.
         # Extract the display sub-section from the config (supports both plain
-        # dicts and objects with a to_dict() method such as ScanboxConfig).
+        # dicts and objects with a to_dict() method such as AppConfig).
         config_dict = (
             config.to_dict() if hasattr(config, 'to_dict') else (config or {})
         )
@@ -1952,7 +1952,7 @@ class ImageDisplayControlGroup(QtWidgets.QGroupBox):
         """Initialize the image display control group.
 
         Args:
-            config: Optional ScanboxConfig (or plain dict).  When provided the
+            config: Optional AppConfig (or plain dict).  When provided the
                 ``display.rolling_avg_taus`` list is used to populate the
                 rolling average combobox.
         """

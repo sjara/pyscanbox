@@ -204,7 +204,7 @@ import pyscanbox.hardware.motor
 import pyscanbox.config
 
 # Load configuration
-config = pyscanbox.config.ScanboxConfig('config.yaml')
+config = pyscanbox.config.AppConfig('config.yaml')
 config['emulation']['enabled'] = False  # Use real hardware
 
 # Connect to motor controller

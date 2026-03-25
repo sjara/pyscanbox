@@ -58,10 +58,10 @@ python examples/gui_example.py
 ### With Configuration
 
 ```python
-from pyscanbox.config import ScanboxConfig
+from pyscanbox.config import AppConfig
 from pyscanbox.gui import MainWindow
 
-config = ScanboxConfig.from_yaml("path/to/config.yaml")
+config = AppConfig.from_yaml("path/to/config.yaml")
 window = MainWindow(config=config)
 ```
 

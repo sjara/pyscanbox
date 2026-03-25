@@ -260,7 +260,7 @@ class AppController(QtCore.QObject):
         Call open() before issuing any hardware commands.
 
         Args:
-            config: Configuration dictionary (e.g. from ScanboxConfig.to_dict()).
+            config: Configuration dictionary (e.g. from AppConfig.to_dict()).
             config_path: Path to the active YAML config file.  When provided,
                 bidirectional calibration is loaded from ``bidir_cal.json`` in
                 the same directory and saved there after each calibration run.

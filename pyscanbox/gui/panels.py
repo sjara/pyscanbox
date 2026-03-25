@@ -29,7 +29,7 @@ class LeftControlPanel(QtWidgets.QWidget):
         """Initialize the left control panel.
         
         Args:
-            config: Optional ScanboxConfig object.
+            config: Optional AppConfig object.
         """
         super().__init__()
         self.config = config
@@ -77,7 +77,7 @@ class RightDisplayPanel(QtWidgets.QWidget):
         """Initialize the right display panel.
         
         Args:
-            config: Optional ScanboxConfig object.
+            config: Optional AppConfig object.
         """
         super().__init__()
         self.config = config

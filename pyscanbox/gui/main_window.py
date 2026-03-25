@@ -50,7 +50,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """Initialize the main window.
         
         Args:
-            config: Optional ScanboxConfig object for initialization.
+            config: Optional AppConfig object for initialization.
             config_path: Path to the config YAML file; passed to
                 AppController so bidir calibration can be saved alongside it.
         """
@@ -629,7 +629,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _init_app_controller(self):
         """Create AppController from config and open hardware connections.
 
-        Accepts either a ScanboxConfig object or a plain dict. When config
+        Accepts either a AppConfig object or a plain dict. When config
         is None the GUI runs in display-only mode with hardware disabled.
         """
         if self.config is None:

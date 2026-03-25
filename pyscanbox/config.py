@@ -28,7 +28,7 @@ import yaml
 from typing import Dict, Any, Optional
 
 
-class ScanboxConfig:
+class AppConfig:
     """Configuration container for Scanbox system.
 
     Attributes:
@@ -219,7 +219,7 @@ def find_config() -> str:
     )
 
 
-def load_config(filepath: Optional[str] = None) -> ScanboxConfig:
+def load_config(filepath: Optional[str] = None) -> AppConfig:
     """Load configuration from YAML file.
 
     Args:
@@ -227,7 +227,7 @@ def load_config(filepath: Optional[str] = None) -> ScanboxConfig:
             locations (user config dir, then system config dir).
 
     Returns:
-        ScanboxConfig object with loaded configuration.
+        AppConfig object with loaded configuration.
 
     Raises:
         FileNotFoundError: If configuration file does not exist.
@@ -248,14 +248,14 @@ def load_config(filepath: Optional[str] = None) -> ScanboxConfig:
     with open(filepath, 'r', encoding='utf-8') as f:
         config_dict = yaml.safe_load(f)
     
-    return ScanboxConfig(config_dict)
+    return AppConfig(config_dict)
 
 
-def save_config(config: ScanboxConfig, filepath: str) -> None:
+def save_config(config: AppConfig, filepath: str) -> None:
     """Save configuration to YAML file.
 
     Args:
-        config: ScanboxConfig object to save.
+        config: AppConfig object to save.
         filepath: Path to output YAML file.
     """
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
