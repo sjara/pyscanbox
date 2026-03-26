@@ -1237,6 +1237,21 @@ class MainWindow(QtWidgets.QMainWindow):
                 file_grp.directory_edit.text(),
                 file_grp.get_output_basename()
             )
+            # Check for existing file and ask for overwrite confirmation
+            if os.path.exists(f"{output_path}.sbx") or os.path.exists(f"{output_path}.mat"):
+                import PyQt6.QtWidgets as _QtW
+                reply = _QtW.QMessageBox.question(
+                    self,
+                    "Overwrite File?",
+                    f"The file '{file_grp.get_output_basename()}' already exists.\n"
+                    "Do you want to overwrite it?",
+                    _QtW.QMessageBox.StandardButton.Yes | _QtW.QMessageBox.StandardButton.No,
+                    _QtW.QMessageBox.StandardButton.No,
+                )
+                if reply == _QtW.QMessageBox.StandardButton.No:
+                    acq.grab_button.setChecked(False)
+                    return
+
             # 0 = run forever, matching MATLAB convention.
             frames = self._left_panel.scanner_group.total_frames_spinbox.value()
             # Combobox indices: 0 = PMT0 only, 1 = PMT1 only, 2 = both.
@@ -1271,9 +1286,25 @@ class MainWindow(QtWidgets.QMainWindow):
         """
         file_grp = self._left_panel.file_group
         path = file_grp.get_snapshot_path()
+        if os.path.exists(path):
+            import PyQt6.QtWidgets as _QtW
+            reply = _QtW.QMessageBox.question(
+                self,
+                "Overwrite Snapshot?",
+                f"The snapshot '{os.path.basename(path)}' already exists.\nDo you want to overwrite it?",
+                _QtW.QMessageBox.StandardButton.Yes | _QtW.QMessageBox.StandardButton.No,
+                _QtW.QMessageBox.StandardButton.No,
+            )
+            if reply == _QtW.QMessageBox.StandardButton.No:
+                return
+
         saved = self._right_panel.image_display.save_snapshot(path)
         if saved:
-            file_grp.increment_snapshot_index()
+            auto_inc = True
+            if self._ctrl is not None and hasattr(self._ctrl, 'config'):
+                auto_inc = self._ctrl.config.get('io', {}).get('auto_increment', True)
+            if auto_inc:
+                file_grp.increment_snapshot_index()
             self.statusBar.showMessage(f"Snapshot saved: {path}")
         else:
             self.statusBar.showMessage(
@@ -1365,7 +1396,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._left_panel.scanner_group.scan_mode_combobox.setEnabled(True)
         # Advance the session ID only after a data-saving Grab, not Focus.
         if self._grab_active:
-            self._left_panel.file_group.increment_session_id()
+            auto_inc = True
+            if self._ctrl is not None and hasattr(self._ctrl, 'config'):
+                auto_inc = self._ctrl.config.get('io', {}).get('auto_increment', True)
+            if auto_inc:
+                self._left_panel.file_group.increment_session_id()
         self._grab_active = False
         self.statusBar.showMessage("Acquisition complete")
 

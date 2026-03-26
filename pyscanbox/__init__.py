@@ -14,7 +14,7 @@ Main modules:
     gui: PyQt-based graphical user interface (Phase 3)
 """
 
-__version__ = "1.3.1"
+__version__ = "1.3.2"
 __author__ = "Santiago Jaramillo"
 
 # Import main configuration module

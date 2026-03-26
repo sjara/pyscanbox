@@ -6,6 +6,15 @@ All notable changes to this project are documented here. This file is append-onl
 
 ---
 
+## v1.3.2 - March 25, 2026
+- **Configuration and metadata improvements**
+  - Renamed `ScanboxConfig` to `AppConfig` across the entire codebase for clarity
+  - Standardized configuration: moved the template to `config_template.yaml` at the project root and updated installation documentation
+  - Audited and cleaned up `config_template.yaml`: removed unused parameters (`pmt:channels`, `io:memory_mapped`, `laser:com_port`, etc.)
+  - Added logic to save `objective.type` and `laser.type` to `.mat` metadata files
+  - Implemented `io.auto_increment` setting: file numbers now only increment post-acquisition if this toggle is enabled in the config
+  - Added overwrite protection: the GUI now prompts for confirmation before overwriting existing `.sbx`, `.mat`, or `.png` (snapshot) files
+
 ## v1.3.1 - March 22, 2026
 - **GUI enhancements and layout adjustments**
   - Moved "Light Path" to the top of the left control panel, and "PMT Control" below the "Laser" group

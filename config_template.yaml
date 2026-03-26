@@ -31,7 +31,6 @@ motor:
 knobby:
   com_port: COM5              # Serial port or IP address for Knobby display
   version: 2                  # Knobby version (1=small screen, 2=large screen)
-  reset_on_startup: true      # Auto-reset Knobby on startup - sbconfig.knobbyreset
 
 # ============================================================================
 # Objective Configuration
@@ -42,7 +41,7 @@ objective:
   type: Nikon_16x/0.8w/WD3.0  # Objective details
 
 # ============================================================================
-# AlazarTech Digitizer Settings (PMT data acquisition)
+# AlazarTech Digitizer Settings (PMT data acquisition) and PMT settings
 # ============================================================================
 # MATLAB: Alazar configuration done via configureLsb9440.m
 
@@ -53,6 +52,9 @@ alazar:
   buffer_count: 16            # Number of DMA buffers in ring - sbconfig.nbuffer
   trigger_level: 160          # Trigger level (0-255) - sbconfig.trig_level
   trigger_slope: 0            # Trigger slope (0=positive, 1=negative) - sbconfig.trig_slope
+
+pmt:
+  amplifier_type: variable    # PMT amplifier type: 'variable' or 'fixed' - sbconfig.pmt_amp_type
 
 # ============================================================================
 # Scanning Parameters
@@ -78,7 +80,7 @@ scanner:
   # Resonant/galvo aspect-ratio multiplier.  gain_resonant = gain_resonant_mult × gain_galvo.
   # Calibrate with sbxspatialcalibration.m or the Scanner Gains dialog.
   # Reference: sbconfig.gain_resonant_mult = 1.42
-  gain_resonant_mult: 1.42    # Resonant (X-axis) multiplier - sbconfig.gain_resonant_mult
+  gain_resonant_mult: 1       # Resonant (X-axis) multiplier - sbconfig.gain_resonant_mult
 
 # Acquisition Parameters
 # Frame geometry and acquisition settings
@@ -105,6 +107,12 @@ acquisition:
 # ============================================================================
 # Laser and Pockels Cell Control
 # ============================================================================
+
+# Laser Configuration
+# MATLAB: sbconfig.laser_com, sbconfig.laser_type, sbconfig.lasfreq
+laser:
+  type: 'MAI_TAI_HP'          # Laser type. Currently unused, only informational
+  frequency: 80180000         # Laser frequency at 920nm in Hz - sbconfig.lasfreq
 
 # Pockels Cell Configuration (laser power modulation)
 # MATLAB: sbconfig.pockels_range, sbconfig.pockels_lut
@@ -138,12 +146,6 @@ pockels:
     176, 177, 177, 178, 179, 180, 182, 184, 186, 248, 190, 192, 194, 196, 198, 200,
   ]
 
-# Laser Configuration
-# MATLAB: sbconfig.laser_com, sbconfig.laser_type, sbconfig.lasfreq
-laser:
-  type: 'MAI_TAI_HP'          # Laser type. Currently unused, only informational
-  frequency: 80180000         # Laser frequency at 920nm in Hz - sbconfig.lasfreq
-
 # ============================================================================
 # Optotune ETL (Electrically Tunable Lens for volumetric imaging)
 # ============================================================================
@@ -154,15 +156,6 @@ optotune:
   calibration_file: etl_cal.json  # JSON calibration file (relative to config file directory)
 
 # ============================================================================
-# PMT and Signal Processing
-# ============================================================================
-# MATLAB: sbconfig.pmt_amp_type, sbconfig.bishift
-
-pmt:
-  amplifier_type: variable    # PMT amplifier type: 'variable' or 'fixed' - sbconfig.pmt_amp_type
-  channels: 2                 # Number of PMT channels  # ⚠️ not yet used (alazar.channels is used instead)
-
-# ============================================================================
 # File I/O and Data Storage
 # ============================================================================
 # MATLAB: sbconfig.datadir, sbconfig.autoinc, sbconfig.mmap
@@ -170,8 +163,7 @@ pmt:
 io:
   output_directory: /tmp/      # Default data directory - sbconfig.datadir
   file_prefix: scan            # File prefix for output files
-  auto_increment: true         # Auto-increment experiment number - sbconfig.autoinc  # ⚠️ not yet used
-  memory_mapped: true          # Enable memory-mapped file stream - sbconfig.mmap  # ⚠️ not yet used
+  auto_increment: true         # Auto-increment experiment number - sbconfig.autoinc
 
 # ============================================================================
 # GUI Display Settings
@@ -201,7 +193,9 @@ display:
   # Default (ITU-R theoretical): 1.963.  Tune to taste for your monitor.
   red_boost: 1.4
 
+# ============================================================================
 # External TTL Event Monitoring
+# ============================================================================
 # The Scanbox PSoC5 controller card has two SMA TTL input connectors on the
 # front panel (TTL0 and TTL1). Both settings below control how these physical
 # inputs are used; neither requires any NI-DAQ hardware.
@@ -210,11 +204,13 @@ display:
 #   acquisition. Each edge (or level change for TTL1) causes the PSoC5 to
 #   send a 5-byte packet [frame_low, frame_high, line_low, line_high, event_id]
 #   back over the controller serial port. Saved as frame/line/event_id arrays
-#   in the .mat metadata file. MATLAB: sbconfig.imask (sb/sb_imask.m)
+#   in the metadata file. 
+#   MATLAB: sbconfig.imask (sb/sb_imask.m)
 #
 # ttl_trigger — when true, TTL1 also acts as an acquisition start/stop
 #   trigger (PSoC5 CMD 0xE2). This is separate from and independent of event
-#   recording. MATLAB: sbconfig.trig_sel (sb/sb_trig_sel.m)
+#   recording. 
+#   MATLAB: sbconfig.trig_sel (sb/sb_trig_sel.m)
 external_events:
   interrupt_mask: 0           # Which TTL inputs fire timestamped event records:
                               # 0=none (default/safe), 1=TTL0 only (rising edge),
@@ -238,7 +234,7 @@ external_events:
 # an Arduino that resets on USB connect, ~2 s) never blocks the GUI.
 plugins:
   # Quadrature encoder: Arduino-based rotation platform monitor.
-  # Saves one int32 count per frame as <base>_quadrature.npy alongside .sbx.
+  # Saves one int32 count per frame as <base>_quadrature.npy
   quadrature:
     enabled: false              # Set true to auto-connect at startup
     port: COM8                  # Serial port for the Arduino

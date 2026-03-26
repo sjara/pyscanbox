@@ -201,7 +201,7 @@ class Knobby:
         self.baud_rate = 57600  # Fixed baud rate for Knobby
         self.timeout = knobby_config.get('timeout', 1.0)
         self.version = knobby_config.get('version', 2)
-        self.reset_on_startup = knobby_config.get('reset_on_startup', True)
+        #self.reset_on_startup = knobby_config.get('reset_on_startup', True)  # NOT IMPLEMENTED
         
         # Check if emulation is enabled
         self.use_emulation = config.get('emulation', {}).get('enabled', False)
