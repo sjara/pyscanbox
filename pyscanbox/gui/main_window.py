@@ -151,6 +151,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.addDockWidget(
             QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self._log_dock
         )
+        self._log_dock.setVisible(False)
         # Keep the rest of the window at its current size when the log dock
         # is detached.  topLevelChanged fires before Qt reflows the layout,
         # so we use a zero-delay timer to resize after the layout settles.
@@ -304,7 +305,7 @@ class MainWindow(QtWidgets.QMainWindow):
         log_action = QtGui.QAction("Show &Command Log", self)
         log_action.setShortcut("Ctrl+L")
         log_action.setCheckable(True)
-        log_action.setChecked(True)
+        log_action.setChecked(False)
         log_action.triggered.connect(self._toggle_log_dock)
         view_menu.addAction(log_action)
         self._log_dock_action = log_action

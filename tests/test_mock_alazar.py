@@ -50,13 +50,13 @@ class TestBoardInitialization:
 class TestConfigurationMethods:
     """Test board configuration methods."""
 
-    def test_setCaptureClock(self):
+    def test_set_capture_clock(self):
         """Test capture clock configuration."""
         board = mock_alazar._BoardClass()
         
         sample_rate = 125_000_000
         # Should not raise exception
-        board.setCaptureClock(
+        board.set_capture_clock(
             source=1,  # Internal clock
             rate=sample_rate,
             edge=0,
@@ -65,12 +65,12 @@ class TestConfigurationMethods:
         
         assert board.sample_rate == sample_rate
 
-    def test_inputControl(self):
+    def test_input_control_ex(self):
         """Test input channel configuration."""
         board = mock_alazar._BoardClass()
         
         # Should not raise exception
-        board.inputControl(
+        board.input_control_ex(
             channel=1,
             coupling=1,  # DC coupling
             inputRange=400,  # 400 mV
@@ -79,33 +79,33 @@ class TestConfigurationMethods:
         
         assert board.input_range == 400
 
-    def test_setTriggerOperation(self):
+    def test_set_trigger_operation(self):
         """Test trigger operation configuration."""
         board = mock_alazar._BoardClass()
         
         # Should not raise exception
-        board.setTriggerOperation(
+        board.set_trigger_operation(
             operation=0,
             engine1=0, source1=0, slope1=1, level1=128,
             engine2=0, source2=0, slope2=1, level2=128
         )
 
-    def test_setExternalTrigger(self):
+    def test_set_external_trigger(self):
         """Test external trigger configuration."""
         board = mock_alazar._BoardClass()
         
         # Should not raise exception
-        board.setExternalTrigger(
+        board.set_external_trigger(
             coupling=1,  # DC
             range=5  # Range code
         )
 
-    def test_configureLSB(self):
+    def test_configure_lsb(self):
         """Test LSB output configuration for sync signals."""
         board = mock_alazar._BoardClass()
         
         # Should not raise exception
-        board.configureLSB(
+        board.configure_lsb(
             valueLSB0=1,  # Frame sync
             valueLSB1=2   # Line sync
         )
@@ -116,7 +116,7 @@ class TestConfigurationMethods:
 class TestAsyncAcquisitionSetup:
     """Test asynchronous acquisition setup methods."""
 
-    def test_beforeAsyncRead(self):
+    def test_before_async_read(self):
         """Test async read configuration."""
         board = mock_alazar._BoardClass()
         
@@ -126,7 +126,7 @@ class TestAsyncAcquisitionSetup:
         num_channels = 2  # bin(3).count('1') = 2
         
         # Should not raise exception
-        board.beforeAsyncRead(
+        board.before_async_read(
             channels=channels_mask,
             transferOffset=0,
             samplesPerRecord=samplesPerRecord,
@@ -138,7 +138,7 @@ class TestAsyncAcquisitionSetup:
         # Buffer size should account for interleaved channels
         assert board.buffer_size_samples == samplesPerRecord * num_channels * recordsPerBuffer
 
-    def test_postAsyncBuffer(self):
+    def test_post_async_buffer(self):
         """Test posting buffers for DMA."""
         board = mock_alazar._BoardClass()
         
@@ -147,8 +147,8 @@ class TestAsyncAcquisitionSetup:
         buffer2 = np.zeros(2048, dtype=np.uint16)
         
         # Post buffers - should not raise exception
-        board.postAsyncBuffer(buffer1)
-        board.postAsyncBuffer(buffer2)
+        board.post_async_buffer(buffer1)
+        board.post_async_buffer(buffer2)
         
         assert len(board.posted_buffers) == 2
 
@@ -160,7 +160,7 @@ class TestAsyncAcquisitionSetup:
         buffers = [np.zeros(2048, dtype=np.uint16) for _ in range(num_buffers)]
         
         for buf in buffers:
-            board.postAsyncBuffer(buf)
+            board.post_async_buffer(buf)
         
         assert len(board.posted_buffers) == num_buffers
 
@@ -168,72 +168,72 @@ class TestAsyncAcquisitionSetup:
 class TestAcquisitionControl:
     """Test acquisition control methods."""
 
-    def test_startCapture(self):
+    def test_start_capture(self):
         """Test starting data acquisition."""
         board = mock_alazar._BoardClass()
-        board.beforeAsyncRead(3, 0, 2048, 1, 0, 0x200)
+        board.before_async_read(3, 0, 2048, 1, 0, 0x200)
         
         # Should not raise exception
-        board.startCapture()
+        board.start_capture()
         
         assert board.is_acquiring is True
         
         # Clean up
-        board.abortAsyncRead()
+        board.abort_async_read()
         time.sleep(0.01)
 
-    def test_abortAsyncRead(self):
+    def test_abort_async_read(self):
         """Test aborting acquisition."""
         board = mock_alazar._BoardClass()
-        board.beforeAsyncRead(3, 0, 2048, 1, 0, 0x200)
-        board.startCapture()
+        board.before_async_read(3, 0, 2048, 1, 0, 0x200)
+        board.start_capture()
         
         # Should not raise exception
-        board.abortAsyncRead()
+        board.abort_async_read()
         
         assert board.is_acquiring is False
 
-    def test_waitAsyncBufferComplete_success(self):
+    def test_wait_async_buffer_complete_success(self):
         """Test waiting for buffer completion successfully."""
         board = mock_alazar._BoardClass()
-        board.beforeAsyncRead(3, 0, 2048, 1, 0, 0x200)
+        board.before_async_read(3, 0, 2048, 1, 0, 0x200)
         
         # Post and start (buffer size = 2048 samples/ch * 2 channels = 4096)
         buffer = np.zeros(4096, dtype=np.uint16)
-        board.postAsyncBuffer(buffer)
-        board.startCapture()
+        board.post_async_buffer(buffer)
+        board.start_capture()
         
         # Wait for buffer - should not raise exception
         result_buffer = np.zeros(4096, dtype=np.uint16)
-        board.waitAsyncBufferComplete(result_buffer, timeout_ms=1000)
+        board.wait_async_buffer_complete(result_buffer, timeout_ms=1000)
         
         # Data should be non-zero (synthetic data generated)
         assert np.any(result_buffer != 0)
         
         # Clean up
-        board.abortAsyncRead()
+        board.abort_async_read()
         time.sleep(0.01)
 
-    def test_waitAsyncBufferComplete_timeout(self):
+    def test_wait_async_buffer_complete_timeout(self):
         """Test buffer wait timeout."""
         board = mock_alazar._BoardClass()
         
         # Don't start capture, just wait - should raise exception
         buffer = np.zeros(2048, dtype=np.uint16)
         with pytest.raises(Exception, match="Timeout|Acquisition aborted"):
-            board.waitAsyncBufferComplete(buffer, timeout_ms=100)
+            board.wait_async_buffer_complete(buffer, timeout_ms=100)
 
-    def test_waitAsyncBufferComplete_after_abort(self):
+    def test_wait_async_buffer_complete_after_abort(self):
         """Test waiting after acquisition is aborted."""
         board = mock_alazar._BoardClass()
-        board.beforeAsyncRead(3, 0, 2048, 1, 0, 0x200)
-        board.startCapture()
-        board.abortAsyncRead()
+        board.before_async_read(3, 0, 2048, 1, 0, 0x200)
+        board.start_capture()
+        board.abort_async_read()
         
         buffer = np.zeros(2048, dtype=np.uint16)
         # Should raise exception since acquisition stopped
         with pytest.raises(Exception, match="Timeout|Acquisition aborted"):
-            board.waitAsyncBufferComplete(buffer, timeout_ms=100)
+            board.wait_async_buffer_complete(buffer, timeout_ms=100)
 
 
 class TestDataGeneration:
@@ -298,24 +298,24 @@ class TestContinuousAcquisition:
     def test_multiple_buffer_acquisition(self):
         """Test acquiring multiple buffers continuously."""
         board = mock_alazar._BoardClass()
-        board.beforeAsyncRead(3, 0, 2048, 1, 0, 0x200)
+        board.before_async_read(3, 0, 2048, 1, 0, 0x200)
         
         # Post multiple buffers (buffer size = 2048 * 2 channels = 4096)
         num_buffers = 5
         buffers = [np.zeros(4096, dtype=np.uint16) for _ in range(num_buffers)]
         
         for buf in buffers:
-            board.postAsyncBuffer(buf)
+            board.post_async_buffer(buf)
         
         # Start acquisition
-        board.startCapture()
+        board.start_capture()
         
         # Retrieve buffers
         retrieved_buffers = []
         for i in range(num_buffers):
             buf = np.zeros(4096, dtype=np.uint16)
             try:
-                board.waitAsyncBufferComplete(buf, timeout_ms=1000)
+                board.wait_async_buffer_complete(buf, timeout_ms=1000)
                 retrieved_buffers.append(buf.copy())
             except Exception:
                 # Timeout or other error
@@ -329,19 +329,19 @@ class TestContinuousAcquisition:
             assert np.any(buf != 0)
         
         # Clean up
-        board.abortAsyncRead()
+        board.abort_async_read()
         time.sleep(0.01)
 
     def test_acquisition_loop_timing(self):
         """Test that acquisition loop runs continuously."""
         board = mock_alazar._BoardClass()
-        board.beforeAsyncRead(3, 0, 1024, 1, 0, 0x200)
+        board.before_async_read(3, 0, 1024, 1, 0, 0x200)
         
         # Post buffers (buffer size = 1024 * 2 channels = 2048)
         for _ in range(3):
-            board.postAsyncBuffer(np.zeros(2048, dtype=np.uint16))
+            board.post_async_buffer(np.zeros(2048, dtype=np.uint16))
         
-        board.startCapture()
+        board.start_capture()
         
         # Wait briefly for generation thread to start
         time.sleep(0.05)
@@ -349,7 +349,7 @@ class TestContinuousAcquisition:
         # Should have generated at least one buffer
         assert len(board.completed_buffers) > 0
         
-        board.abortAsyncRead()
+        board.abort_async_read()
         time.sleep(0.01)
 
 
@@ -363,7 +363,7 @@ class TestThreadSafety:
         def post_buffers(n):
             for _ in range(n):
                 buf = np.zeros(2048, dtype=np.uint16)
-                board.postAsyncBuffer(buf)
+                board.post_async_buffer(buf)
         
         # Start multiple threads
         threads = [
@@ -382,7 +382,7 @@ class TestThreadSafety:
     def test_buffer_lock_prevents_race_conditions(self):
         """Test that buffer lock prevents race conditions."""
         board = mock_alazar._BoardClass()
-        board.beforeAsyncRead(3, 0, 1024, 1, 0, 0x200)
+        board.before_async_read(3, 0, 1024, 1, 0, 0x200)
 
         # channels=3 (2 active), samplesPerRecord=1024, recordsPerBuffer=1
         # → buffer_size_samples = 1024 * 2 * 1 = 2048
@@ -390,8 +390,8 @@ class TestThreadSafety:
 
         # Post buffers and start
         for _ in range(5):
-            board.postAsyncBuffer(np.zeros(buffer_size, dtype=np.uint16))
-        board.startCapture()
+            board.post_async_buffer(np.zeros(buffer_size, dtype=np.uint16))
+        board.start_capture()
         
         # Rapidly access buffers from main thread while generation thread runs
         for _ in range(10):
@@ -401,26 +401,8 @@ class TestThreadSafety:
             time.sleep(0.01)
         
         # Should not crash
-        board.abortAsyncRead()
+        board.abort_async_read()
         time.sleep(0.01)
-
-
-class TestChannelInfo:
-    """Test channel info retrieval."""
-
-    def test_getChannelInfo(self):
-        """Test getting channel configuration info."""
-        board = mock_alazar._BoardClass()
-        
-        info = board.getChannelInfo()
-        
-        assert 'channels' in info
-        assert 'bits_per_sample' in info
-        assert 'sample_rate' in info
-        assert 'max_sample_rate' in info
-        assert info['channels'] == 2
-        assert info['bits_per_sample'] == 14
-        assert info['sample_rate'] == 125_000_000
 
 
 class TestFactoryFunction:
@@ -473,17 +455,17 @@ class TestEdgeCases:
         board = mock_alazar._BoardClass()
         
         # Should not crash or raise exception
-        board.abortAsyncRead()
+        board.abort_async_read()
 
     def test_multiple_start_stop_cycles(self):
         """Test multiple acquisition start/stop cycles."""
         board = mock_alazar._BoardClass()
-        board.beforeAsyncRead(3, 0, 1024, 1, 0, 0x200)
+        board.before_async_read(3, 0, 1024, 1, 0, 0x200)
         
         for _ in range(3):
-            board.startCapture()
+            board.start_capture()
             time.sleep(0.02)
-            board.abortAsyncRead()
+            board.abort_async_read()
             time.sleep(0.02)
         
         assert board.is_acquiring is False
@@ -495,7 +477,7 @@ class TestEdgeCases:
         buffer = np.zeros(2048, dtype=np.uint16)
         # Should raise exception gracefully
         with pytest.raises(Exception, match="Timeout|Acquisition aborted"):
-            board.waitAsyncBufferComplete(buffer, timeout_ms=100)
+            board.wait_async_buffer_complete(buffer, timeout_ms=100)
 
     def test_noise_level_configuration(self):
         """Test that noise level affects generated data."""

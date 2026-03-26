@@ -780,8 +780,15 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         # Marker state
         # ------------------------------------------------------------------
         self._marker_mode: bool = False
-        self._markers: list = []   # list of QGraphicsItemGroup (plus-sign markers)
-        self._marker_count: int = 0
+        self._markers: list = []   # deprecated
+        self._marker_count: int = 0 # deprecated
+        
+        self._logical_markers: list[QtCore.QPointF] = []
+        self._drawn_markers: list = []
+        
+        self._sbs_enabled: bool = False
+        self._sbs_width: int = 0
+        self._sbs_spacing: int = 0
 
         # Small toggle button overlaid on the top-right corner of the view.
         # It is a direct child widget of _ImageCanvas so it floats above the
@@ -974,34 +981,65 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
             self.setDragMode(QtWidgets.QGraphicsView.DragMode.ScrollHandDrag)
             self.unsetCursor()
 
-    def _add_marker(self, scene_pos: QtCore.QPointF) -> None:
-        """Add a plus-sign marker at *scene_pos* (image coordinates)."""
-        self._marker_count += 1
+    def set_side_by_side(self, enabled: bool, width: int = 0, spacing: int = 0) -> None:
+        """Configure marker duplication for side-by-side display mode."""
+        if (self._sbs_enabled == enabled and self._sbs_width == width 
+                and self._sbs_spacing == spacing):
+            return
+        self._sbs_enabled = enabled
+        self._sbs_width = width
+        self._sbs_spacing = spacing
+        self._draw_markers()
+
+    def _draw_markers(self) -> None:
+        """Clear and redraw all markers based on logical positions and SBS state."""
+        for item in self._drawn_markers:
+            self._scene.removeItem(item)
+        self._drawn_markers.clear()
+        
         r = self._MARKER_SIZE
         pen = QtGui.QPen(self._MARKER_COLOR, 1.5)
 
-        line_h = QtWidgets.QGraphicsLineItem(
-            scene_pos.x() - r, scene_pos.y(),
-            scene_pos.x() + r, scene_pos.y(),
-        )
-        line_v = QtWidgets.QGraphicsLineItem(
-            scene_pos.x(), scene_pos.y() - r,
-            scene_pos.x(), scene_pos.y() + r,
-        )
-        line_h.setPen(pen)
-        line_v.setPen(pen)
-        group = self._scene.createItemGroup([line_h, line_v])
-        group.setZValue(2)
-        self._markers.append(group)
-        # print(f"Marker {self._marker_count}: "
-        #       f"({scene_pos.x():.1f}, {scene_pos.y():.1f}) px")
+        def make_marker(pos):
+            line_h = QtWidgets.QGraphicsLineItem(
+                pos.x() - r, pos.y(),
+                pos.x() + r, pos.y(),
+            )
+            line_v = QtWidgets.QGraphicsLineItem(
+                pos.x(), pos.y() - r,
+                pos.x(), pos.y() + r,
+            )
+            line_h.setPen(pen)
+            line_v.setPen(pen)
+            group = self._scene.createItemGroup([line_h, line_v])
+            group.setZValue(2)
+            self._drawn_markers.append(group)
+
+        for log_pos in self._logical_markers:
+            make_marker(log_pos)
+            if self._sbs_enabled:
+                right_pos = QtCore.QPointF(log_pos.x() + self._sbs_width + self._sbs_spacing, log_pos.y())
+                make_marker(right_pos)
+
+    def _add_marker(self, scene_pos: QtCore.QPointF) -> None:
+        """Add a plus-sign marker at *scene_pos* (image coordinates)."""
+        x = scene_pos.x()
+        y = scene_pos.y()
+        if self._sbs_enabled:
+            if x > self._sbs_width + self._sbs_spacing:
+                x -= (self._sbs_width + self._sbs_spacing)
+            elif x >= self._sbs_width:
+                return  # Clicked in the gap
+        
+        self._logical_markers.append(QtCore.QPointF(x, y))
+        self._draw_markers()
 
     def clear_markers(self) -> None:
         """Remove all markers from the scene and reset the counter."""
-        for ellipse in self._markers:
-            self._scene.removeItem(ellipse)
-        self._markers.clear()
-        self._marker_count = 0
+        for item in self._drawn_markers:
+            self._scene.removeItem(item)
+        self._drawn_markers.clear()
+        self._logical_markers.clear()
 
 
 class ImageDisplayWidget(QtWidgets.QWidget):
@@ -1175,14 +1213,33 @@ class ImageDisplayWidget(QtWidgets.QWidget):
             rgb = np.zeros((height, width, 3), dtype=np.uint8)
             rgb[:, :, 0] = r
             rgb[:, :, 1] = g
+            self._canvas.set_side_by_side(False)
+        elif self._channel == 3 and n_channels >= 2:
+            # Side-by-side: left = PMT0 with colormap, right = PMT1 with PMT1 colormap.
+            g = _scale(frame_data[0])
+            r = _scale(frame_data[1])
+            g_rgb = self._lut[g]
+            r_rgb = self._lut_pmt1[r]
+            height, width = g.shape
+            spacing = 10
+            new_width = width * 2 + spacing
+            rgb = np.zeros((height, new_width, 3), dtype=np.uint8)
+            # Fill gap with background color from theme
+            bg_color = self.palette().color(self.backgroundRole())
+            rgb[:, width:width + spacing, :] = [bg_color.red(), bg_color.green(), bg_color.blue()]
+            rgb[:, :width] = g_rgb
+            rgb[:, width + spacing:] = r_rgb
+            self._canvas.set_side_by_side(True, width, spacing)
         elif self._channel == 1:
             # PMT1 → apply the PMT1-specific colormap (red_white by default).
             v = _scale(frame_data[min(1, n_channels - 1)])
             rgb = self._lut_pmt1[v]  # fancy indexing: (H, W) → (H, W, 3)
+            self._canvas.set_side_by_side(False)
         else:
             # PMT0 (default) → apply colormap.
             v = _scale(frame_data[0])
             rgb = self._lut[v]  # fancy indexing: (H, W) → (H, W, 3)
+            self._canvas.set_side_by_side(False)
 
         self._display_buffer = np.ascontiguousarray(rgb)
         height, width = self._display_buffer.shape[:2]
@@ -1517,7 +1574,7 @@ class HistogramWidget(QtWidgets.QWidget):
 
         # --- Select which counts / colours to use ---
         ch = self._channel
-        use_both = (ch == 2 and self._counts1 is not None)
+        use_both = (ch in (2, 3) and self._counts1 is not None)
         if ch == 1 and self._counts1 is not None:
             counts_a   = self._counts1[::-1].copy()
             bar_col_a  = self._bar_color1
@@ -1973,7 +2030,7 @@ class ImageDisplayControlGroup(QtWidgets.QGroupBox):
         # Channel display selector
         layout.addWidget(QtWidgets.QLabel("Channel:"))
         self.channel_combobox = QtWidgets.QComboBox()
-        self.channel_combobox.addItems(["PMT0", "PMT1", "PMT0 & PMT1"])
+        self.channel_combobox.addItems(["PMT0", "PMT1", "PMT0 & PMT1", "PMT0 | PMT1"])
         self.channel_combobox.setCurrentIndex(0)
         layout.addWidget(self.channel_combobox)
 

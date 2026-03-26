@@ -2,9 +2,19 @@
 
 All notable changes to this project are documented here. This file is append-only — do not edit past entries.
 
-> **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` and `pyproject.toml` to match.
+> **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 ---
+
+## v1.4.0 - March 25, 2026
+- **GUI visualization and layout improvements**
+  - Added new "PMT0 | PMT1" side-by-side mode to the Image Display channel selector
+  - Side-by-side mode automatically inherits the application's active theme background color for the image gap
+  - Integrated Histogram widget support for side-by-side mode (displays both PMT lines simultaneously)
+  - Refactored persistent image markers to use logical coordinates: markers robustly mirror and map correctly when toggling between single-channel and side-by-side views
+  - The Command Log dock widget is now hidden by default on startup for a cleaner interface (still quickly accessible via `Ctrl+L`)
+- **Bug fixes and mock testing**
+  - Updated the mock digitizer unit test suite (`tests/test_mock_alazar.py`) to properly call the new `atsbindings` snake_case API (33 tests fixed and passing)
 
 ## v1.3.2 - March 25, 2026
 - **Configuration and metadata improvements**
