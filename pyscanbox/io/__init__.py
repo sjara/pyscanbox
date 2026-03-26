@@ -13,9 +13,9 @@ Export utilities:
     - meta_exporter: Convert .mat metadata to JSON or YAML.
 """
 
-from . import sbx_writer
-from . import sbx_reader
-from . import tiff_exporter
-from . import meta_exporter
+from pyscanbox.io import sbx_writer
+from pyscanbox.io import sbx_reader
+from pyscanbox.io import tiff_exporter
+from pyscanbox.io import meta_exporter
 
 __all__ = ["sbx_writer", "sbx_reader", "tiff_exporter", "meta_exporter"]
