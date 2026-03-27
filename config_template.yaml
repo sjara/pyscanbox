@@ -236,11 +236,14 @@ plugins:
   # Quadrature encoder: Arduino-based rotation platform monitor.
   # Saves one int32 count per frame as <base>_quadrature.npy
   quadrature:
-    enabled: false              # Set true to auto-connect at startup
+    enabled: true               # Set true to auto-connect at startup
     port: COM8                  # Serial port for the Arduino
     baud_rate: 115200           # 115200 for DUE firmware, 1000000 for Mega
     calibration: 0.04363        # Arc length per encoder count (cm/count):
                                 # 2 * pi * radius_cm / pulses_per_revolution
+    verbose: false              # Print encoder counts to terminal for debugging.
+                                # Works during both Focus and Grab modes.
+    print_every_n_frames: 1     # Print every N frames (1 = every frame).
     # emulation: false          # Override global emulation for this device only
 
 # ============================================================================

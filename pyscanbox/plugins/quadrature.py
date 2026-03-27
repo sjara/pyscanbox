@@ -100,6 +100,8 @@ class QuadratureEncoder:
         self.calibration = config.get('calibration', self.DEFAULT_CALIBRATION)
         self._use_emulation = config.get('emulation', False)
         self._serial = None
+        self._verbose = config.get('verbose', False)
+        self._print_every = max(1, int(config.get('print_every_n_frames', 1)))
 
     def open(self) -> None:
         """Open the serial connection to the Arduino."""
@@ -199,6 +201,8 @@ class QuadraturePlugin(plugin_module.AcquisitionPlugin):
         self._encoder = encoder
         self._output_path = output_path
         self._data: list[int] = []
+        self._verbose = encoder._verbose
+        self._print_every = encoder._print_every
 
     def open(self) -> None:
         """Open the serial connection to the Arduino encoder."""
@@ -232,6 +236,9 @@ class QuadraturePlugin(plugin_module.AcquisitionPlugin):
         """Send next poll and read the response from the previous poll.
 
         On frame 0 there is no prior response to read; only the poll is sent.
+        When verbose mode is enabled (``plugins.quadrature.verbose`` in config),
+        the count is printed to the terminal every ``print_every_n_frames``
+        frames.  This works during Focus mode as well as Grab.
 
         Args:
             frame_index: 0-based index of the just-completed frame.
@@ -240,6 +247,8 @@ class QuadraturePlugin(plugin_module.AcquisitionPlugin):
         if frame_index > 0:
             count = self._encoder.read_count()
             self._data.append(count)
+            if self._verbose and (frame_index % self._print_every == 0):
+                print(f'[quadrature] frame={frame_index}  count={count}')
 
     def on_acquisition_stop(self, n_frames: int) -> None:
         """Save the count array to disk.

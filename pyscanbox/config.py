@@ -158,6 +158,7 @@ class AppConfig:
             'external_events': self.external_events,
             'ni_events': self.ni_events,
             'quadrature': self.quadrature,
+            'plugins': self.plugins,
             'display': self.display,
         }
 
