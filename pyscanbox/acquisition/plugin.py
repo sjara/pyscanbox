@@ -31,6 +31,8 @@ import abc
 import logging
 from typing import Any, Sequence
 
+import numpy as np
+
 
 class AcquisitionPlugin(abc.ABC):
     """Base class for pyscanbox acquisition plugins.
@@ -47,6 +49,12 @@ class AcquisitionPlugin(abc.ABC):
         or record PC-clock anchors (Strategy 3).  Called on the acquisition
         thread — must return quickly (<5 ms).
 
+    on_frame_data(frame_index, frame_data)
+        Called immediately after on_frame, providing the reshaped image data
+        for the completed frame.  Called on the acquisition thread — must
+        return quickly (<5 ms). Plugins must not modify the array in place or
+        perform heavy computation here.
+
     on_ttl_event(frame, line, event_id)
         Called whenever the PSoC delivers a TTL-edge timestamp packet.  May be
         called zero or many times between successive on_frame() calls.
@@ -62,6 +70,7 @@ class AcquisitionPlugin(abc.ABC):
         sync_mode: Read-only property; auto-inferred from which hooks are
             overridden — no need to set it explicitly.  Returns a list:
             'per_frame' if on_frame is overridden (Strategies 2 & 3),
+            'frame_data' if on_frame_data is overridden,
             'ttl' if on_ttl_event is overridden (Strategy 1).
             A plugin that overrides both gets ['per_frame', 'ttl'].
     """
@@ -85,6 +94,8 @@ class AcquisitionPlugin(abc.ABC):
         modes = []
         if type(self).on_frame is not AcquisitionPlugin.on_frame:
             modes.append('per_frame')
+        if type(self).on_frame_data is not AcquisitionPlugin.on_frame_data:
+            modes.append('frame_data')
         if type(self).on_ttl_event is not AcquisitionPlugin.on_ttl_event:
             modes.append('ttl')
         return modes
@@ -133,6 +144,24 @@ class AcquisitionPlugin(abc.ABC):
 
         Args:
             frame_index: 0-based index of the just-completed frame.
+        """
+
+    def on_frame_data(self, frame_index: int, frame_data: np.ndarray) -> None:
+        """React to a completed frame, with access to image data.
+
+        Called on the acquisition thread. Must return quickly (<5 ms).
+        Plugins must not modify the array in place or perform heavy
+        computation here. If heavy processing is needed, the plugin should
+        enqueue the frame or a deep copy of it to a background worker thread.
+
+        Note:
+            The data is provided in raw **inverted wire-format** (high = dark).
+            Consumers must apply `65535 - frame_data` to obtain the standard
+            signal convention (high = bright).
+
+        Args:
+            frame_index: 0-based index of the just-completed frame.
+            frame_data: Reshaped image data array for the frame.
         """
 
     def on_ttl_event(self, frame: int, line: int, event_id: int) -> None:
@@ -243,6 +272,19 @@ class PluginManager:
                 p.on_frame(frame_index)
             except Exception:
                 _logger.exception('Plugin %s: on_frame failed', p.name)
+
+    def on_frame_data(self, frame_index: int, frame_data: np.ndarray) -> None:
+        """Dispatch on_frame_data to all active plugins.
+
+        Args:
+            frame_index: 0-based index of the just-completed frame.
+            frame_data: Reshaped image data array for the frame.
+        """
+        for p in self._active():
+            try:
+                p.on_frame_data(frame_index, frame_data)
+            except Exception:
+                _logger.exception('Plugin %s: on_frame_data failed', p.name)
 
     def on_ttl_event(self, frame: int, line: int, event_id: int) -> None:
         """Dispatch on_ttl_event to all active plugins.

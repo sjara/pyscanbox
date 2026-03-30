@@ -6,7 +6,15 @@ All notable changes to this project are documented here. This file is append-onl
 
 ---
 
-## v1.4.0 - March 25, 2026
+## v1.5.0 - March 30, 2026
+- **Real-time plugin data access**
+  - Extended the `AcquisitionPlugin` interface with the `on_frame_data` hook, providing direct access to raw imaging buffers.
+  - Fixed a bug in `Scanner._acquisition_loop` where plugin data hooks were not being dispatched to the `PluginManager`.
+  - Implemented `ZmqStreamerPlugin` for high-performance, real-time image streaming via ZeroMQ.
+  - Clarified that `on_frame_data` delivers raw "inverted wire-format" values (high = dark) to minimize acquisition overhead; inversion to signal convention is deferred to consumers.
+  - Added `examples/check_zmq_subscriber.py` to demonstrate subscribing to and inverting the ZMQ stream.
+ 
+ ## v1.4.0 - March 25, 2026
 - **GUI visualization and layout improvements**
   - Added new "PMT0 | PMT1" side-by-side mode to the Image Display channel selector
   - Side-by-side mode automatically inherits the application's active theme background color for the image gap

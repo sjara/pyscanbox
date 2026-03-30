@@ -773,12 +773,30 @@ class AppController(QtCore.QObject):
             plugin_cfg['emulation'] = (
                 self.config.get('emulation', {}).get('enabled', False)
             )
-        if name == 'quadrature':
-            from pyscanbox.plugins import quadrature as quad_module
-            encoder = quad_module.QuadratureEncoder(plugin_cfg)
-            return quad_module.QuadraturePlugin(encoder)
-        logger.warning("AppController: unknown plugin name '%s'.", name)
-        return None
+        module_name = plugin_cfg.get('module')
+        class_name = plugin_cfg.get('class')
+
+        if not module_name or not class_name:
+            logger.warning(
+                "AppController: plugin '%s' is missing 'module' or 'class' in config.", name
+            )
+            return None
+
+        import importlib
+        try:
+            module = importlib.import_module(module_name)
+            plugin_class = getattr(module, class_name)
+            
+            # Special case for quadrature since it requires a QuadratureEncoder object
+            if name == 'quadrature':
+                encoder = module.QuadratureEncoder(plugin_cfg)
+                return plugin_class(encoder)
+            else:
+                return plugin_class(plugin_cfg)
+                
+        except Exception as e:
+            logger.error("AppController: failed to load plugin '%s': %s", name, e)
+            return None
 
     def _on_plugin_connected(
         self, name: str, plugin: 'acq_plugin.AcquisitionPlugin'

@@ -36,6 +36,7 @@ dependencies = [
     "pyqtdarktheme>=0.1.7",
     "matplotlib>=3.5.0",
     "tifffile>=2021.11.2",
+    "pyzmq>=24.0.0",
 ]
 
 [project.scripts]

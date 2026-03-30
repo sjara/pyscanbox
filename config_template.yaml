@@ -237,6 +237,8 @@ plugins:
   # Saves one int32 count per frame as <base>_quadrature.npy
   quadrature:
     enabled: true               # Set true to auto-connect at startup
+    module: pyscanbox.plugins.quadrature
+    class: QuadraturePlugin
     port: COM8                  # Serial port for the Arduino
     baud_rate: 115200           # 115200 for DUE firmware, 1000000 for Mega
     calibration: 0.04363        # Arc length per encoder count (cm/count):
@@ -245,6 +247,15 @@ plugins:
                                 # Works during both Focus and Grab modes.
     print_every_n_frames: 1     # Print every N frames (1 = every frame).
     # emulation: false          # Override global emulation for this device only
+
+  # ZeroMQ Streamer: Broadcasts imaging frames to external applications.
+  zmq_streamer:
+    enabled: true               # Set true to start publishing at startup
+    module: pyscanbox.plugins.zmq_streamer
+    class: ZmqStreamerPlugin
+    host: 127.0.0.1             # IP address to bind to
+    port: 5555                  # Port to bind for the PUB socket
+
 
 # ============================================================================
 # Hardware Emulation Settings (for development without physical hardware)

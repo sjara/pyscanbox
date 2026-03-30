@@ -576,6 +576,7 @@ class Scanner:
 
             if self.plugin_manager is not None:
                 self.plugin_manager.on_frame(self.frames_acquired - 1)
+                self.plugin_manager.on_frame_data(self.frames_acquired - 1, reshaped)
 
             if self.on_frame_data is not None:
                 self.on_frame_data(reshaped)
@@ -584,8 +585,11 @@ class Scanner:
             if self.frames_acquired % 100 == 0:
                 elapsed = time.time() - self.start_time
                 rate = self.frames_acquired / elapsed
-                print(f"Frames: {self.frames_acquired}/{self.frames_to_acquire} "
-                      f"({rate:.1f} fps)")
+                if self.frames_to_acquire == sys.maxsize:
+                    print(f"Frames: {self.frames_acquired} ({rate:.1f} fps)")
+                else:
+                    print(f"Frames: {self.frames_acquired}/{self.frames_to_acquire} "
+                          f"({rate:.1f} fps)")
 
     def stop(self) -> None:
         """Stop acquisition gracefully.
