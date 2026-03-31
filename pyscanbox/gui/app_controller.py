@@ -361,14 +361,17 @@ class AppController(QtCore.QObject):
         self.startup_status.emit(
             f'Connecting to Scanbox controller ({self._hw_controller.com_port})...'
         )
+        print(f'Connecting to Scanbox controller ({self._hw_controller.com_port})... ', end='', flush=True)
         try:
             self._hw_controller.open()
-            self._log_event(
-                f'Controller connected ({self._hw_controller.com_port})'
-            )
-            self.startup_status.emit('Connected!')
+            version = self._hw_controller.get_version()
+            msg = f'Controller connected ({self._hw_controller.com_port}) - Firmware {version}'
+            self._log_event(msg)
+            self.startup_status.emit(f'Connected! (v{version})')
+            print(f'Connected! (v{version})')
         except Exception as exc:
             msg = f"Could not open ScanboxController: {exc}"
+            print('Failed!')
             logger.error(msg)
             self.hardware_error.emit(msg)
             raise RuntimeError(msg) from exc
@@ -376,28 +379,33 @@ class AppController(QtCore.QObject):
         self.startup_status.emit(
             f'Connecting to Knobby ({self._knobby.com_port})...'
         )
+        print(f'Connecting to Knobby ({self._knobby.com_port})... ', end='', flush=True)
         try:
             self._knobby.open()
             self._log_event(
                 f'Knobby connected ({self._knobby.com_port})'
             )
             self.startup_status.emit('Connected!')
+            print('Connected!')
         except Exception as exc:
             # Non-fatal: GUI can run without Knobby position display.
             msg = f"Could not open Knobby (position display unavailable): {exc}"
             logger.warning(msg)
             self.hardware_error.emit(msg)
             self.startup_status.emit('Not available.')
+            print('Not available.')
 
         self.startup_status.emit(
             f'Connecting to motors ({self._motor.com_port})...'
         )
+        print(f'Connecting to motors ({self._motor.com_port})... ', end='', flush=True)
         try:
             self._motor.open()
             self._log_event(
                 f'Motor connected ({self._motor.com_port})'
             )
             self.startup_status.emit('Connected!')
+            print('Connected!')
             # Apply per-motor freewheeling from config (TMCL SAP 204).
             motor_cfg = self.config.get('motor', {})
             freewheel = [
@@ -421,6 +429,7 @@ class AppController(QtCore.QObject):
             logger.warning(msg)
             self.hardware_error.emit(msg)
             self.startup_status.emit('Not available.')
+            print('Not available.')
 
         # Load ETL calibration coefficients from JSON file if available.
         # Resolve the filename relative to the config directory so that

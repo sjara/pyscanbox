@@ -124,6 +124,7 @@ class ScanboxController:
     CMD_GALVO_DV = 0x66             # [0x66, dv, 0] — galvo voltage step per line
     CMD_MAG_X_GAIN_BASE = 0xB0      # [0xB0+i, xh, xl] — resonant (X) gain for zoom i
     CMD_MAG_Y_GAIN_BASE = 0xC0      # [0xC0+i, yh, yl] — galvo (Y) gain for zoom i
+    CMD_VERSION = 120               # [120, 0xAA, 0x55] — firmware version query
 
     # Maximum galvo differential voltage value (hardware limit).
     # Reference: sbconfig.dv_galvo = 64; % dv per line (64 is the maximum) -- don't touch!
@@ -204,6 +205,7 @@ class ScanboxController:
         CMD_POCKELS_LUT_IDENTITY: 'set_pockels_lut_identity',
         CMD_HSYNC_SIGN: 'set_hsync_sign',
         CMD_GALVO_DV: 'set_galvo_dv',
+        CMD_VERSION: 'get_version',
     }
 
     @staticmethod
@@ -298,6 +300,8 @@ class ScanboxController:
             return f'set_warmup_delay(delay={param2})'
         if cmd_id == ScanboxController.CMD_GALVO_DV:
             return f'set_galvo_dv(dv={param1})'
+        if cmd_id == ScanboxController.CMD_VERSION:
+            return 'get_version() '
         base_x = ScanboxController.CMD_MAG_X_GAIN_BASE
         base_y = ScanboxController.CMD_MAG_Y_GAIN_BASE
         if base_x <= cmd_id < base_x + 13:
@@ -427,6 +431,25 @@ class ScanboxController:
         self.port.write(packet)
         if self.on_command is not None:
             self.on_command(self.com_port, cmd_id, param1, param2)
+
+    def get_version(self) -> str:
+        """Query the firmware version from the controller.
+
+        Returns:
+            Firmware version string (e.g., '1.5').
+            Returns 'Unknown' if the controller does not respond or is closed.
+            
+        Raises:
+            RuntimeError: If port is not open.
+        """
+        if not self.is_open or self.port is None:
+            raise RuntimeError("Controller port not open. Call open() first.")
+            
+        self._send_command(self.CMD_VERSION, 0xAA, 0x55)
+        response = self.port.read(3)
+        if len(response) == 3:
+            return f"{response[1]}.{response[2]}"
+        return "Unknown"
 
     def set_frame_count(self, frames: int) -> None:
         """Set the number of frames to acquire.

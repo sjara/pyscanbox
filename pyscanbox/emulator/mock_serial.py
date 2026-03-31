@@ -52,6 +52,7 @@ class Serial:
     CMD_POCKELS_LUT_ENTRY = 0x43
     CMD_POCKELS_LUT_IDENTITY = 0x44
     CMD_HSYNC_SIGN = 0x80
+    CMD_VERSION = 120
 
     def __init__(self, port: str = 'COM1', baudrate: int = 9600,
                  bytesize: int = 8, parity: str = 'N', stopbits: int = 1,
@@ -247,6 +248,12 @@ class Serial:
             self.state['hsync_sign'] = param1
             if self.verbose:
                 logger.debug(f"Hsync sign set: flip={bool(param1)}")
+
+        elif cmd_id == self.CMD_VERSION:
+            if self.verbose:
+                logger.debug("Firmware version requested")
+            # Emulate firmware version 0.0 for emulation
+            self._response_buffer.extend(bytes([0, 0, 0]))
 
         else:
             if self.verbose:
