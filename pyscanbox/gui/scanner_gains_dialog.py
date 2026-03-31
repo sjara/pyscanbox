@@ -122,7 +122,9 @@ class ScannerGainsDialog(QtWidgets.QDialog):
         # dv_galvo
         self._dv_spin = QtWidgets.QSpinBox()
         self._dv_spin.setRange(0, hw_controller.ScanboxController.DV_GALVO_MAX)
-        self._dv_spin.setValue(hw_controller.ScanboxController.DV_GALVO_MAX)
+        scanner_cfg = self._controller.config.get('scanner', {}) if self._controller else {}
+        val_dv = int(scanner_cfg.get('dv_galvo', hw_controller.ScanboxController.DV_GALVO_MAX))
+        self._dv_spin.setValue(val_dv)
         self._dv_spin.setToolTip(
             'Galvo mirror voltage step per scan line.\n'
             'Hardware maximum is 64.  Keep at 64 unless advised otherwise.\n'
@@ -135,9 +137,8 @@ class ScannerGainsDialog(QtWidgets.QDialog):
         self._mult_spin.setRange(0.1, 10.0)
         self._mult_spin.setSingleStep(0.01)
         self._mult_spin.setDecimals(3)
-        self._mult_spin.setValue(
-            hw_controller.ScanboxController.GAIN_RESONANT_MULT_DEFAULT
-        )
+        val_mult = float(scanner_cfg.get('gain_resonant_mult', hw_controller.ScanboxController.GAIN_RESONANT_MULT_DEFAULT))
+        self._mult_spin.setValue(val_mult)
         self._mult_spin.setToolTip(
             'Resonant / galvo aspect-ratio corrector.\n'
             'gain_resonant[i] = gain_resonant_mult × gain_galvo[i]\n'
@@ -252,9 +253,10 @@ class ScannerGainsDialog(QtWidgets.QDialog):
     # ------------------------------------------------------------------
 
     def _populate_defaults(self) -> None:
-        """Fill the table with controller default gain values."""
-        defaults = hw_controller.ScanboxController.GAIN_GALVO_DEFAULT
-        mult = hw_controller.ScanboxController.GAIN_RESONANT_MULT_DEFAULT
+        """Fill the table with current configuration gain values (or defaults)."""
+        scanner_cfg = self._controller.config.get('scanner', {}) if self._controller else {}
+        defaults = scanner_cfg.get('gain_galvo', hw_controller.ScanboxController.GAIN_GALVO_DEFAULT)
+        mult = float(scanner_cfg.get('gain_resonant_mult', hw_controller.ScanboxController.GAIN_RESONANT_MULT_DEFAULT))
         for i, gy in enumerate(defaults):
             gx = mult * gy
             self._table.setItem(
@@ -316,11 +318,19 @@ class ScannerGainsDialog(QtWidgets.QDialog):
     # ------------------------------------------------------------------
 
     def _on_reset_defaults(self) -> None:
-        """Restore table to logspaced defaults and recompute X gains."""
-        self._populate_defaults()
-        self._mult_spin.setValue(
-            hw_controller.ScanboxController.GAIN_RESONANT_MULT_DEFAULT
-        )
+        """Restore table to class defaults and recompute X gains."""
+        defaults = hw_controller.ScanboxController.GAIN_GALVO_DEFAULT
+        mult = hw_controller.ScanboxController.GAIN_RESONANT_MULT_DEFAULT
+        for i, gy in enumerate(defaults):
+            gx = mult * gy
+            self._table.setItem(
+                i, _COL_GALVO, QtWidgets.QTableWidgetItem(f'{gy:.3f}')
+            )
+            self._table.setItem(
+                i, _COL_RESONANT, QtWidgets.QTableWidgetItem(f'{gx:.3f}')
+            )
+            
+        self._mult_spin.setValue(mult)
         self._dv_spin.setValue(hw_controller.ScanboxController.DV_GALVO_MAX)
         self._status_label.setText('Values reset to defaults.')
 
