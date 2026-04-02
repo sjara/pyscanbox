@@ -18,10 +18,10 @@ import PyQt6.QtGui as QtGui
 import pyscanbox
 from pyscanbox.gui import app_controller
 from pyscanbox.gui import panels
-from pyscanbox.gui import bidir_cal_dialog
-from pyscanbox.gui import etl_cal_dialog
-from pyscanbox.gui import pockels_cal_dialog
-from pyscanbox.gui import scanner_gains_dialog
+from pyscanbox.gui import cal_dialog_bidir
+from pyscanbox.gui import cal_dialog_etl
+from pyscanbox.gui import cal_dialog_pockels
+from pyscanbox.gui import cal_dialog_scanner_gains
 from pyscanbox.gui import widgets
 from pyscanbox.io import sbx_reader
 from pyscanbox.utils import coordinate_transform
@@ -228,10 +228,6 @@ class MainWindow(QtWidgets.QMainWindow):
         # Calibration menu
         calibration_menu = menubar.addMenu("&Calibration")
 
-        pockels_cal_action = QtGui.QAction("Calibrate &Pockels Cell...", self)
-        pockels_cal_action.triggered.connect(self._on_calibrate_pockels)
-        calibration_menu.addAction(pockels_cal_action)
-
         calibrate_bidir_action = QtGui.QAction("Calibrate &Bidir Scan...", self)
         calibrate_bidir_action.triggered.connect(self._on_calibrate_bidir)
         calibration_menu.addAction(calibrate_bidir_action)
@@ -239,6 +235,10 @@ class MainWindow(QtWidgets.QMainWindow):
         calibrate_etl_action = QtGui.QAction("Calibrate &ETL...", self)
         calibrate_etl_action.triggered.connect(self._on_calibrate_etl)
         calibration_menu.addAction(calibrate_etl_action)
+
+        pockels_cal_action = QtGui.QAction("Calibrate &Pockels Cell...", self)
+        pockels_cal_action.triggered.connect(self._on_calibrate_pockels)
+        calibration_menu.addAction(pockels_cal_action)
 
         calibrate_scanner_gains_action = QtGui.QAction("Calibrate &Scanner Gains...", self)
         calibrate_scanner_gains_action.triggered.connect(self._on_calibrate_scanner_gains)
@@ -286,13 +286,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
         view_menu.addSeparator()
 
-        histogram_action = QtGui.QAction("Show &Histogram", self)
-        histogram_action.setShortcut("Ctrl+H")
-        histogram_action.setCheckable(True)
-        histogram_action.setChecked(False)
-        histogram_action.triggered.connect(self._toggle_histogram)
-        view_menu.addAction(histogram_action)
-        self._histogram_action = histogram_action
+        log_action = QtGui.QAction("Show &Command Log", self)
+        log_action.setShortcut("Ctrl+L")
+        log_action.setCheckable(True)
+        log_action.setChecked(False)
+        log_action.triggered.connect(self._toggle_log_dock)
+        view_menu.addAction(log_action)
+        self._log_dock_action = log_action
 
         frame_selector_action = QtGui.QAction("Show &Frame Selector", self)
         frame_selector_action.setShortcut("Ctrl+F")
@@ -302,13 +302,13 @@ class MainWindow(QtWidgets.QMainWindow):
         view_menu.addAction(frame_selector_action)
         self._frame_selector_action = frame_selector_action
 
-        log_action = QtGui.QAction("Show &Command Log", self)
-        log_action.setShortcut("Ctrl+L")
-        log_action.setCheckable(True)
-        log_action.setChecked(False)
-        log_action.triggered.connect(self._toggle_log_dock)
-        view_menu.addAction(log_action)
-        self._log_dock_action = log_action
+        histogram_action = QtGui.QAction("Show &Histogram", self)
+        histogram_action.setShortcut("Ctrl+H")
+        histogram_action.setCheckable(True)
+        histogram_action.setChecked(False)
+        histogram_action.triggered.connect(self._toggle_histogram)
+        view_menu.addAction(histogram_action)
+        self._histogram_action = histogram_action
         
         # Help menu
         help_menu = menubar.addMenu("&Help")
@@ -524,7 +524,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 else (self.config or {})
             )
             cal_filename = config_dict.get('pockels', {}).get('calibration_file', None)
-            self._pockels_cal_dialog = pockels_cal_dialog.PockelsCalibrationDialog(
+            self._pockels_cal_dialog = cal_dialog_pockels.PockelsCalibrationDialog(
                 controller=self._ctrl,
                 config_path=self._config_path,
                 cal_filename=cal_filename,
@@ -566,7 +566,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 else (self.config or {})
             )
             cal_filename = config_dict.get('optotune', {}).get('calibration_file', None)
-            self._etl_cal_dialog = etl_cal_dialog.EtlCalibrationDialog(
+            self._etl_cal_dialog = cal_dialog_etl.EtlCalibrationDialog(
                 config_path=self._config_path,
                 cal_filename=cal_filename,
                 value_getter=lambda: self._right_panel.optotune_group.etl_slider.value(),
@@ -601,7 +601,7 @@ class MainWindow(QtWidgets.QMainWindow):
         gain values directly to hardware.
         """
         if not hasattr(self, '_scanner_gains_dialog') or self._scanner_gains_dialog is None:
-            self._scanner_gains_dialog = scanner_gains_dialog.ScannerGainsDialog(
+            self._scanner_gains_dialog = cal_dialog_scanner_gains.ScannerGainsDialog(
                 controller=self._ctrl,
                 parent=None,
             )
@@ -819,7 +819,7 @@ class MainWindow(QtWidgets.QMainWindow):
         live progress as frames are collected.
         """
         if not hasattr(self, '_bidir_cal_dialog') or self._bidir_cal_dialog is None:
-            self._bidir_cal_dialog = bidir_cal_dialog.BidirCalibrationDialog(
+            self._bidir_cal_dialog = cal_dialog_bidir.BidirCalibrationDialog(
                 controller=self._ctrl,
                 parent=None,  # top-level: not blocked by MainWindow modal state
             )

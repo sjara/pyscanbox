@@ -108,6 +108,17 @@ class ScannerGainsDialog(QtWidgets.QDialog):
         outer = QtWidgets.QVBoxLayout(self)
         outer.setSpacing(10)
 
+        instr_group = QtWidgets.QGroupBox("Instructions")
+        instr_layout = QtWidgets.QVBoxLayout(instr_group)
+        instructions = QtWidgets.QLabel(
+            "<b>dv_galvo:</b> sets the galvo step size. This value is generally not changed.<br>"
+            "<b>gain_resonant_mult:</b> defines the resonant scanner gain by setting a multiplier w.r.t. the galvo gains set in the config file.<br><br>"
+            "To apply these values, click the <b>Recompute X Gains</b> button (to update the table) and then click the <b>Send to Hardware</b> button."
+        )
+        instructions.setWordWrap(True)
+        instr_layout.addWidget(instructions)
+        outer.addWidget(instr_group)
+
         outer.addWidget(self._build_params_group())
         outer.addWidget(self._build_table_group())
         outer.addWidget(self._build_button_row())
