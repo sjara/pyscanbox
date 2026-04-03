@@ -747,6 +747,11 @@ class MainWindow(QtWidgets.QMainWindow):
         # Set the initial spinbox value from config for the default magnification.
         self._sync_bishift_spinbox(scanner.magnification_combobox.currentIndex())
 
+        # Continuous resonant checkbox -> hardware
+        scanner.continuous_resonant_checkbox.toggled.connect(
+            self._on_continuous_resonant_toggled
+        )
+
         # Lines/frame spinbox -> acquisition config
         scanner.lines_per_frame_spinbox.valueChanged.connect(
             self._on_lines_per_frame_changed
@@ -935,13 +940,36 @@ class MainWindow(QtWidgets.QMainWindow):
         Args:
             index: 0 = Unidirectional, 1 = Bidirectional.
         """
-        if self._ctrl is None:
-            return
-        bidirectional = index == 1
-        self._ctrl.set_scan_mode(bidirectional)
-        # Enable the bishift spinbox only in bidirectional mode.
-        scanner = self._left_panel.scanner_group
-        scanner.bidir_alignment_spinbox.setEnabled(bidirectional)
+        bidirectional = (index == 1)
+        # If switching to unidirectional, continuous resonant mode is not supported
+        # by the hardware protocol (ID 33 vs ID 34).
+        if not bidirectional:
+            scanner = self._left_panel.scanner_group
+            # This will trigger _on_continuous_resonant_toggled if it was checked.
+            scanner.continuous_resonant_checkbox.setChecked(False)
+
+        self._left_panel.scanner_group.bidir_alignment_spinbox.setEnabled(
+            bidirectional
+        )
+        if self._ctrl is not None:
+            self._ctrl.set_scan_mode(bidirectional)
+
+    def _on_continuous_resonant_toggled(self, checked: bool) -> None:
+        """Handle the 'Continuous resonant' checkbox being toggled.
+
+        Tells the ScanboxController to keep the resonant scanner oscillating
+        independently of whether an acquisition is running.
+        """
+        if checked:
+            # Enabling continuous resonant mode requires Bidirectional mode (CMD ID 34).
+            scanner = self._left_panel.scanner_group
+            if scanner.scan_mode_combobox.currentIndex() == 0:
+                # Switching to Bidirectional will trigger _on_scan_mode_changed,
+                # which ensures the hardware is in the correct mode 34.
+                scanner.scan_mode_combobox.setCurrentIndex(1)
+
+        if self._ctrl is not None:
+            self._ctrl.set_continuous_resonant(checked)
 
     def _on_bishift_changed(self, shift: int):
         """Handle bidirectional alignment spinbox change.

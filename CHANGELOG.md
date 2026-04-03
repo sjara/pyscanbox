@@ -6,6 +6,18 @@ All notable changes to this project are documented here. This file is append-onl
 
 ---
 
+## v1.6.0 - April 3, 2026
+- **Histogram Visualization Enhancements**
+  - Added Y-axis zooming to the Histogram widget via mouse wheel.
+  - Added a right-click context menu to the Histogram for "Reset Y Zoom", making it easier to return to the full dynamic range view.
+- **Continuous Resonant Scanning Mode**
+  - Implemented "Continuous Resonant" mode to maintain thermal stability in the resonant scanner during inter-acquisition periods.
+  - New "Continuous resonant" checkbox in the Scanner control panel.
+  - Added `set_continuous_resonant(enabled)` to `ScanboxController` (CMD ID 34, sub-mode 1).
+  - Synchronized "Continuous Resonant" state with "Scan Mode": enabling continuous mode automatically switches to Bidirectional (as required by the PSoC5), and switching to Unidirectional automatically disables the continuous flag.
+- **Documentation Updates**
+  - Added `docs/advanced/bidirectional_drift.md` covering the thermal causes and solutions for scan alignment drift.
+
 ## v1.5.0 - March 30, 2026
 - **Real-time plugin data access**
   - Extended the `AcquisitionPlugin` interface with the `on_frame_data` hook, providing direct access to raw imaging buffers.

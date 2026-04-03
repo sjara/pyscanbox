@@ -249,11 +249,19 @@ class ScannerControlGroup(QtWidgets.QGroupBox):
         self.bidir_alignment_spinbox.setRange(-100, 100)
         self.bidir_alignment_spinbox.setValue(0)
         layout.addRow("Bidir alignment:", self.bidir_alignment_spinbox)
-        
+
+        # Continuous resonant mode checkbox
+        self.continuous_resonant_checkbox = QtWidgets.QCheckBox("Continuous resonant")
+        self.continuous_resonant_checkbox.setToolTip(
+            "When checked, the resonant scanner keeps running between acquisitions.\n"
+            "This maintains thermal stability and prevents bidirectional alignment drift."
+        )
+        layout.addRow(self.continuous_resonant_checkbox)
+
         # Update frame rate whenever lines or scan mode changes.
         self.lines_per_frame_spinbox.valueChanged.connect(self._update_frame_rate)
         self.scan_mode_combobox.currentIndexChanged.connect(self._update_frame_rate)
-        
+
         self.setLayout(layout)
 
     def _update_frame_rate(self):
@@ -1432,8 +1440,10 @@ class HistogramWidget(QtWidgets.QWidget):
         self.setToolTip(
             "Pixel intensity histogram (256 bins, 16-bit wire-format range)\n"
             "X-axis: 0 = dark background (left) → 65535 = max signal (right)\n"
-            "Tracks the channel selected in Image Display > Channel."
+            "Tracks the channel selected in Image Display > Channel.\n"
+            "Mouse wheel to zoom y-axis, double-click to reset."
         )
+        self._y_zoom = 1.0
 
         # PMT0 bar/border colours (derived from _DISPLAY_LUT / green_white).
         _bar_idx = int(_HISTOGRAM_COLOR_LEVEL * 255)
@@ -1604,9 +1614,12 @@ class HistogramWidget(QtWidgets.QWidget):
         max_a = int(counts_a[1:].max()) if n > 1 else 1
         if counts_b is not None:
             max_b = int(counts_b[1:].max()) if n > 1 else 1
-            max_count = max(max_a, max_b, 1)
+            auto_max = max(max_a, max_b, 1)
         else:
-            max_count = max(max_a, 1)
+            auto_max = max(max_a, 1)
+
+        # Apply user zoom (wheel scroll)
+        max_count = max(1, int(auto_max / self._y_zoom))
 
         # --- Vectorised x coordinates (shared for both channels) ---
         indices  = np.arange(n)
@@ -1695,6 +1708,37 @@ class HistogramWidget(QtWidgets.QWidget):
         )
 
         painter.end()
+
+    def wheelEvent(self, event: QtGui.QWheelEvent) -> None:  # noqa: N802
+        """Adjust the y-axis zoom factor on mouse wheel scroll.
+
+        Scrolling up zooms in (makes bars taller); scrolling down zooms out.
+        """
+        delta = event.angleDelta().y()
+        if delta > 0:
+            self._y_zoom *= 1.2
+        elif delta < 0:
+            self._y_zoom /= 1.2
+
+        # Clamp zoom to sensible limits (0.1x to 100x)
+        self._y_zoom = max(0.1, min(self._y_zoom, 100.0))
+        self.update()
+
+    def mouseDoubleClickEvent(self, event: QtGui.QMouseEvent) -> None:  # noqa: N802
+        """Reset the y-axis zoom to 1.0 on double-click."""
+        self._reset_y_zoom()
+
+    def contextMenuEvent(self, event: QtGui.QContextMenuEvent) -> None:  # noqa: N802
+        """Show the right-click context menu."""
+        menu = QtWidgets.QMenu(self)
+        reset_action = menu.addAction("Reset y-zoom")
+        reset_action.triggered.connect(self._reset_y_zoom)
+        menu.exec(event.globalPos())
+
+    def _reset_y_zoom(self) -> None:
+        """Reset the y-axis zoom factor to 1.0."""
+        self._y_zoom = 1.0
+        self.update()
 
 
 class FrameSelectorWidget(QtWidgets.QWidget):

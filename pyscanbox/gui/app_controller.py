@@ -999,6 +999,25 @@ class AppController(QtCore.QObject):
                 logger.error(msg)
                 self.hardware_error.emit(msg)
 
+    def set_continuous_resonant(self, enabled: bool) -> None:
+        """Enable or disable continuous resonant mode.
+
+        Toggles whether the PSoC5 keeps the resonant scanner oscillating even
+        when the acquisition system is not actively running. Helps maintain
+        thermal stability for consistent bidirectional alignment.
+
+        Args:
+            enabled: True to enable continuous resonant mode, False for
+                standard bidirectional scan mode.
+        """
+        if self.is_open:
+            try:
+                self._hw_controller.set_continuous_resonant(enabled)
+            except Exception as exc:
+                msg = f"set_continuous_resonant failed: {exc}"
+                logger.error(msg)
+                self.hardware_error.emit(msg)
+
     def set_lines_per_frame(self, lines: int) -> None:
         """Set the number of scan lines per frame in the acquisition config.
 

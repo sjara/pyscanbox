@@ -588,6 +588,23 @@ class ScanboxController:
         else:
             self._send_command(self.CMD_UNIDIRECTIONAL, 0, 0)
 
+    def set_continuous_resonant(self, enabled: bool) -> None:
+        """Enable or disable continuous resonant mode.
+
+        When enabled, the resonant scanner keeps running even when no frames
+        are being acquired. This helps maintain thermal stability and
+        prevents alignment drift.
+
+        Args:
+            enabled: True to enable continuous resonant mode ([34, 1, 0]),
+                False to disable ([34, 0, 0]).
+
+        Reference:
+            See sb/sb_continuous_resonant.m (sends [34, 1, 0] for on, [34, 0, 0] for off).
+        """
+        param1 = 1 if enabled else 0
+        self._send_command(self.CMD_BIDIRECTIONAL, param1, 0)
+
     def set_pmt_gain(self, pmt_id: int, value: int) -> None:
         """Set the gain for a PMT channel.
 
