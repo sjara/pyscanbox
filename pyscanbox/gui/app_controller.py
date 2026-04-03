@@ -1010,9 +1010,14 @@ class AppController(QtCore.QObject):
             enabled: True to enable continuous resonant mode, False for
                 standard bidirectional scan mode.
         """
+        self.config.setdefault('acquisition', {})['continuous_resonant'] = enabled
         if self.is_open:
             try:
                 self._hw_controller.set_continuous_resonant(enabled)
+                if enabled:
+                    # 'Kick' the scanner into motion if it's not actually running
+                    self._hw_controller.start_scan()
+                    self._hw_controller.stop_scan()
             except Exception as exc:
                 msg = f"set_continuous_resonant failed: {exc}"
                 logger.error(msg)

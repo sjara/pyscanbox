@@ -272,7 +272,10 @@ class ScanboxController:
         if cmd_id == ScanboxController.CMD_UNIDIRECTIONAL:
             return "set_scan_mode(bidirectional=False)"
         if cmd_id == ScanboxController.CMD_BIDIRECTIONAL:
-            return "set_scan_mode(bidirectional=True)"
+            if param1 == 1:
+                return 'set_continuous_resonant(enabled=True)'
+            else:
+                return "set_scan_mode(bidirectional=True)"
         if cmd_id == ScanboxController.CMD_ETL:
             # Decode 16-bit encoded value: bits 15-12 are always 0b0111
             current = ((param1 & 0x0F) << 8) | param2
