@@ -90,9 +90,10 @@ Sets the magnification/zoom level.
 
 **Parameters:**
 - Byte 0: Command ID (3)
-- Byte 1: Always 0
+- Byte 1: Fold / Offset (used by `sb_setmag_fold.m`, normally 0)
 - Byte 2: Magnification index (0–12; MATLAB sends `popup.Value - 1` where popup has
   13 items numbered 1–13)
+
 
 **Notes:**
 - 13 discrete zoom levels in total (0 = largest FOV / minimum zoom,
@@ -106,7 +107,7 @@ Sets the magnification/zoom level.
 controller.send([3, 0, 4])
 ```
 
-**Original MATLAB Reference:** `sb/sb_setmag.m`
+**Original MATLAB Reference:** `sb/sb_setmag.m`, `sb/sb_setmag_fold.m`
 
 ---
 
@@ -249,6 +250,9 @@ Configures the left and right deadband regions where the Pockels cell is turned 
 - Byte 1: Left deadband size (pixels)
 - Byte 2: Right deadband size (pixels)
 
+**Special Polling Behavior:**
+Sending `[9, 0, 0]` acts as a polling mechanism to read external TTL events from the hardware queue manually and generate USB callbacks.
+
 **Example:**
 ```python
 # Set deadband: 120 pixels on left, 150 on right
@@ -257,7 +261,7 @@ controller.send([9, 120, 150])
 
 **Note:** The deadband defines regions at the beginning and end of each scan line where the laser is blanked to avoid edge artifacts.
 
-**Original MATLAB Reference:** `sb/sb_deadband.m`
+**Original MATLAB Reference:** `sb/sb_deadband.m`, `sb/sb_poll.m`
 
 ---
 
@@ -366,37 +370,57 @@ controller.send([33, 0, 0])
 
 ---
 
-### Bidirectional / Continuous Resonant Mode (ID: 34)
+### Bidirectional Scan Mode (ID: 34 / 0x22)
 
-Controls bidirectional scanning and continuous resonant mode. Bidirectional mode acquires data on both the forward and return sweeps, doubling the effective frame rate at the cost of requiring pixel-shift correction between odd and even lines.
-
-The `param1` byte selects the sub-mode:
-- `param1 = 0`: Bidirectional scan (acquire on both sweeps; resonant scanner not kept running continuously)
-- `param1 = 1`: Continuous resonant mode (scanner runs continuously even when not acquiring frames)
+Enables bidirectional scanning, allowing data acquisition on both the forward and return sweeps of the resonant mirror. This doubles the effective frame rate compared to unidirectional mode but requires pixel-shift correction between odd and even lines.
 
 **Command Format:**
 ```python
-[34, sub_mode, 0]
+[34, 0, 0]
 ```
 
 **Parameters:**
-- Byte 0: Command ID (34)
-- Byte 1: Sub-mode (0 = bidirectional, 1 = continuous resonant)
+- Byte 0: Command ID (34 / 0x22)
+- Byte 1: Always 0
 - Byte 2: Always 0
 
-**Examples:**
+**Example:**
 ```python
-# Enable bidirectional scanning
-controller.send([34, 0, 0])
-
-# Enable continuous resonant mode (scanner keeps running between acquisitions)
-controller.send([34, 1, 0])
-
-# Disable continuous resonant mode (falls back to bidirectional)
 controller.send([34, 0, 0])
 ```
 
-**Original MATLAB Reference:** `sb/sb_bidirectional.m`, `sb/sb_continuous_resonant.m`
+**Original MATLAB Reference:** `sb/sb_bidirectional.m`
+
+---
+
+### Continuous Resonant Mode (ID: 52 / 0x34)
+
+Enables or disables continuous resonant mode. When enabled, the PSoC5 keeps the resonant scanner running (PWM active) even when no frames are being acquired (i.e. after a `stop_scan` command is received). This maintains thermal stability and prevents mechanical alignment drift between imaging sessions.
+
+**Command Format:**
+```python
+[52, state, 0]
+```
+
+**Parameters:**
+- Byte 0: Command ID (52 / 0x34)
+- Byte 1: State (1 = enable continuous resonant, 0 = disable)
+- Byte 2: Always 0
+
+**Notes:**
+- **MATLAB vs Python IDs:** In the original MATLAB Scanbox code, this command uses `hex2dec('34')`, which converts to decimal **52**. This is distinct from the `Bidirectional` command which uses a literal decimal **34**.
+- Sending `[0x34, 1, 0]` immediately activates the resonant scanner if it is currently at rest.
+
+**Examples:**
+```python
+# Enable continuous resonant mode (starts scanner immediately)
+controller.send([0x34, 1, 0])
+
+# Disable continuous resonant mode (scanner will stop on next stop_scan)
+controller.send([0x34, 0, 0])
+```
+
+**Original MATLAB Reference:** `sb/sb_continuous_resonant.m` (uses `hex2dec('34')`)
 
 ---
 
@@ -1509,35 +1533,36 @@ controller.send([254, 0, 0])
 
 | ID | Command | Format | Purpose | Scope |
 |----|---------|--------|---------|-------|
-| 1 | Set Frame Count | `[1, high, low]` | Configure number of frames (16-bit) | In scope |
-| 2 | Set Lines | `[2, high, low]` | Configure lines per frame (16-bit) | In scope |
-| 3 | Set Magnification | `[3, 0, mag]` | Set zoom/magnification level | In scope |
-| 4 | Scan Control | `[4, 0, state]` | Start (1) or stop/abort (0) scanning | In scope |
-| 5 | Mirror Toggle | `[5, 0, mode]` | Switch 2P (0) or epi (1) path | In scope |
-| 6 | PMT0 Gain | `[6, 0, gain]` | Set PMT channel 0 gain (0-255) | In scope |
-| 7 | PMT1 Gain | `[7, 0, gain]` | Set PMT channel 1 gain (0-255) | In scope |
-| 8 | Pockels Cell | `[8, base, active]` | Laser power control | In scope |
-| 9 | Pockels Deadband | `[9, left, right]` | Line margin blanking | In scope |
-| 10 | Pockels Deadband Period | `[10, 0, period]` | Set PWM period for deadband; call before ID 9 | In scope |
-| 11 | Warmup Delay | `[11, 0, period]` | Set warmup delay (units of 10 ms) | Out of scope |
-| 12 | Camera Pulse Width | `[12, 0, width]` | Set CAM0/1 trigger pulse width in scan lines | Out of scope |
-| 13 | Pockels Range | `[13, dac, pga]` | Set Pockels DAC and PGA range | In scope |
-| 16 | Shutter | `[16, 0, state]` | Open (1) or close (0) laser shutter | In scope |
-| 17 | Pockels Mode | `[17, 0, mode]` | Set Pockels cell operating mode | In scope |
-| 19 | ETL Current–Power Link | `[19, current, power]` | Link ETL current to laser power level | In scope |
-| 20 | ETL Current–Power Link Enable | `[20, state, 0]` | Activate (1) / deactivate (0) current–power link | In scope |
-| 21 | ETL Waveform Entry Write | `[21, b2, b1]` | Write current value (0–4095) to waveform table | In scope |
-| 22 | ETL Waveform Period | `[22, period, 0]` | Set waveform period in frames (0–255) | In scope |
-| 23 | ETL Waveform Active | `[23, state, 0]` | Activate (1) / deactivate (0) ETL waveform playback | In scope |
-| 24 | ETL Waveform Index Reset | `[24, 0, 0]` | Reset waveform index to zero before writing | In scope |
-| 25 | Optotune Control Entry Write | `[25, b2, b1]` | Write next optoctrl waveform entry (follow ID 35) | In scope |
+| 1 / 0x01 | Set Frame Count | `[1, high, low]` | Configure number of frames (16-bit) | In scope |
+| 2 / 0x02 | Set Lines | `[2, high, low]` | Configure lines per frame (16-bit) | In scope |
+| 3 / 0x03 | Set Magnification | `[3, 0, mag]` | Set zoom/magnification level | In scope |
+| 4 / 0x04 | Scan Control | `[4, 0, state]` | Start (1) or stop/abort (0) scanning | In scope |
+| 5 / 0x05 | Mirror Toggle | `[5, 0, mode]` | Switch 2P (0) or epi (1) path | In scope |
+| 6 / 0x06 | PMT0 Gain | `[6, 0, gain]` | Set PMT channel 0 gain (0-255) | In scope |
+| 7 / 0x07 | PMT1 Gain | `[7, 0, gain]` | Set PMT channel 1 gain (0-255) | In scope |
+| 8 / 0x08 | Pockels Cell | `[8, base, active]` | Laser power control | In scope |
+| 9 / 0x09 | Pockels Deadband | `[9, left, right]` | Line margin blanking | In scope |
+| 10 / 0x0A | Pockels Deadband Period | `[10, 0, period]` | Set PWM period for deadband; call before ID 9 | In scope |
+| 11 / 0x0B | Warmup Delay | `[11, 0, period]` | Set warmup delay (units of 10 ms) | Out of scope |
+| 12 / 0x0C | Camera Pulse Width | `[12, 0, width]` | Set CAM0/1 trigger pulse width in scan lines | Out of scope |
+| 13 / 0x0D | Pockels Range | `[13, dac, pga]` | Set Pockels DAC and PGA range | In scope |
+| 16 / 0x10 | Shutter | `[16, 0, state]` | Open (1) or close (0) laser shutter | In scope |
+| 17 / 0x11 | Pockels Mode | `[17, 0, mode]` | Set Pockels cell operating mode | In scope |
+| 19 / 0x13 | ETL Current–Power Link | `[19, current, power]` | Link ETL current to laser power level | In scope |
+| 20 / 0x14 | ETL Current–Power Link Enable | `[20, state, 0]` | Activate (1) / deactivate (0) current–power link | In scope |
+| 21 / 0x15 | ETL Waveform Entry Write | `[21, b2, b1]` | Write current value (0–4095) to waveform table | In scope |
+| 22 / 0x16 | ETL Waveform Period | `[22, period, 0]` | Set waveform period in frames (0–255) | In scope |
+| 23 / 0x17 | ETL Waveform Active | `[23, state, 0]` | Activate (1) / deactivate (0) ETL waveform playback | In scope |
+| 24 / 0x18 | ETL Waveform Index Reset | `[24, 0, 0]` | Reset waveform index to zero before writing | In scope |
+| 25 / 0x19 | Optotune Control Entry Write | `[25, b2, b1]` | Write next optoctrl waveform entry (follow ID 35) | In scope |
 | 32 / 0x20 | Galvo Position | `[0x20, b1, b2]` | Set galvo scanner position directly | Out of scope |
-| 33 | Unidirectional Mode | `[33, 0, 0]` | Switch to unidirectional scan | In scope |
-| 34 | Bidirectional / Continuous Resonant | `[34, sub_mode, 0]` | Bidirectional (0) or continuous resonant (1) mode | In scope |
-| 35 | Optotune Control Array Reset | `[35, 0, 0]` | Reset optoctrl index and zero the entire array | In scope |
-| 36 | Optotune Control Active | `[36, state, 0]` | Activate (1) / deactivate (0) optoctrl waveform | In scope |
-| 48 | ETL Current | `[48, b1, b2]` | Set Optotune ETL current (0–1760, 16-bit encoded) | In scope |
-| 51 | Axis Gain Calibration | `[51, code, gain]` | Set scan axis gain multiplier | Out of scope |
+| 33 / 0x21 | Unidirectional Mode | `[33, 0, 0]` | Switch to unidirectional scan | In scope |
+| 34 / 0x22 | Bidirectional Mode | `[34, 0, 0]` | Switch to bidirectional scan | In scope |
+| 35 / 0x23 | Optotune Control Array Reset | `[35, 0, 0]` | Reset optoctrl index and zero the entire array | In scope |
+| 36 / 0x24 | Optotune Control Active | `[36, state, 0]` | Activate (1) / deactivate (0) optoctrl waveform | In scope |
+| 48 / 0x30 | ETL Current | `[48, b1, b2]` | Set Optotune ETL current (0–1760, 16-bit encoded) | In scope |
+| 51 / 0x33 | Axis Gain Calibration | `[51, code, gain]` | Set scan axis gain multiplier | Out of scope |
+| 52 / 0x34 | Continuous Resonant | `[0x34, state, 0]` | Enable (1) / disable (0) continuous resonant | In scope |
 | 53 / 0x35 | Line Scan Mode | `[53, state, 0]` | Enable (1) or disable (0) line scan mode | Out of scope |
 | 64 / 0x40 | TTL Interrupt Mask | `[64, 0, imask]` | Select which TTL inputs fire timestamped events (0=off, 1=TTL0, 2=TTL1, 3=both); PSoC5 returns unsolicited 5-byte event packets | In scope |
 | 67 / 0x43 | Pockels LUT Write | `[0x43, index, value]` | Write one entry into the Pockels LUT | In scope |
@@ -1555,8 +1580,8 @@ controller.send([254, 0, 0])
 | 225 / 0xE1 | TTL Trigger Disable | `[0xE1, 0, 0]` | Disable external TTL event timestamping | In scope |
 | 226 / 0xE2 | TTL Trigger Input Select | `[0xE2, channel, 0]` | Select which TTL input to monitor | In scope |
 | 240 / 0xF0 | Intrinsic Imaging Mode | `[0xF0, state, 0]` | Enable (1) / disable (0) intrinsic imaging mode | Out of scope |
-| 254 | LCD Title Refresh | `[254, 0, 0]` | Refresh the first line of the controller LCD | Out of scope |
-| 255 | Controller Reset | `[255, 0, 0]` | Soft reset the controller | In scope |
+| 254 / 0xFE | LCD Title Refresh | `[254, 0, 0]` | Refresh the first line of the controller LCD | Out of scope |
+| 255 / 0xFF | Controller Reset | `[255, 0, 0]` | Soft reset the controller | In scope |
 
 ## Serial Configuration
 

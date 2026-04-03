@@ -1014,28 +1014,10 @@ class AppController(QtCore.QObject):
         if self.is_open:
             try:
                 self._hw_controller.set_continuous_resonant(enabled)
-                if enabled:
-                    # 'Kick' the scanner into motion if it's not actually running.
-                    # We wait for the hardware warmup delay to complete before sending stop,
-                    # otherwise the PSoC5 firmware will completely abort the resonant startup.
-                    self._hw_controller.start_scan()
-                    warmup_delay = self.config.get('scanner', {}).get('warmup_delay', 50)
-                    warmup_safety_margin_ms = 500
-                    QtCore.QTimer.singleShot(int(warmup_delay * 10) + warmup_safety_margin_ms, self._stop_kick)
             except Exception as exc:
                 msg = f"set_continuous_resonant failed: {exc}"
                 logger.error(msg)
                 self.hardware_error.emit(msg)
-
-    def _stop_kick(self) -> None:
-        """Helper to stop the scanner after the continuous resonant mode kick."""
-        if self._scanner_thread is not None and self._scanner_thread.isRunning():
-            return
-        if self.is_open:
-            try:
-                self._hw_controller.stop_scan()
-            except Exception:
-                pass
 
     def set_lines_per_frame(self, lines: int) -> None:
         """Set the number of scan lines per frame in the acquisition config.

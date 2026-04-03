@@ -111,6 +111,7 @@ class ScanboxController:
     CMD_WARMUP_DELAY = 11  # [11, 0, delay] — resonant scanner warmup delay (×10 ms)
     CMD_UNIDIRECTIONAL = 33  # Set PSoC5 to trigger on forward sweep only
     CMD_BIDIRECTIONAL = 34   # Set PSoC5 to trigger on both forward and return sweeps
+    CMD_CONTINUOUS_RESONANT = 0x34 # [0x34, 1, 0] — continuous resonant mode
     CMD_POCKELS_RANGE = 13         # [13, vdac, pga] — set DAC/PGA range
     CMD_ETL = 48  # Electrically tunable lens (Optotune) current
     CMD_OPTOWAVE_ENTRY = 21   # [21, high, low] — write one entry to ETL waveform table (sb_optowave)
@@ -194,6 +195,7 @@ class ScanboxController:
         CMD_WARMUP_DELAY: 'set_warmup_delay',
         CMD_UNIDIRECTIONAL: 'set_scan_mode',
         CMD_BIDIRECTIONAL: 'set_scan_mode',
+        CMD_CONTINUOUS_RESONANT: 'set_continuous_resonant',
         CMD_POCKELS_RANGE: 'set_pockels_range',
         CMD_ETL: 'set_etl_current',
         CMD_OPTOWAVE_ENTRY: 'etl_waveform_entry',
@@ -606,7 +608,7 @@ class ScanboxController:
             See sb/sb_continuous_resonant.m (sends [34, 1, 0] for on, [34, 0, 0] for off).
         """
         param1 = 1 if enabled else 0
-        self._send_command(self.CMD_BIDIRECTIONAL, param1, 0)
+        self._send_command(self.CMD_CONTINUOUS_RESONANT, param1, 0)
 
     def set_pmt_gain(self, pmt_id: int, value: int) -> None:
         """Set the gain for a PMT channel.
