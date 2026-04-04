@@ -6,6 +6,13 @@ All notable changes to this project are documented here. This file is append-onl
 
 ---
 
+## v1.6.1 - April 3, 2026
+- **Continuous Resonant Mode Fixes**
+  - Updated `ScanboxController` to use `CMD_CONTINUOUS_RESONANT = 0x34` (52) natively, fixing the erroneous override of `CMD_BIDIRECTIONAL = 0x22` (34).
+  - Removed deprecated software-side timer "kick" hacks in `AppController` that were artificially starting and stopping scanning to initialize the resonant mirror.
+  - Decoupled "Continuous Resonant" state from "Bidirectional" scan mode in the GUI (`main_window.py`); the two options can now be toggled completely autonomously.
+  - Formatted the Command Summary hardware protocol table uniformly with `DEC / HEX` IDs.
+
 ## v1.6.0 - April 3, 2026
 - **Histogram Visualization Enhancements**
   - Added Y-axis zooming to the Histogram widget via mouse wheel.

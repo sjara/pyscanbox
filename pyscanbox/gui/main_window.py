@@ -941,12 +941,6 @@ class MainWindow(QtWidgets.QMainWindow):
             index: 0 = Unidirectional, 1 = Bidirectional.
         """
         bidirectional = (index == 1)
-        # If switching to unidirectional, continuous resonant mode is not supported
-        # by the hardware protocol (ID 33 vs ID 34).
-        if not bidirectional:
-            scanner = self._left_panel.scanner_group
-            # This will trigger _on_continuous_resonant_toggled if it was checked.
-            scanner.continuous_resonant_checkbox.setChecked(False)
 
         self._left_panel.scanner_group.bidir_alignment_spinbox.setEnabled(
             bidirectional
@@ -960,14 +954,6 @@ class MainWindow(QtWidgets.QMainWindow):
         Tells the ScanboxController to keep the resonant scanner oscillating
         independently of whether an acquisition is running.
         """
-        if checked:
-            # Enabling continuous resonant mode requires Bidirectional mode (CMD ID 34).
-            scanner = self._left_panel.scanner_group
-            if scanner.scan_mode_combobox.currentIndex() == 0:
-                # Switching to Bidirectional will trigger _on_scan_mode_changed,
-                # which ensures the hardware is in the correct mode 34.
-                scanner.scan_mode_combobox.setCurrentIndex(1)
-
         if self._ctrl is not None:
             self._ctrl.set_continuous_resonant(checked)
 
