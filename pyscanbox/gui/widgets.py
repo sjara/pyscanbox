@@ -232,10 +232,7 @@ class ScannerControlGroup(QtWidgets.QGroupBox):
         
         # Frame rate — computed from RESONANT_FREQ / lines * (2 if bidir else 1).
         # Matches MATLAB: frame_rate = sbconfig.resfreq/nlines*(2-scanmode)
-        initial_rate = hw_controller.ScanboxController.calculate_frame_rate(
-            self.lines_per_frame_spinbox.value(), bidirectional=False
-        )
-        self.frame_rate_label = QtWidgets.QLabel(f"{initial_rate:.2f} Hz")
+        self.frame_rate_label = QtWidgets.QLabel()
         layout.addRow("Frame rate:", self.frame_rate_label)
         
         # Scan mode selector (combo box)
@@ -263,6 +260,12 @@ class ScannerControlGroup(QtWidgets.QGroupBox):
         self.scan_mode_combobox.currentIndexChanged.connect(self._update_frame_rate)
 
         self.setLayout(layout)
+        self._update_frame_rate()
+
+    def showEvent(self, event):
+        """Recompute the frame rate when the widget is shown."""
+        super().showEvent(event)
+        self._update_frame_rate()
 
     def _update_frame_rate(self):
         """Recompute and display the frame rate from lines/frame and scan mode.

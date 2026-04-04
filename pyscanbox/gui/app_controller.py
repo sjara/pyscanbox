@@ -369,6 +369,24 @@ class AppController(QtCore.QObject):
             self._log_event(msg)
             self.startup_status.emit(f'Connected! (v{version})')
             print(f'Connected! (v{version})')
+            
+            # Check if configured version matches hardware version
+            configured_version = self.config.get('controller', {}).get('version')
+            emulation_enabled = self.config.get('emulation', {}).get('enabled', False)
+            
+            # Skip version mismatch warning if in emulation mode (emulator sends 99.99)
+            if emulation_enabled:
+                info_msg = f'Running in emulation mode (v{version})'
+                logger.info(info_msg)
+                self._log_event(info_msg)
+            elif configured_version and version != str(configured_version):
+                warn_msg = (
+                    f'⚠️  Controller firmware version mismatch: '
+                    f'config expects v{configured_version}, but hardware is v{version}. '
+                    f'Some features may not work as expected.'
+                )
+                logger.warning(warn_msg)
+                self._log_event(warn_msg)
         except Exception as exc:
             msg = f"Could not open ScanboxController: {exc}"
             print('Failed!')

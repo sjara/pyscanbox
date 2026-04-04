@@ -252,7 +252,8 @@ class Serial:
         elif cmd_id == self.CMD_VERSION:
             if self.verbose:
                 logger.debug("Firmware version requested")
-            # Emulate firmware version 0.0 for emulation
+            # Emulate firmware version 0.0 to clearly indicate emulation mode
+            # (major=0, minor=0, reserved=0)
             self._response_buffer.extend(bytes([0, 0, 0]))
 
         else:

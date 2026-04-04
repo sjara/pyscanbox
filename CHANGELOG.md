@@ -6,6 +6,19 @@ All notable changes to this project are documented here. This file is append-onl
 
 ---
 
+## v1.6.2 - April 4, 2026
+- **Configuration synchronization on application startup**
+  - GUI spinboxes (`total_frames`, `magnification`, `scan_mode`) now initialize from config values at startup, ensuring GUI and acquisition parameters are synchronized (fixing frame rate calculation on app start).
+  - Added `_sync_total_frames_spinbox()`, `_sync_magnification_combobox()`, and `_sync_scan_mode_combobox()` methods to `MainWindow` following the existing pattern of `_sync_lines_per_frame_spinbox()`.
+- **Controller firmware version verification**
+  - Added version check that compares `config['controller']['version']` with the actual hardware version queried at startup.
+  - Logs warning if versions mismatch, indicating potential feature incompatibility.
+  - Emulation mode skips mismatch warning and reports emulation status instead.
+  - Emulator version identifier changed to 0.0 for clarity (0.0 is never a valid hardware version).
+- **Configuration cleanup**
+  - Removed unused `pockels:base_power` and `pockels:active_power` parameters from `config_template.yaml` (MATLAB had no equivalent; laser power is controlled only via GUI slider).
+  - Removed `pockels:lut_enabled` parameter (redundant; use presence/absence of `pockels:lut` instead).
+
 ## v1.6.1 - April 3, 2026
 - **Continuous Resonant Mode Fixes**
   - Updated `ScanboxController` to use `CMD_CONTINUOUS_RESONANT = 0x34` (52) natively, fixing the erroneous override of `CMD_BIDIRECTIONAL = 0x22` (34).

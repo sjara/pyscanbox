@@ -730,11 +730,15 @@ class MainWindow(QtWidgets.QMainWindow):
         scanner.magnification_combobox.currentIndexChanged.connect(
             self._on_magnification_changed
         )
+        # Initialise combobox from config so GUI and acquisition agree at startup.
+        self._sync_magnification_combobox()
 
         # Scan mode combobox -> acquisition config
         scanner.scan_mode_combobox.currentIndexChanged.connect(
             self._on_scan_mode_changed
         )
+        # Initialise combobox from config so GUI and acquisition agree at startup.
+        self._sync_scan_mode_combobox()
         # Initialise enable state from current combobox selection.
         scanner.bidir_alignment_spinbox.setEnabled(
             scanner.scan_mode_combobox.currentIndex() == 1
@@ -758,6 +762,10 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         # Initialise spinbox from config so GUI and acquisition agree at startup.
         self._sync_lines_per_frame_spinbox()
+
+        # Total frames spinbox -> acquisition config
+        # Initialise spinbox from config so GUI and acquisition agree at startup.
+        self._sync_total_frames_spinbox()
 
         # ETL slider -> hardware (spinbox is bidirectionally linked to slider
         # inside OptotuneGroup, so wiring the slider covers both widgets)
@@ -996,6 +1004,53 @@ class MainWindow(QtWidgets.QMainWindow):
         scanner.lines_per_frame_spinbox.blockSignals(True)
         scanner.lines_per_frame_spinbox.setValue(lines)
         scanner.lines_per_frame_spinbox.blockSignals(False)
+
+    def _sync_total_frames_spinbox(self) -> None:
+        """Initialise the Total frames spinbox from the acquisition config.
+
+        Reads ``config['acquisition']['frames']`` and sets the spinbox value
+        without emitting a signal (to avoid a feedback loop).
+        """
+        if self._ctrl is None:
+            return
+        frames = self._ctrl.config.get('acquisition', {}).get('frames', 0)
+        scanner = self._left_panel.scanner_group
+        scanner.total_frames_spinbox.blockSignals(True)
+        scanner.total_frames_spinbox.setValue(frames)
+        scanner.total_frames_spinbox.blockSignals(False)
+
+    def _sync_magnification_combobox(self) -> None:
+        """Initialise the Magnification combobox from the acquisition config.
+
+        Reads ``config['acquisition']['magnification']`` and sets the combobox
+        index without emitting a signal (to avoid a feedback loop).
+        """
+        if self._ctrl is None:
+            return
+        mag = self._ctrl.config.get('acquisition', {}).get('magnification', 0)
+        scanner = self._left_panel.scanner_group
+        scanner.magnification_combobox.blockSignals(True)
+        scanner.magnification_combobox.setCurrentIndex(mag)
+        scanner.magnification_combobox.blockSignals(False)
+
+    def _sync_scan_mode_combobox(self) -> None:
+        """Initialise the Scan mode combobox from the acquisition config.
+
+        Reads ``config['acquisition']['unidirectional']`` and sets the combobox
+        index (0=Unidirectional, 1=Bidirectional) without emitting a signal
+        (to avoid a feedback loop).
+        """
+        if self._ctrl is None:
+            return
+        # Note: config stores 'unidirectional: True/False'
+        # but combobox is indexed as: 0=Uni, 1=Bi
+        acq_cfg = self._ctrl.config.get('acquisition', {})
+        unidirectional = acq_cfg.get('unidirectional', True)
+        scan_mode_index = 0 if unidirectional else 1
+        scanner = self._left_panel.scanner_group
+        scanner.scan_mode_combobox.blockSignals(True)
+        scanner.scan_mode_combobox.setCurrentIndex(scan_mode_index)
+        scanner.scan_mode_combobox.blockSignals(False)
 
     def _sync_bishift_spinbox(self, mag_index: int) -> None:
         """Update the bidir alignment spinbox to show the stored bishift.

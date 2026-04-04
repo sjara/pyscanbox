@@ -1,5 +1,6 @@
-# Default Scanbox Configuration
-# This file maps to the MATLAB sbconfig structure in scanbox_config.m
+# Template configuration file for pyscanbox.
+# Copy this to config.yaml in your config folder (e.g., C:\ProgramData\pyscanbox\config.yaml)
+# and edit as needed for your system.
 
 # ============================================================================
 # Serial Communication Ports
@@ -11,6 +12,7 @@ controller:
   com_port: COM6              # Serial port for Scanbox controller
   baud_rate: 1000000          # Fixed at 1 Mbaud for Scanbox protocol
   timeout: 1.0                # Communication timeout in seconds
+  version: 4.7                # Scanbox/PSoC firmware version (e.g., 4.7).
 
 # Trinamic Motor Controller (for positioning/focus control)
 # MATLAB: sbconfig.tri_com, sbconfig.tri_baud
@@ -32,19 +34,22 @@ knobby:
   com_port: COM5              # Serial port or IP address for Knobby display
   version: 2                  # Knobby version (1=small screen, 2=large screen)
 
+
 # ============================================================================
 # Objective Configuration
 # ============================================================================
+
 # MATLAB: sbconfig.obj_length, sbconfig.objectives
 objective:
   length: 98000               # Objective length from rotation center to focal point (μm) - sbconfig.obj_length
   type: Nikon_16x/0.8w/WD3.0  # Objective details
 
+
 # ============================================================================
 # AlazarTech Digitizer Settings (PMT data acquisition) and PMT settings
 # ============================================================================
-# MATLAB: Alazar configuration done via configureLsb9440.m
 
+# MATLAB: Alazar configuration done via configureLsb9440.m
 alazar:
   sample_rate: 125000000      # 125 MS/s sampling rate
   bits_per_sample: 14         # 14-bit ADC resolution
@@ -56,38 +61,38 @@ alazar:
 pmt:
   amplifier_type: variable    # PMT amplifier type: 'variable' or 'fixed' - sbconfig.pmt_amp_type
 
+
 # ============================================================================
-# Scanning Parameters
+# Scanning and Acquisition Parameters
 # ============================================================================
 
-# Scanner Configuration
-# MATLAB: Computed from sbconfig.resfreq, sbconfig.gain_*, etc.
+# MATLAB: sbconfig.resfreq, sbconfig.deadband, sbconfig.gain_*, etc.
 scanner:
   resonant_freq: 7930         # Resonant mirror frequency in Hz - sbconfig.resfreq
   deadband: [120, 150]        # Laser deadband at margins [left, right] - sbconfig.deadband
   hsync_sign: 1               # Horizontal sync polarity (0=normal, 1=flip) - sbconfig.hsync_sign
   warmup_delay: 50            # Resonant scanner warmup delay (×10ms) - sbconfig.wdelay
-  # Galvo/resonant gain tables uploaded to PSoC5 at startup.
-  # When gain_override is true the three keys below are sent once via
-  # update_scanner_gains(); when false the PSoC5 uses its built-in defaults.
+  # --- Galvo/resonant gain tables uploaded to PSoC5 at startup ---
+  # When gain_override is true the three keys below are sent once via update_scanner_gains();
+  # when false the PSoC5 uses its built-in defaults.
   # Reference: core/scanbox.m lines 253–262 (sbconfig.gain_override block).
   gain_override: true         # Send custom gain tables at startup - sbconfig.gain_override
   dv_galvo: 64                # Galvo voltage step per line (max 64) - sbconfig.dv_galvo
-  # 13 galvo (Y-axis) gain values, logspaced from 1.0 to 8.0.
-  # Index 0 = widest FOV (1.0x); index 12 = narrowest FOV (8.0x).
-  # Reference: sbconfig.gain_galvo = logspace(log10(1), log10(8), 13)
   gain_galvo: [1.0, 1.189, 1.414, 1.682, 2.0, 2.378, 2.828, 3.364, 4.0, 4.757, 5.657, 6.727, 8.0]
-  # Resonant/galvo aspect-ratio multiplier.  gain_resonant = gain_resonant_mult × gain_galvo.
-  # Calibrate with sbxspatialcalibration.m or the Scanner Gains dialog.
-  # Reference: sbconfig.gain_resonant_mult = 1.42
   gain_resonant_mult: 1       # Resonant (X-axis) multiplier - sbconfig.gain_resonant_mult
+  # NOTES:
+  # gain_galvo is 13 galvo (Y-axis) gain values, logspaced from 1.0 to 8.0;
+  #     index 0 = widest FOV (1.0x); index 12 = narrowest FOV (8.0x).
+  #     Reference: sbconfig.gain_galvo = logspace(log10(1), log10(8), 13)
+  # gain_resonant_mult is a single multiplier applied to the resonant (X-axis) gain relative
+  #     to the galvo gain: gain_resonant = gain_resonant_mult × gain_galvo.
+  #     Reference: sbconfig.gain_resonant_mult = 1.42
 
-# Acquisition Parameters
-# Frame geometry and acquisition settings
+# Frame Geometry and Acquisition Settings
 acquisition:
   lines_per_frame: 512        # Number of scan lines per frame
   pixels_per_line: 796        # Pixels per scan line
-  frames: 1000                # Number of frames to acquire
+  frames: 0                   # Number of frames to acquire
   magnification: 0            # Magnification zoom index (0-12; 0 = largest FOV)
   samples_per_line: 5000      # Raw ADC samples per scan line, unidirectional
                               # (MATLAB: postTriggerSamples = 5000)
@@ -104,6 +109,7 @@ acquisition:
   bishift: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
   bidir_calibration_file: bidir_cal.json  # Bidir scan calibration filename (relative to config dir)
 
+
 # ============================================================================
 # Laser and Pockels Cell Control
 # ============================================================================
@@ -118,15 +124,12 @@ laser:
 # MATLAB: sbconfig.pockels_range, sbconfig.pockels_lut
 pockels:
   range: [1, 2]               # Pockels range [vdac, pga] - sbconfig.pockels_range
-  lut_enabled: true           # Use lookup table for linearization
-  base_power: 0               # Base power during flyback (0-255)
-  active_power: 85            # Active power during scan (0-255)
-  calibration_file: pockels_cal.json  # Pockels calibration filename (relative to config dir)
-  # 256-entry linearisation LUT from sbconfig.pockels_lut in scanbox_config.m.
-  # Maps each requested power level (0-255) to the PSoC DAC voltage required
+  # Next is a 256-entry linearisation LUT (from sbconfig.pockels_lut in scanbox_config.m),
+  # which maps each requested power level (0-255) to the PSoC DAC voltage required
   # to produce linearly-scaled laser output (compensates sin^2 response).
-  # Recalibrate with core/pockels_920nm.m when changing laser wavelength.
+  # You may need to recalibrate when changing laser wavelength.
   # Reference: sb/sb_pockels_lut.m, core/pockels_920nm.m, core/scanbox.m lines 262-275.
+  lut_enabled: true           # Use lookup table for linearization
   lut: [
       0,   5,  10,  16,  20,  21,  23,  24,  25,  26,  27,  29,  30,  31,  32,  33,
      34,  36,  37,  38,  39,  40,  41,  42,  42,  43,  43,  44,  45,  45,  46,  47,
@@ -145,6 +148,8 @@ pockels:
     161, 162, 163, 164, 165, 166, 167, 168, 168, 169, 170, 171, 172, 173, 174, 175,
     176, 177, 177, 178, 179, 180, 182, 184, 186, 248, 190, 192, 194, 196, 198, 200,
   ]
+  calibration_file: pockels_cal.json  # Pockels calibration filename (relative to config dir)
+
 
 # ============================================================================
 # Optotune ETL (Electrically Tunable Lens for volumetric imaging)
@@ -153,7 +158,8 @@ pockels:
 
 optotune:
   default_value: 860          # Default ETL current value - sbconfig.etl
-  calibration_file: etl_cal.json  # JSON calibration file (relative to config file directory)
+  calibration_file: etl_cal.json  # ETL calibration filename (relative to config file directory)
+
 
 # ============================================================================
 # File I/O and Data Storage
@@ -164,6 +170,7 @@ io:
   output_directory: /tmp/      # Default data directory - sbconfig.datadir
   file_prefix: scan            # File prefix for output files
   auto_increment: true         # Auto-increment experiment number - sbconfig.autoinc
+
 
 # ============================================================================
 # GUI Display Settings
@@ -193,6 +200,7 @@ display:
   # Default (ITU-R theoretical): 1.963.  Tune to taste for your monitor.
   red_boost: 1.4
 
+
 # ============================================================================
 # External TTL Event Monitoring
 # ============================================================================
@@ -220,6 +228,7 @@ external_events:
   ttl_trigger: false          # ⚠️ not yet used
                               # If true, TTL1 acts as an acquisition start/stop
                               # trigger in addition to (or instead of) event recording.
+
 
 # ============================================================================
 # Plugin Configuration
