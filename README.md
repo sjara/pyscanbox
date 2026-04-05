@@ -1,4 +1,4 @@
-# pyscanbox
+![pyscanbox logo](docs/assets/logo_gray.svg)
 
 **pyscanbox** is an application designed to control a [Neurolabware](https://neurolabware.com/) two-photon  microscope. It provides a Python-based alternative to the original MATLAB-based [Scanbox](https://www.scanbox.org/) software.
 
