@@ -1,134 +1,34 @@
 # pyscanbox
 
-Python implementation of Scanbox two-photon microscope software.
+**pyscanbox** is an application designed to control a [Neurolabware](https://neurolabware.com/) two-photon  microscope. It provides a Python-based alternative to the original MATLAB-based [Scanbox](https://www.scanbox.org/) software.
 
-## Overview
+![pyscanbox GUI](docs/assets/gui_screenshot.png)
 
-pyscanbox is a complete rewrite of the MATLAB-based Scanbox system in Python, providing:
-- AlazarTech PMT data acquisition at ~500 MB/s
-- Knobby motor control (Trinamic motors)
-- Pockels cell and shutter control
-- Data saving in standard `.sbx` and `.mat` formats for compatibility with existing analysis pipelines
+The software provides:
+- A Qt-based graphical interface with real-time image display and data playback.
+- PMT data acquisition via the AlazarTech digitizer (in unidirectional or bidirectional modes).
+- Volumetric imaging via Optotune/ETL control for z-stacks.
+- Control of the Trinamic motors via the Knobby hardware.
+- Pockels cell control with linearization LUT calibration.
+- TTL event timestamping (frame and line number).
+- Real-time data streaming via a ZeroMQ plugin system (experimental).
+- Data saving in `.sbx` and `.mat` formats for compatibility with existing analysis pipelines.
+- An emulator to develop and test the software without real hardware.
 
-## Installation
+Running **pyscanbox** with real hardware has only been tested on **Windows** (using the AlazarTech and Trinamic drivers). In emulation mode, however, the software runs on **Windows, macOS, or Linux** (in fact, the software was developed mostly on Ubuntu Linux). The emulation mode allows data playback on any of these platforms.
 
-### Requirements
-- Python 3.8 or later
-- Windows OS (required for hardware drivers)
-- AlazarTech SDK installed 
-  https://docs.alazartech.com/ats-sdk-user-guide/latest/getting-started.html
-
-### Install from source
-
-```bash
-git clone <repository-url>
-cd pyscanbox
-pip install -e .
-```
-
-This includes the GUI (PyQt6) by default. For development (adds testing and
-linting tools):
-```bash
-pip install -e .[dev]
-```
-
-## Quick Start
-
-```python
-import pyscanbox
-
-# Load configuration (searches standard locations automatically)
-config = pyscanbox.config.load_config()
-
-# Or specify a custom config file path
-# config = pyscanbox.config.load_config('my_config.yaml')
-
-# Initialize hardware
-alazar = pyscanbox.hardware.alazar.AlazarDigitizer(config.to_dict())
-controller = pyscanbox.hardware.controller.ScanboxController(config.to_dict())
-
-# Run acquisition
-scanner = pyscanbox.acquisition.scan.Scanner(config.to_dict(), alazar, controller)
-scanner.run()
-```
-
-## Configuration
-
-### Creating a Configuration File
-
-Copy the example configuration and customize for your rig:
-
-```bash
-# Linux/Mac
-mkdir -p ~/.config/pyscanbox
-cp config_template.yaml ~/.config/pyscanbox/config.yaml
-
-# Windows
-mkdir %APPDATA%\pyscanbox
-copy config_template.yaml %APPDATA%\pyscanbox\config.yaml
-```
-
-### Configuration File Locations
-
-pyscanbox searches for configuration files in the following locations:
-
-**Option A: User configuration directory (Recommended)**
-- Linux/Mac: `~/.config/pyscanbox/config.yaml`
-- Windows: `%APPDATA%\pyscanbox\config.yaml`
-
-**Option B: System-wide configuration (Multi-user systems)**
-- Linux: `/etc/pyscanbox/config.yaml`
-- Windows: `C:\ProgramData\pyscanbox\config.yaml`
-
-
-## Project Status
-
-This project is currently in **Phase 1: Core Backend Translation**.
-
-See [MILESTONES.md](devel/MILESTONES.md) for detailed progress tracking.
-
-## Documentation
-
-- [Development Guide](devel/DEVELOPMENT_GUIDE.md) - Comprehensive guide for AI agents and developers
-- [Milestones](devel/MILESTONES.md) - Detailed progress tracking and miscellaneous tasks
-- [Hardware Setup](docs/hardware_setup.md) - Hardware configuration and connections
-- [API Reference](docs/api_reference.md) - Complete API documentation
-
-## Architecture
-
-```
-pyscanbox/
-├── hardware/      # Hardware interface modules (Alazar, motors, controller)
-├── acquisition/   # Data acquisition and processing
-├── io/            # File I/O (.sbx and .mat formats)
-├── utils/         # Utility functions
-└── gui/           # PyQt GUI
-```
-
-## Testing
-
-Run tests with:
-```bash
-pytest
-```
-
-Run tests with coverage:
-```bash
-pytest --cov=pyscanbox --cov-report=html
-```
+## User Guide
+See the [User Guide](docs/user_guide/index.md) for how to install and use the software.
 
 ## Contributing
-
-Please follow the Google Python Style Guide and ensure all code includes proper docstrings.
+Contributions to the project are welcome. If you encounter an issue, or want to contribute code, please open an issue or submit a pull request.
 
 ## License
-
-MIT License
+This software is open-source, licensed under the GNU General Public License v3.0 or later. See [LICENSE](LICENSE).
 
 ## Authors
-
-- Santiago Jaramillo (sjara@uoregon.edu) - Python implementation
+Santiago Jaramillo (https://jaralab.uoregon.edu/)
 
 ## Acknowledgments
-
-Based on the original MATLAB Scanbox system by Dario Ringach.
+Several features of this software were inspired by the original MATLAB-based [Scanbox](https://www.scanbox.org/) system by Dario Ringach.<br>
+The software relies on the [atsbindings](https://github.com/tweber225/atsbindings) library by Tim Weber for interacting with the AlazarTech board.

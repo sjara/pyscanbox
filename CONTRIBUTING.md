@@ -1,7 +1,9 @@
 # pyscanbox: Development Guide
 
+This document describes the pyscanbox development workflow, architecture guidelines, and contributing practices. 
+
 ## 1. Project Overview & Scope
-* **Objective:** Develop a Python software package to collect data using Neurolabware two-photon microscopes, based on the original MATLAB-based Scanbox software (https://scanbox.org/).
+* **Objective:** Develop a Python software package to collect data using Neurolabware two-photon microscopes, similar in scope to the original MATLAB-based Scanbox software (https://scanbox.org/).
 * **Project Name:** pyscanbox
 * **Target Environment:** Windows OS (to use existing hardware drivers).
 
@@ -29,17 +31,18 @@ Reference: https://scanbox.org/2014/03/13/welcome-to-scanbox/
   * Epifluorescence / 2P mirror toggling
   * Optotune/ETL control for z-stacks (electrically tunable lens)
   * Bidirectional scan support with pixel shift correction
-  * Memory-mapped streaming for real-time data access (advanced feature)
   * TTL events recording
   * Saving data in standard `.sbx` and `.mat` formats
 #### **Via Plugins:**
+  * Streaming for real-time data access
   * Quadrature encoder for rotation platform monitoring
   * Auxiliary cameras (eye/ball/path)
 ### **Out of Scope:**
-  * Laser serial control (use manufacturer software)
-  * Optogenetics (SLM, LED)
-  * Ephys/external event recording via NI-DAQ
-  * Laser automatic gain control
+  * Laser serial control. Use manufacturer software instead.
+  * Laser automatic gain control.
+  * Optogenetics (SLM, LED).
+  * Ephys/external event recording via NI-DAQ.
+
 
 ## 2. Development Environment
 * **Primary Development OS:** Ubuntu Linux (development is performed mostly on Ubuntu using hardware emulation).
@@ -55,25 +58,15 @@ Reference: https://scanbox.org/2014/03/13/welcome-to-scanbox/
 * **Imports:** Import only packages and modules. Do not import individual types, classes, or functions (e.g., use `import serial` and instantiate with `serial.Serial`, do not use `from serial import Serial`).
 * **Single Source of Truth:** Every hardware parameter, value range, conversion factor, or lookup table must be defined in exactly one place — always in the lowest-level module that owns the concept (e.g., hardware limits belong in the hardware class, not the GUI). All other code must import and reference that definition. Never duplicate a constant or restate a range in a comment or widget; use the symbol directly. Examples: ETL current limits live in `ScanboxController.ETL_CURRENT_MIN/MAX`; PMT scale factors are module-level constants in `app_controller.py`. Violation of this rule means that changing a hardware parameter requires hunting down multiple copies, which is error-prone.
 
-## 4. Development Phases & Guidelines
-* **Phase 1: Core Backend Translation:** Implement the hardware communication and data acquisition logic module-by-module. Implement hardware emulation layer to enable development without physical hardware access. **Write unit tests alongside each module** using the emulator (`mock_serial`, `mock_alazar`, etc) to verify byte-level serial protocols and hardware interactions. All backend modules should have comprehensive test coverage before proceeding to Phase 2.
-* **Phase 2: GUI Development:** Build the user interface using **PyQt** and integrate with hardware modules using emulation mode. This allows GUI development to proceed in parallel without waiting for hardware access. Test all GUI functionality using the emulator.
-* **Phase 3: Hardware-in-the-Loop (HIL) Testing:** Validate all backend modules and GUI functionality on the actual Windows rig with physical hardware. Replace emulation with real hardware drivers and verify that byte-level protocols work correctly with actual devices. Test performance benchmarks and identify any hardware-specific issues.
-* **Phase 4: Integration and Optimization:** Once hardware validation is complete, perform full system integration testing, optimize performance on actual hardware, and conduct long-duration stability testing.
-* **Phase 5: Plugins:** Develop plugins for additional functionality.
+## 4. Reference File Mapping
+When a features is related to the original Scanbox codebase, refer to the specific files from the original codebase. For example, the main acquisition loop is in `core/scanbox.m` and the high-speed reshaping is in `core/alazarReshapeCData2.c`, while the Alazar configuration is in `core/configureLsb9440.m` and `core/scanbox.m` (lines 743-893).
 
-## 5. Reference File Mapping
-
-When translating logic, refer to these specific files in the original codebase. For example, the main acquisition loop is in `core/scanbox.m` and the high-speed reshaping is in `core/alazarReshapeCData2.c`, while the Alazar configuration is in `core/configureLsb9440.m` and `core/scanbox.m` (lines 743-893).
-
-
-## 6. Architectural Constraints & Bottlenecks
+## 5. Architectural Constraints & Bottlenecks
 * **The GIL & High-Speed Data:** The system handles a ~500 MB/s continuous data stream (125 MS/s, 14-bit, 2-channel) from the Alazar card. Standard Python `for` loops will drop frames.
 * **Data Reshaping:** The interleaved 16-bit PMT data unpacking must be written using compiled code (e.g., Numba `@njit`, Cython, or C++ extensions via Pybind11) to match the speed of the original MATLAB MEX files.
 * **Memory Management:** You must use pinned (page-locked) memory (e.g., via `ctypes`) for Alazar DMA transfers to prevent Python's garbage collector from moving arrays during hardware interrupts.
 
-## 7. Hardware Interfacing & Protocols
-
+## 6. Hardware Interfacing & Protocols
 For complete protocol specifications, see the [docs/hardware_protocols/](docs/hardware_protocols/) directory.
 
 * **Main Scanbox Controller:** 3-byte serial packets at 1 Mbaud. Use `pyserial`. See [docs/hardware_protocols/scanbox_controller.md](docs/hardware_protocols/scanbox_controller.md).
@@ -83,7 +76,7 @@ For complete protocol specifications, see the [docs/hardware_protocols/](docs/ha
 * **AlazarTech Digitizer:** Use the wrapper provided by the `atsbindings` package. **External clock comes from the laser sync-out (~80 MHz), not the internal clock**; using the wrong clock source causes beat-pattern artifacts. The line trigger is sent by the Scanbox controller card. See [docs/hardware_protocols/alazar_digitizer.md](docs/hardware_protocols/alazar_digitizer.md).
 
 ## 8. Data Output Specification (.sbx format)
-* **Binary Dump (`.sbx`):** Write the raw, reshaped `uint16` arrays directly to a headerless binary file (e.g., using `buffer.tofile()`), exactly as MATLAB's `fwrite` does. 
+* **Binary Dump (`.sbx`):** Write the raw, reshaped `uint16` arrays directly to a headerless binary file (e.g., using `buffer.tofile()`).
 * **Metadata (`.mat`):** Save the acquisition parameters and configuration dictionary at the end of the run using `scipy.io.savemat` to create a `.mat` file with the exact same base name. This guarantees backwards compatibility with existing lab processing pipelines like Suite2p.
 
 ## 9. Hardware Command Logging
@@ -140,8 +133,5 @@ Create a dummy class to replace `serial.Serial` when running in emulation mode.
 
 ### 10.2 Mocking the AlazarTech Digitizer (High-Speed Data)
 Create a dummy Python class that mirrors the methods of the `atsbindings` wrapper. 
-* **Synthetic Data Generation:** Instead of reading from a PCIe bus, the mock `AlazarWaitAsyncBufferComplete` method should yield NumPy arrays populated with random 14-bit integers (e.g., `np.random.randint(0, 16384, size=...)`) to simulate PMT noise.
-* **Stress Testing:** Use this synthetic data stream to stress-test the Linux development environment. Verify that:
-  1. The C++/Cython/Numba reshaping functions can process the simulated 500 MB/s data rate.
-  2. The `.sbx` binary disk writing logic can keep up with the data stream without dropping frames.
-  3. The PyQt GUI remains responsive while the mock acquisition loop runs in the background.
+
+**Synthetic Data Generation:** Instead of reading from a PCIe bus, the mock `AlazarWaitAsyncBufferComplete` method should yield NumPy arrays populated with random 14-bit integers (e.g., `np.random.randint(0, 16384, size=...)`) to simulate PMT data.

@@ -34,7 +34,7 @@ class MainWindow(QtWidgets.QMainWindow):
     and real-time image display on the right.
     """
     
-    WINDOW_TITLE = "Two-Photon Microscope Control Software"
+    WINDOW_TITLE = "pyscanbox - Two-Photon Microscope Control Software"
 
     # Default window geometry
     DEFAULT_WINDOW_X = 100
@@ -136,6 +136,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusBar = QtWidgets.QStatusBar()
         self.setStatusBar(self.statusBar)
         self.statusBar.showMessage("Ready")
+        
+        # Add version label to the right side of the status bar
+        version_label = QtWidgets.QLabel(f"v{pyscanbox.__version__}")
+        version_label.setStyleSheet("color: #888888; padding-right: 0px;")
+        self.statusBar.addPermanentWidget(version_label)
 
         # Create the command log dock at the bottom of the window.
         self._log_panel = widgets.CommandLogPanel()
@@ -503,7 +508,8 @@ class MainWindow(QtWidgets.QMainWindow):
             "<h2>pyscanbox</h2>"
             "<p>Two-Photon Microscope Control Software</p>"
             f"<p>Version {pyscanbox.__version__}</p>"
-            "<p>Python implementation of the Scanbox system</p>"
+            "<p>GNU General Public License v3.0 or later</p>"
+            "<p>Copyright © 2026 Santiago Jaramillo</p>"
         )
 
     # ------------------------------------------------------------------
