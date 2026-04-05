@@ -6,6 +6,17 @@ All notable changes to this project are documented here. This file is append-onl
 
 ---
 
+## v1.6.3 - April 4, 2026
+- **User Guide and Documentation Enhancements**
+  - Created comprehensive User Guide with installation instructions, typical workflow, GUI overview, and feature-specific guides.
+  - Added volumetric imaging limitations documentation explaining the 255-entry hardware constraint.
+  - Updated README.md with complete feature list including bidirectional scanning, volumetric imaging, TTL timestamping, and real-time plugin streaming.
+  - Fixed license information in README (MIT → GPL-3.0-or-later).
+  - Added version display to application status bar and About dialog.
+- **Miscellaneous Improvements**
+  - Completed incomplete sentence in CONTRIBUTING.md.
+  - Fixed markdown formatting in branching_strategy.md.
+
 ## v1.6.2 - April 4, 2026
 - **Configuration synchronization on application startup**
   - GUI spinboxes (`total_frames`, `magnification`, `scan_mode`) now initialize from config values at startup, ensuring GUI and acquisition parameters are synchronized (fixing frame rate calculation on app start).
