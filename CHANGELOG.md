@@ -6,6 +6,27 @@ All notable changes to this project are documented here. This file is append-onl
 
 ---
 
+## v1.6.4 - April 9, 2026
+- **Continuous Resonant Mode Phase Synchronization**
+  - Implemented missing `CMD_DEADBAND_PERIOD` (ID 10) command to synchronize PSoC5 hardware to resonant scanner oscillation phase.
+  - This command is critical for continuous resonant mode, where the scanner is already oscillating when acquisition starts; without it, the first line trigger fires at an unpredictable phase, causing vertical frame shifts.
+  - Deadband period synchronization now occurs once during hardware initialization (matching original MATLAB behavior) via guard flag `_deadband_period_set` to prevent re-synchronization during each acquisition.
+  - Formula: `period = round(24e6 / resonant_freq / 2)`; for default 7930 Hz, period ≈ 1513 (auto-clamped to valid hardware range 1245 < p < 1500).
+- **Fixed Acquisition Startup Sequence**
+  - Corrected the order of operations to match original MATLAB (`core/scanbox.m` lines 2517–2586):
+    - Previously: `start_scan()` → `start_acquisition()`
+    - Now: `start_acquisition()` (arm digitizer) → 50ms delay → set Pockels blanking → `start_scan()` (begin triggering)
+  - This ensures the digitizer is armed and ready before the scanner generates line triggers.
+- **Pockels Deadband Organization**
+  - Split deadband synchronization into two methods:
+    - `synchronize_scanner_phase()`: Sets phase (deadband_period) once during initialization.
+    - `synchronize_pockels_blanking()`: Sets blanking region widths (left/right) per acquisition, matching original MATLAB behavior.
+  - Added `set_deadband_period(period)` to `ScanboxController` with automatic clamping to valid hardware range.
+- **Bug Fix: Vertical Frame Shift in Continuous Resonant Mode**
+  - Fixed critical bug where images acquired in continuous resonant mode showed a vertical cyclic shift (top lines appeared at ~line 100, bottom wrapped to top).
+  - Root cause: Deadband period was being re-synchronized before every acquisition, disrupting phase relationship in continuous mode; and startup sequence was incorrect.
+  - With this fix, images are now aligned identically whether continuous resonant mode is enabled or disabled.
+
 ## v1.6.3 - April 4, 2026
 - **User Guide and Documentation Enhancements**
   - Created comprehensive User Guide with installation instructions, typical workflow, GUI overview, and feature-specific guides.
