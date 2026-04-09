@@ -316,6 +316,22 @@ class Scanner:
         hsync_sign = self.config.get('scanner', {}).get('hsync_sign', 1)
         self.controller.set_hsync_sign(hsync_sign)
 
+        # Synchronize resonant scanner phase via deadband period.
+        # This MUST be called before start_scan() to ensure the first line
+        # triggers fire at the correct scanner phase, preventing horizontal
+        # image shift (especially important for continuous resonant mode where
+        # the scanner is already oscillating).
+        # Reference: sb/sb_deadband_period.m; scanbox.m line 483.
+        resonant_freq = self.config.get('scanner', {}).get('resonant_freq', 7930)
+        deadband_period = round(24e6 / resonant_freq / 2)
+        self.controller.set_deadband_period(deadband_period)
+
+        # Apply Pockels cell blanking regions at line margins.
+        # Must be called AFTER set_deadband_period() per hardware protocol.
+        # Reference: sb/sb_deadband.m; scanbox.m line 484.
+        deadband_cfg = self.config.get('scanner', {}).get('deadband', [120, 150])
+        self.controller.set_pockels_deadband(deadband_cfg[0], deadband_cfg[1])
+
         # Resonant scanner warmup delay: how long the PSoC5 waits (after
         # start_scan) before firing line triggers, giving the mirror time
         # to reach its stable oscillation amplitude.  Without this the

@@ -107,8 +107,9 @@ class ScanboxController:
     CMD_GAIN1 = 7
     CMD_POCKELS = 8
     CMD_DEADBAND = 9
-    CMD_SHUTTER = 16
+    CMD_DEADBAND_PERIOD = 10  # [10, 0, period] — synchronize to resonant scanner phase
     CMD_WARMUP_DELAY = 11  # [11, 0, delay] — resonant scanner warmup delay (×10 ms)
+    CMD_SHUTTER = 16
     CMD_UNIDIRECTIONAL = 33  # Set PSoC5 to trigger on forward sweep only
     CMD_BIDIRECTIONAL = 34   # Set PSoC5 to trigger on both forward and return sweeps
     CMD_CONTINUOUS_RESONANT = 0x34 # [0x34, 1, 0] — continuous resonant mode
@@ -191,6 +192,7 @@ class ScanboxController:
         CMD_GAIN1: 'set_pmt_gain',
         CMD_POCKELS: 'set_pockels',
         CMD_DEADBAND: 'set_pockels_deadband',
+        CMD_DEADBAND_PERIOD: 'set_deadband_period',
         CMD_SHUTTER: 'set_shutter',
         CMD_WARMUP_DELAY: 'set_warmup_delay',
         CMD_UNIDIRECTIONAL: 'set_scan_mode',
@@ -268,6 +270,9 @@ class ScanboxController:
             return f'set_pockels(base={param1}, active={param2})'
         if cmd_id == ScanboxController.CMD_DEADBAND:
             return f'set_pockels_deadband(left={param1}, right={param2})'
+        if cmd_id == ScanboxController.CMD_DEADBAND_PERIOD:
+            period = 1500 - param2  # Reverse firmware transformation for display
+            return f'set_deadband_period(period={period})'
         if cmd_id == ScanboxController.CMD_SHUTTER:
             open_val = 'True' if param2 else 'False'
             return f'set_shutter(open={open_val})'
@@ -555,6 +560,44 @@ class ScanboxController:
             raise ValueError(f"Right deadband must be 0-255, got {right}")
         self._send_command(self.CMD_DEADBAND, left, right)
         self.pockels_deadband = {'left': left, 'right': right}
+
+    def set_deadband_period(self, period: int) -> None:
+        """Synchronize hardware to resonant scanner oscillation phase.
+
+        Sets the PWM period for the Pockels cell deadband signal. This command
+        **must be called before acquisition starts** to synchronize the PSoC5
+        line-trigger timing to the resonant scanner's oscillation phase.
+
+        Without this, the first line trigger fires at an arbitrary scanner phase,
+        causing horizontal image shift (especially visible in continuous resonant
+        mode where the scanner is already oscillating).
+
+        The period is calculated from the resonant frequency:
+            period = round(24e6 / resonant_freq / 2)
+
+        For the default resonant frequency of 7930 Hz:
+            period ≈ round(24000000 / 7930 / 2) ≈ 1513
+
+        The hardware firmware applies an internal transformation: sends
+        (1500 - period) to the PSoC5.
+
+        Args:
+            period: Deadband period value, typically ~1513 for 7930 Hz.
+                    Must satisfy: 1245 < period < 1500
+
+        Raises:
+            ValueError: If period is outside valid range (1245, 1500).
+
+        Reference:
+            See sb/sb_deadband_period.m; scanbox.m line 483.
+            See docs/hardware_protocols/scanbox_controller.md → "Pockels Deadband Period"
+        """
+        if not (1245 < period < 1500):
+            raise ValueError(f'deadband_period must satisfy 1245 < p < 1500, got {period}')
+
+        # Hardware firmware expects pre-transformed value
+        hw_value = 1500 - period
+        self._send_command(self.CMD_DEADBAND_PERIOD, 0, hw_value)
 
     def set_shutter(self, open: bool) -> None:
         """Set laser shutter state.
