@@ -579,21 +579,24 @@ class ScanboxController:
             period ≈ round(24000000 / 7930 / 2) ≈ 1513
 
         The hardware firmware applies an internal transformation: sends
-        (1500 - period) to the PSoC5.
+        (1500 - period) to the PSoC5. The valid range is 1245 < period < 1500.
+        If the calculated period exceeds this range, it is clamped to ensure
+        synchronization is as close as possible to the intended frequency.
 
         Args:
             period: Deadband period value, typically ~1513 for 7930 Hz.
-                    Must satisfy: 1245 < period < 1500
-
-        Raises:
-            ValueError: If period is outside valid range (1245, 1500).
+                    Valid range: 1245 < period < 1500; values outside this
+                    range are clamped to the nearest boundary.
 
         Reference:
             See sb/sb_deadband_period.m; scanbox.m line 483.
             See docs/hardware_protocols/scanbox_controller.md → "Pockels Deadband Period"
         """
-        if not (1245 < period < 1500):
-            raise ValueError(f'deadband_period must satisfy 1245 < p < 1500, got {period}')
+        # Clamp period to valid hardware range
+        if period <= 1245:
+            period = 1246  # Minimum + 1
+        elif period >= 1500:
+            period = 1499  # Maximum - 1
 
         # Hardware firmware expects pre-transformed value
         hw_value = 1500 - period
