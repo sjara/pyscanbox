@@ -232,6 +232,10 @@ class Scanner:
         # Upload Pockels LUT and range once after the controller is open.
         self.initialize_pockels_lut()
 
+        # Synchronize PSoC5 to resonant scanner phase (deadband period and
+        # blanking regions). This is essential for continuous resonant mode.
+        self.synchronize_scanner_phase()
+
         # Initialize motor if configured
         if 'motor' in self.config:
             if self._motor_owned:
@@ -316,22 +320,6 @@ class Scanner:
         hsync_sign = self.config.get('scanner', {}).get('hsync_sign', 1)
         self.controller.set_hsync_sign(hsync_sign)
 
-        # Synchronize resonant scanner phase via deadband period.
-        # This MUST be called before start_scan() to ensure the first line
-        # triggers fire at the correct scanner phase, preventing horizontal
-        # image shift (especially important for continuous resonant mode where
-        # the scanner is already oscillating).
-        # Reference: sb/sb_deadband_period.m; scanbox.m line 483.
-        resonant_freq = self.config.get('scanner', {}).get('resonant_freq', 7930)
-        deadband_period = round(24e6 / resonant_freq / 2)
-        self.controller.set_deadband_period(deadband_period)
-
-        # Apply Pockels cell blanking regions at line margins.
-        # Must be called AFTER set_deadband_period() per hardware protocol.
-        # Reference: sb/sb_deadband.m; scanbox.m line 484.
-        deadband_cfg = self.config.get('scanner', {}).get('deadband', [120, 150])
-        self.controller.set_pockels_deadband(deadband_cfg[0], deadband_cfg[1])
-
         # Resonant scanner warmup delay: how long the PSoC5 waits (after
         # start_scan) before firing line triggers, giving the mirror time
         # to reach its stable oscillation amplitude.  Without this the
@@ -365,6 +353,42 @@ class Scanner:
         # 2. Set DAC/PGA range.
         prange = pockels_cfg.get('range', [1, 2])
         self.controller.set_pockels_range(int(prange[0]), int(prange[1]))
+
+    def synchronize_scanner_phase(self) -> None:
+        """Synchronize PSoC5 to resonant scanner oscillation phase.
+
+        Sets the deadband period (phase sync) once. This is critical for
+        correct line trigger timing in continuous resonant mode where the
+        scanner is already oscillating when acquisition starts.
+
+        This method is called only on the very first hardware initialization
+        to avoid re-synchronizing in the middle of continuous resonant mode,
+        which can cause frame shifts.
+
+        Reference:
+            Original MATLAB: sb_deadband_period.m (called once at startup)
+            scanbox.m line 483
+        """
+        # Check if we've already synchronized (guard against re-sync)
+        if not hasattr(self.controller, '_deadband_period_set'):
+            resonant_freq = self.config.get('scanner', {}).get('resonant_freq', 7930)
+            deadband_period = round(24e6 / resonant_freq / 2)
+            self.controller.set_deadband_period(deadband_period)
+            # Mark that we've done the synchronization
+            self.controller._deadband_period_set = True
+
+    def synchronize_pockels_blanking(self) -> None:
+        """Apply Pockels cell blanking regions at line margins.
+
+        Called before each acquisition to set the blanking width values.
+        Must be called AFTER set_deadband_period() (during initialization).
+
+        Reference:
+            Original MATLAB: sb_deadband.m
+            scanbox.m line 538 (called at each acquisition startup)
+        """
+        deadband_cfg = self.config.get('scanner', {}).get('deadband', [120, 150])
+        self.controller.set_pockels_deadband(deadband_cfg[0], deadband_cfg[1])
 
     def initialize_pockels(self) -> None:
         """Set Pockels cell to zero power as a safe starting state.
@@ -473,8 +497,23 @@ class Scanner:
             #   self.controller.set_shutter(open=True)
             logger.info("Starting acquisition...")
             self._notify_cmd('System', 'Starting acquisition')
-            self.controller.start_scan()
+            
+            # Prepare Alazar digitizer FIRST (equivalent to AlazarStartCapture).
+            # The digitizer waits for hardware triggers from the PSoC5.
             self.alazar.start_acquisition()
+            
+            # Small delay to let digitizer stabilize, matching original MATLAB
+            # pause(0.2) at line 2536.
+            time.sleep(0.05)  # 50ms delay (conservative)
+            
+            # Apply Pockels cell blanking before starting scanner, matching original
+            # MATLAB sequence (scanbox.m lines 2536-2538).
+            self.synchronize_pockels_blanking()
+            
+            # Start scanner (triggers line captures from digitizer).
+            # In continuous resonant mode, this begins capturing at the current
+            # scanner phase as established by deadband_period synchronization.
+            self.controller.start_scan()
             self.is_running = True
             self.start_time = time.time()
 
