@@ -80,4 +80,5 @@ pyscanbox/vendor/alazar/atsapi.py
 /code.pyscanbox.code-workspace
 /old
 /tmp
-
+/devel
+/clear_numba_cache.py
