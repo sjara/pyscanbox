@@ -1,10 +1,16 @@
 # pyscanbox Changelog
 
-All notable changes to this project are documented here. This file is append-only — do not edit past entries.
+All notable changes to this project are documented here. This file is append-only, do not edit past entries.
 
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
----
+
+## v1.6.6 - April 10, 2026
+- **API Cleanup: Renamed Core I/O Classes**
+  - Renamed `ScanboxOriginalWriter` → `SbxWriter` and `ScanboxOriginalReader` → `SbxReader` to simplify the API now that the obsolete `SbxWriterObsolete` and `SbxReaderObsolete` classes have been removed.
+  - Removed deprecated `load_sbx_obsolete()` convenience function.
+  - Updated all docstrings, type annotations, and cross-references throughout the codebase (`pyscanbox/acquisition/scan.py`, `pyscanbox/gui/main_window.py`, `pyscanbox/io/tiff_exporter.py`, `pyscanbox/scripts/sbx_to_tiff.py`, and tests).
+  - All 20 existing unit tests continue to pass without modification.
 
 ## v1.6.5 - April 9, 2026
 - **Mock signal parameters configurable from config file**

@@ -62,8 +62,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # Hardware controller and acquisition elapsed-time tracking.
         self._ctrl = None
         self._acq_start_time = 0.0
-        # ScanboxOriginalReader for a loaded recording; None when no file is open.
-        self._sbx_reader: sbx_reader.ScanboxOriginalReader | None = None
+        # SbxReader for a loaded recording; None when no file is open.
+        self._sbx_reader: sbx_reader.SbxReader | None = None
         # True when a Grab (data-saving) acquisition is running; False for Focus.
         # Used to gate post-acquisition actions that only apply to Grab (e.g.
         # Session ID increment).
@@ -387,7 +387,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _open_data_file(self) -> None:
         """Open a file dialog to select an .sbx recording and display it.
 
-        Loads the .sbx/.mat pair via :class:`~pyscanbox.io.sbx_reader.ScanboxOriginalReader`,
+        Loads the .sbx/.mat pair via :class:`~pyscanbox.io.sbx_reader.SbxReader`,
         configures the frame selector widget, shows it, and displays the
         first frame.  Any previously loaded recording is closed first.
         """
@@ -400,7 +400,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not path:
             return
 
-        # Strip the .sbx extension to get the base path expected by ScanboxOriginalReader.
+        # Strip the .sbx extension to get the base path expected by SbxReader.
         base_path = path[:-4] if path.lower().endswith('.sbx') else path
 
         # Close any previously loaded recording.
@@ -409,7 +409,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._sbx_reader = None
 
         try:
-            reader = sbx_reader.ScanboxOriginalReader(base_path)
+            reader = sbx_reader.SbxReader(base_path)
         except (FileNotFoundError, ValueError) as exc:
             QtWidgets.QMessageBox.critical(
                 self, "Failed to open data file", str(exc)
@@ -444,7 +444,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_frame_selected(self, index: int) -> None:
         """Display the frame at *index* from the currently loaded recording.
 
-        Retrieves the frame from the memory-mapped ScanboxOriginalReader and forwards it
+        Retrieves the frame from the memory-mapped SbxReader and forwards it
         to the image display widget using the same array shape that live
         acquisition uses: ``(channels, lines_per_frame, pixels_per_line)``.
 

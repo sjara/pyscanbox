@@ -45,7 +45,7 @@ class Scanner:
         alazar: AlazarDigitizer instance
         controller: ScanboxController instance
         motor: TrinamicMotor instance (optional)
-        writer: ScanboxOriginalWriter instance
+        writer: SbxWriter instance
         is_running: Acquisition running flag
         frames_acquired: Counter for acquired frames
     """
@@ -199,7 +199,7 @@ class Scanner:
             self.frames_to_acquire = sys.maxsize
 
         # File writers
-        self.sbx_writer: Optional[sbx_writer.ScanboxOriginalWriter] = None
+        self.sbx_writer: Optional[sbx_writer.SbxWriter] = None
         
         # State
         self.is_running = False
@@ -274,7 +274,7 @@ class Scanner:
         pmt_channel = self.save_channels if self.save_channels in (0, 1) else 0
         unidirectional = self.config.get('acquisition', {}).get('unidirectional', True)
         scanmode = 1 if unidirectional else 0
-        self.sbx_writer = sbx_writer.ScanboxOriginalWriter(
+        self.sbx_writer = sbx_writer.SbxWriter(
             self.output_path,
             lines_per_frame=self.lines_per_frame,
             pixels_per_line=self.pixels_per_line,
@@ -612,7 +612,7 @@ class Scanner:
                 )
             
             # Write to disk, selecting only the requested channel(s).
-            # ScanboxOriginalWriter.write_frame() accepts wire-format data
+            # SbxWriter.write_frame() accepts wire-format data
             # (high = dark) directly — no inversion needed here.
             if self.sbx_writer is not None:
                 if self.save_channels == 0:
@@ -774,7 +774,7 @@ class Scanner:
 
         # Close .sbx file and write companion .mat metadata.
         # extra_info is populated with the full acquisition metadata so that
-        # ScanboxOriginalWriter.write_mat() embeds it in the info struct.
+        # SbxWriter.write_mat() embeds it in the info struct.
         if self.sbx_writer is not None:
             try:
                 self.sbx_writer.extra_info = self._create_metadata()
@@ -815,7 +815,7 @@ class Scanner:
             channels_mask = 3       # PMT1 only
         else:
             channels_mask = 1       # both (default)
-        # nchan: number of channels actually saved (used by ScanboxOriginalReader)
+        # nchan: number of channels actually saved (used by SbxReader)
         nchan = 1 if self.save_channels in (0, 1) else 2
 
         # ----------------------------------------------------------------
@@ -885,7 +885,7 @@ class Scanner:
             'messages': np.array([], dtype=object),
             'usernotes': '',
             # nchan is derived in sbxread.m from channels bitmask; we store it
-            # explicitly for direct use by ScanboxOriginalReader without re-deriving.
+            # explicitly for direct use by SbxReader without re-deriving.
             'nchan': np.int64(nchan),
             # TTL event timestamps (mirrors sb_timestamps() field names)
             'frame':    ttl_frame,

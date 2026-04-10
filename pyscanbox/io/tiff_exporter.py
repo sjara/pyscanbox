@@ -14,7 +14,7 @@ Example::
 
     >>> import pyscanbox.io.sbx_reader
     >>> import pyscanbox.io.tiff_exporter
-    >>> with pyscanbox.io.sbx_reader.ScanboxOriginalReader('mydata') as reader:
+    >>> with pyscanbox.io.sbx_reader.SbxReader('mydata') as reader:
     ...     pyscanbox.io.tiff_exporter.save_channel_as_tiff(reader, 'mydata_ch0.tif')
 
 """
@@ -36,8 +36,7 @@ def save_channel_as_tiff(reader, output_path, channel=0, invert=True,
     size exceeds 4 GB, or when ``bigtiff=True`` is passed.
 
     Args:
-        reader: An open :class:`~pyscanbox.io.sbx_reader.ScanboxOriginalReader`
-            or :class:`~pyscanbox.io.sbx_reader.SbxReaderObsolete` instance.
+        reader: An open :class:`~pyscanbox.io.sbx_reader.SbxReader` instance.
         output_path: Destination ``.tif`` file path.
         channel: PMT channel index to export (0-based, default ``0``).
         invert: If ``True`` (default), pass ``invert=True`` to the reader so
@@ -54,7 +53,7 @@ def save_channel_as_tiff(reader, output_path, channel=0, invert=True,
 
     Example::
 
-        >>> with pyscanbox.io.sbx_reader.ScanboxOriginalReader('mydata') as r:
+        >>> with pyscanbox.io.sbx_reader.SbxReader('mydata') as r:
         ...     pyscanbox.io.tiff_exporter.save_channel_as_tiff(
         ...         r, 'mydata_ch0.tif', channel=0)
     """
@@ -114,7 +113,7 @@ def save_all_channels_as_tiff(reader, output_base, invert=True,
 
     Example::
 
-        >>> with pyscanbox.io.sbx_reader.ScanboxOriginalReader('mydata') as r:
+        >>> with pyscanbox.io.sbx_reader.SbxReader('mydata') as r:
         ...     paths = pyscanbox.io.tiff_exporter.save_all_channels_as_tiff(
         ...         r, 'mydata')
         >>> print(paths)  # ['mydata_ch0.tif', 'mydata_ch1.tif']

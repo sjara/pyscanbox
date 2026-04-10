@@ -245,7 +245,7 @@ plugins:
   # Quadrature encoder: Arduino-based rotation platform monitor.
   # Saves one int32 count per frame as <base>_quadrature.npy
   quadrature:
-    enabled: true               # Set true to auto-connect at startup
+    enabled: false              # Set true to auto-connect at startup
     module: pyscanbox.plugins.quadrature
     class: QuadraturePlugin
     port: COM8                  # Serial port for the Arduino
@@ -259,7 +259,7 @@ plugins:
 
   # ZeroMQ Streamer: Broadcasts imaging frames to external applications.
   zmq_streamer:
-    enabled: true               # Set true to start publishing at startup
+    enabled: false              # Set true to start publishing at startup
     module: pyscanbox.plugins.zmq_streamer
     class: ZmqStreamerPlugin
     host: 127.0.0.1             # IP address to bind to

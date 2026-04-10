@@ -103,7 +103,7 @@ def main():
 
     print(f'Opening: {args.input}.sbx')
     try:
-        with pyscanbox.io.sbx_reader.ScanboxOriginalReader(args.input) as reader:
+        with pyscanbox.io.sbx_reader.SbxReader(args.input) as reader:
             print(f'  Frames   : {reader.num_frames}')
             print(f'  Channels : {reader.num_channels}')
             print(f'  Size     : {reader.lines_per_frame} × {reader.pixels_per_line} px')
