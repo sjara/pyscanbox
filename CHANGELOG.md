@@ -5,6 +5,22 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
+## v1.6.8 - April 10, 2026
+- **Refactor: Format-Agnostic Metadata Layer (Single Source of Truth)**
+  - **New module:** `pyscanbox/io/metadata.py` containing `AcquisitionMetadata`, a format-agnostic dataclass that defines all metadata fields captured during acquisition.  Attribute names follow Python conventions (snake_case); format-specific mapping to `.mat` field names happens in the writer, not in the acquisition code.
+  - **Eliminates duplication:** Metadata field definitions were previously scattered between `scan.py` (`_create_metadata()` returning a dict with `.mat` field names) and implicit in `sbx_writer.py`. Now there is one authoritative definition in `AcquisitionMetadata`.
+  - **Enables future formats:** Any format writer (HDF5, Zarr, etc.) can import `AcquisitionMetadata` and define its own field mapping without touching acquisition code.
+  - **Updated `sbx_writer.py`:**
+    - New `_metadata_to_mat_dict(meta: AcquisitionMetadata)` function maps `AcquisitionMetadata` fields to the MATLAB `info` struct layout (nested `config` sub-struct, 1-based `magnification`, camelCase field names, etc.).
+    - `write_mat(metadata=None)` refactored: when `AcquisitionMetadata` is provided it uses the complete mapping; when `None` it falls back to minimal legacy behavior for standalone/low-level use.
+    - `close(metadata=None)` forwards metadata to `write_mat()`.
+  - **Updated `scan.py`:**
+    - Replaced `_create_metadata()` (returned raw dict with `.mat` field names) with `_create_acquisition_metadata()` (returns `AcquisitionMetadata`).
+    - `scan.py` no longer knows `.mat` field names — only logical attribute names.
+    - `cleanup()` passes `AcquisitionMetadata` to `sbx_writer.close()`.
+    - Added motor (Knobby) position reading at end-of-acquisition for metadata; positions are stored in `AcquisitionMetadata.knobby_x/y/z/a` and mapped to `config.knobby.pos` sub-struct in the `.mat` file.
+  - **Code style:** Imports adjusted to follow pyscanbox convention (`from pyscanbox.io import metadata` instead of direct class import).
+
 ## v1.6.7 - April 10, 2026
 - **Bug Fix: .mat file missing `info.config` sub-struct (Suite2p / sbxreader incompatibility)**
   - `sbxreader` (used by Suite2p) unconditionally accesses `info.config.magnification` and `info.config.lines` when reading a Scanbox `.mat` file; without these the import fails with `AttributeError: 'mat_struct' object has no attribute 'config'`.
