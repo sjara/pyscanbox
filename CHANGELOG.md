@@ -5,6 +5,15 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
+## v1.6.7 - April 10, 2026
+- **Bug Fix: .mat file missing `info.config` sub-struct (Suite2p / sbxreader incompatibility)**
+  - `sbxreader` (used by Suite2p) unconditionally accesses `info.config.magnification` and `info.config.lines` when reading a Scanbox `.mat` file; without these the import fails with `AttributeError: 'mat_struct' object has no attribute 'config'`.
+  - Added the `config` nested struct to `_create_metadata()` in `scan.py`, mirroring the `scanbox_getconfig()` function in the original `core/scanbox.m` (line 6416).
+  - `config.magnification` is the 1-based magnification index (MATLAB convention; pyscanbox stores it 0-based internally, so +1 is applied on write).
+  - `config.lines` matches `lines_per_frame`; `config.frames`, `config.pmt0_gain`, and `config.pmt1_gain` are also populated.
+  - `info.resfreq` was already written correctly; no change needed there.
+  - Updated the `_create_metadata()` docstring to clarify that nested dicts (without `None` values) are supported by `scipy.io.savemat` and written as MATLAB sub-structs.
+
 ## v1.6.6 - April 10, 2026
 - **API Cleanup: Renamed Core I/O Classes**
   - Renamed `ScanboxOriginalWriter` → `SbxWriter` and `ScanboxOriginalReader` → `SbxReader` to simplify the API now that the obsolete `SbxWriterObsolete` and `SbxReaderObsolete` classes have been removed.

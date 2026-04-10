@@ -25,6 +25,104 @@ import numpy as np
 import scipy.io
 from typing import Any, Dict, Optional
 
+from pyscanbox.io import metadata
+
+
+# ---------------------------------------------------------------------------
+# Internal helper: map AcquisitionMetadata → .mat info struct dict
+# ---------------------------------------------------------------------------
+
+def _metadata_to_mat_dict(meta: metadata.AcquisitionMetadata) -> Dict[str, Any]:
+    """Convert an :class:`~pyscanbox.io.metadata.AcquisitionMetadata` to a .mat-compatible dict.
+
+    This is the single authoritative mapping from logical acquisition
+    fields (snake_case) to the MATLAB ``info`` struct field names used by
+    ``sbxread.m``, Suite2p, and other downstream tools.
+
+    Args:
+        meta: Populated :class:`~pyscanbox.io.metadata.AcquisitionMetadata` instance.
+
+    Returns:
+        Dictionary ready to be passed to ``scipy.io.savemat`` as the
+        ``info`` struct.
+    """
+    bytes_per_buffer = (
+        meta.post_trigger_samples * meta.records_per_buffer * meta.nchan * 2
+    )
+    d: Dict[str, Any] = {
+        # --- Fields required by sbxread.m ---
+        # sz: [lines_per_frame, pixels_per_line] — mirrors size(chA') in MATLAB
+        'sz': np.array([[meta.lines_per_frame, meta.pixels_per_line]],
+                       dtype=np.int64),
+        'recordsPerBuffer': np.int64(meta.records_per_buffer),
+        # channels bitmask: 1=both PMT0+1, 2=PMT0 only, 3=PMT1 only
+        'channels': np.int64(meta.channels_mask),
+        'scanbox_version': np.int64(2),
+        'scanmode': np.int64(meta.scanmode),
+        # max_idx: index of the last frame (sbxread.m v2 also derives this
+        # from file size, but we store it explicitly for direct access).
+        'max_idx': np.int64(meta.frames - 1),
+        # nchan is derived in sbxread.m from channels; we store it explicitly
+        # so SbxReader can use it without re-deriving.
+        'nchan': np.int64(meta.nchan),
+        # --- Additional original Scanbox fields ---
+        'resfreq': np.int64(meta.resonant_freq),
+        'postTriggerSamples': np.int64(meta.post_trigger_samples),
+        'bytesPerBuffer': np.int64(bytes_per_buffer),
+        'ballmotion': meta.ballmotion,
+        'abort_bit': np.int64(meta.abort_bit),
+        # config sub-struct mirrors scanbox_getconfig() in scanbox.m.
+        # Suite2p accesses config.magnification and config.lines unconditionally.
+        # magnification is 1-based to match the MATLAB listbox Value convention.
+        'config': {
+            'wavelength':   np.int64(meta.laser_wavelength),
+            'frames':       np.int64(meta.frames),
+            'lines':        np.int64(meta.lines_per_frame),
+            'magnification': np.int64(meta.magnification + 1),
+            'pmt0_gain':    np.float64(meta.pmt0_gain),
+            'pmt1_gain':    np.float64(meta.pmt1_gain),
+            'knobby': {
+                'pos': {
+                    'x': np.float64(meta.knobby_x),
+                    'y': np.float64(meta.knobby_y),
+                    'z': np.float64(meta.knobby_z),
+                    'a': np.float64(meta.knobby_a),
+                },
+            },
+        },
+        'fold_lines':       np.int64(meta.fold_lines),
+        'otwave':           meta.otwave,
+        'otwave_um':        meta.otwave_um,
+        'otparam':          meta.otparam,
+        'otwavestyle':      np.int64(meta.otwavestyle),
+        'volscan':          np.int64(meta.volscan),
+        'power_depth_link': np.int64(meta.power_depth_link),
+        'opto2pow':         meta.opto2pow,
+        'area_line':        np.int64(meta.area_line),
+        'objective':        meta.objective,
+        'messages':         np.array(meta.messages, dtype=object),
+        'usernotes':        meta.usernotes,
+        # TTL event timestamps (mirrors sb_timestamps.m field names)
+        'frame':            meta.ttl_frame,
+        'line':             meta.ttl_line,
+        'event_id':         meta.ttl_event_id,
+        # --- pyscanbox-specific fields (not in original MATLAB info) ---
+        'frames':           np.int64(meta.frames),
+        'lines_per_frame':  np.int64(meta.lines_per_frame),
+        'pixels_per_line':  np.int64(meta.pixels_per_line),
+        'sample_rate':      np.int64(meta.sample_rate),
+        'magnification':    np.int64(meta.magnification),
+        'pockels_base':     np.int64(meta.pockels_base),
+        'pockels_active':   np.int64(meta.pockels_active),
+        'timestamp':        meta.timestamp,
+        'pyscanbox_version': meta.pyscanbox_version,
+        'objective_type':   meta.objective_type,
+        'laser_type':       meta.laser_type,
+    }
+    # Merge plugin data last so plugins can add extra fields.
+    d.update(meta.plugin_data)
+    return d
+
 
 # ---------------------------------------------------------------------------
 # Writer for files produced by the original MATLAB Scanbox software
@@ -178,49 +276,62 @@ class SbxWriter:
             self._file_handle.flush()
             os.fsync(self._file_handle.fileno())
 
-    def write_mat(self) -> None:
+    def write_mat(self,
+                  metadata: Optional[metadata.AcquisitionMetadata] = None) -> None:
         """Write the companion .mat metadata file.
 
-        Creates a .mat file containing a MATLAB ``info`` struct with the
-        standard Scanbox fields required by ``sbxread.m``.  Any
-        ``extra_info`` fields supplied at construction are merged in.
+        When *metadata* is supplied the full set of Scanbox-compatible
+        fields (as returned by :func:`_metadata_to_mat_dict`) is written,
+        producing a ``.mat`` file readable by ``sbxread.m``, Suite2p,
+        and other downstream tools.
 
-        The ``info`` struct includes:
+        When *metadata* is ``None`` a minimal ``.mat`` file is written
+        using only the geometry/mode fields known at construction time,
+        plus any ``extra_info`` dict supplied there.  This path exists
+        for standalone use of :class:`SbxWriter` without a full
+        :class:`~pyscanbox.io.metadata.AcquisitionMetadata`.
 
-        * ``sz``               – ``[lines_per_frame, pixels_per_line]``
-        * ``recordsPerBuffer`` – lines per frame
-        * ``channels``         – PMT bitmask (1/2/3)
-        * ``scanbox_version``  – 2 (modern Scanbox format)
-        * ``scanmode``         – 1 = unidirectional, 0 = bidirectional
-        * ``max_idx``          – index of the last frame (``frames − 1``)
+        Args:
+            metadata: Optional :class:`~pyscanbox.io.metadata.AcquisitionMetadata`
+                containing all acquisition fields.  When provided it takes
+                precedence over ``extra_info``.
         """
-        key = (self.nchan, self._pmt_channel) if self.nchan == 1 else (2, 0)
-        channels_bitmask = self._NCHAN_PMT_TO_CHANNELS[key]
-
-        info: Dict[str, Any] = {
-            'sz': np.array([[self.lines_per_frame, self.pixels_per_line]],
-                           dtype=np.int64),
-            'recordsPerBuffer': np.int64(self.lines_per_frame),
-            'channels': np.int64(channels_bitmask),
-            'scanbox_version': np.int64(2),
-            'scanmode': np.int64(self.scanmode),
-            'max_idx': np.int64(self.frames_written - 1),
-        }
-        # Merge extra_info last so callers can override defaults if needed.
-        info.update(self.extra_info)
+        if metadata is not None:
+            info = _metadata_to_mat_dict(metadata)
+        else:
+            key = (self.nchan, self._pmt_channel) if self.nchan == 1 else (2, 0)
+            channels_bitmask = self._NCHAN_PMT_TO_CHANNELS[key]
+            info = {
+                'sz': np.array([[self.lines_per_frame, self.pixels_per_line]],
+                               dtype=np.int64),
+                'recordsPerBuffer': np.int64(self.lines_per_frame),
+                'channels': np.int64(channels_bitmask),
+                'scanbox_version': np.int64(2),
+                'scanmode': np.int64(self.scanmode),
+                'max_idx': np.int64(self.frames_written - 1),
+            }
+            # Merge extra_info last so callers can override defaults if needed.
+            info.update(self.extra_info)
 
         output_dir = os.path.dirname(self.mat_path)
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
         scipy.io.savemat(self.mat_path, {'info': info}, oned_as='row')
 
-    def close(self) -> None:
-        """Flush, close the .sbx file, and write the .mat metadata."""
+    def close(self,
+              metadata: Optional[metadata.AcquisitionMetadata] = None) -> None:
+        """Flush, close the .sbx file, and write the .mat metadata.
+
+        Args:
+            metadata: Optional :class:`~pyscanbox.io.metadata.AcquisitionMetadata`
+                forwarded to :meth:`write_mat`.  When ``None`` the minimal
+                fallback ``.mat`` is written instead.
+        """
         if self._file_handle is not None:
             self.flush()
             self._file_handle.close()
             self._file_handle = None
-        self.write_mat()
+        self.write_mat(metadata)
 
     def get_frames_written(self) -> int:
         """Return the number of frames written so far."""

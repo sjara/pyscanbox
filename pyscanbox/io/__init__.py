@@ -17,5 +17,6 @@ from pyscanbox.io import sbx_writer
 from pyscanbox.io import sbx_reader
 from pyscanbox.io import tiff_exporter
 from pyscanbox.io import meta_exporter
+from pyscanbox.io import metadata
 
 __all__ = ["sbx_writer", "sbx_reader", "tiff_exporter", "meta_exporter"]

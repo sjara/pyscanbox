@@ -32,6 +32,7 @@ from pyscanbox.hardware import controller
 from pyscanbox.hardware import motor
 from pyscanbox.acquisition import reshape as data_reshape
 from pyscanbox.io import sbx_writer
+from pyscanbox.io import metadata
 
 
 class Scanner:
@@ -773,71 +774,49 @@ class Scanner:
             self.plugin_manager.on_acquisition_stop(self.frames_acquired)
 
         # Close .sbx file and write companion .mat metadata.
-        # extra_info is populated with the full acquisition metadata so that
-        # SbxWriter.write_mat() embeds it in the info struct.
         if self.sbx_writer is not None:
+            meta = None
             try:
-                self.sbx_writer.extra_info = self._create_metadata()
+                meta = self._create_acquisition_metadata()
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Could not build metadata for .mat file: %s", exc)
-            self.sbx_writer.close()
+            self.sbx_writer.close(meta)
         
         print("Acquisition complete.")
         print(f"Total frames acquired: {self.frames_acquired}")
 
-    def _create_metadata(self) -> dict:
-        """Create metadata dictionary for .mat file.
+    def _create_acquisition_metadata(self) -> metadata.AcquisitionMetadata:
+        """Build an :class:`~pyscanbox.io.metadata.AcquisitionMetadata` for this run.
 
-        Field names mirror the original MATLAB Scanbox ``info`` struct so
-        that downstream tools (Suite2p, sbxread.m, etc.) can read pyscanbox
-        files without modification.  Extra pyscanbox-only fields are added
-        after the MATLAB-compatible block.
-
-        Only scalar / plain-array values are written because
-        ``scipy.io.savemat`` cannot serialise nested Python dicts that
-        contain ``None`` (from YAML ``null``).
+        Collects values from hardware, config, and acquisition state and
+        returns them as a format-agnostic dataclass.  The field names are
+        logical Python names (snake_case); format-specific mapping (e.g.
+        to MATLAB ``info`` struct keys) happens inside each writer.
 
         Returns:
-            Dictionary with acquisition metadata.
+            Populated :class:`~pyscanbox.io.metadata.AcquisitionMetadata`.
         """
         pockels = self.controller.get_current_pockels()
         acq_cfg = self.config.get('acquisition', {})
         scanner_cfg = self.config.get('scanner', {})
         alazar_cfg  = self.config.get('alazar', {})
 
-        # ----------------------------------------------------------------
-        # channels bitmask — mirrors the original MATLAB encoding:
-        #   1 = both PMT0 & PMT1,  2 = PMT0 only,  3 = PMT1 only
-        # ----------------------------------------------------------------
+        # channels bitmask: 1=both PMT0+1, 2=PMT0 only, 3=PMT1 only
         if self.save_channels == 0:
-            channels_mask = 2       # PMT0 only
+            channels_mask = 2
         elif self.save_channels == 1:
-            channels_mask = 3       # PMT1 only
+            channels_mask = 3
         else:
-            channels_mask = 1       # both (default)
-        # nchan: number of channels actually saved (used by SbxReader)
+            channels_mask = 1
         nchan = 1 if self.save_channels in (0, 1) else 2
 
-        # ----------------------------------------------------------------
-        # Alazar timing parameters
-        # ----------------------------------------------------------------
         unidirectional = acq_cfg.get('unidirectional', True)
-        scanmode = 1 if unidirectional else 0     # 1 = unidirectional (MATLAB convention)
-        # postTriggerSamples: raw ADC samples per scan line per buffer record.
-        # Matches the value passed to AlazarSetRecordSize.
+        scanmode = 1 if unidirectional else 0
         post_trigger = alazar_cfg.get('samples_per_line',
                                       alazar_cfg.get('postTriggerSamples', 5000))
-        # recordsPerBuffer: scan lines per DMA buffer.
-        #   unidirectional: lines_per_frame
-        #   bidirectional:  lines_per_frame / 2  (each buffer covers half a frame)
         records_per_buffer = (self.lines_per_frame if unidirectional
                               else self.lines_per_frame // 2)
-        samples_per_buffer = post_trigger * records_per_buffer * nchan
-        bytes_per_buffer   = samples_per_buffer * 2   # uint16 = 2 bytes
 
-        # ----------------------------------------------------------------
-        # TTL event arrays — mirrors MATLAB sb_timestamps() output
-        # ----------------------------------------------------------------
         events = self.controller.get_ttl_events()
         if events:
             ttl_frame    = np.array([e[0] for e in events], dtype=np.int32)
@@ -848,62 +827,48 @@ class Scanner:
             ttl_line     = np.array([], dtype=np.int32)
             ttl_event_id = np.array([], dtype=np.int32)
 
-        # ----------------------------------------------------------------
-        # Objective label
-        # ----------------------------------------------------------------
-        obj_cfg = self.config.get('objective', {})
-        objective_str = obj_cfg.get('type', '')
+        # Read motor (Knobby) positions if a motor is connected.
+        knobby_x = knobby_y = knobby_z = knobby_a = 0.0
+        if self.motor is not None:
+            try:
+                knobby_x = float(self.motor.get_position(0) or 0)
+                knobby_y = float(self.motor.get_position(1) or 0)
+                knobby_z = float(self.motor.get_position(2) or 0)
+                knobby_a = float(self.motor.get_position(3) or 0)
+            except Exception:  # noqa: BLE001
+                pass
 
-        # ----------------------------------------------------------------
-        # Metadata dict — MATLAB-compatible fields listed first
-        # ----------------------------------------------------------------
-        meta = {
-            # --- MATLAB info struct fields (original Scanbox) ---
-            'resfreq': np.int64(scanner_cfg.get('resonant_freq', 7930)),
-            'postTriggerSamples': np.int64(post_trigger),
-            'recordsPerBuffer': np.int64(records_per_buffer),
-            'bytesPerBuffer': np.int64(bytes_per_buffer),
-            # channels bitmask: 1=both, 2=PMT0 only, 3=PMT1 only
-            'channels': np.int64(channels_mask),
-            'ballmotion': np.array([], dtype=np.uint8),
-            'abort_bit': np.int64(0),
-            'scanbox_version': np.int64(2),
-            'scanmode': np.int64(scanmode),
-            # sz: [lines_per_frame, pixels_per_line] — matches size(chA') in MATLAB
-            'sz': np.array([[self.lines_per_frame, self.pixels_per_line]],
-                           dtype=np.int64),
-            'fold_lines': np.int64(0),
-            'otwave':      np.array([], dtype=np.uint8),
-            'otwave_um':   np.array([], dtype=np.uint8),
-            'otparam':     np.array([], dtype=np.uint8),
-            'otwavestyle': np.int64(1),
-            'volscan': np.int64(0),
-            'power_depth_link': np.int64(0),
-            'opto2pow': np.array([], dtype=np.uint8),
-            'area_line': np.int64(1),
-            'objective': objective_str,
-            'messages': np.array([], dtype=object),
-            'usernotes': '',
-            # nchan is derived in sbxread.m from channels bitmask; we store it
-            # explicitly for direct use by SbxReader without re-deriving.
-            'nchan': np.int64(nchan),
-            # TTL event timestamps (mirrors sb_timestamps() field names)
-            'frame':    ttl_frame,
-            'line':     ttl_line,
-            'event_id': ttl_event_id,
-            # --- pyscanbox-specific fields (not in original MATLAB info) ---
-            'frames': np.int64(self.frames_acquired),
-            'lines_per_frame': np.int64(self.lines_per_frame),
-            'pixels_per_line': np.int64(self.pixels_per_line),
-            'sample_rate': np.int64(alazar_cfg.get('sample_rate', 125000000)),
-            'magnification': np.int64(self.magnification),
-            'pockels_base':   np.int64(pockels.get('base', 0)),
-            'pockels_active': np.int64(pockels.get('active', 0)),
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S'),
-            'pyscanbox_version': pyscanbox.__version__,
-            'objective_type': self.config.get('objective', {}).get('type', ''),
-            'laser_type': self.config.get('laser', {}).get('type', ''),
-        }
+        plugin_data: dict = {}
         if self.plugin_manager is not None:
-            meta.update(self.plugin_manager.collect_metadata())
-        return meta
+            plugin_data = self.plugin_manager.collect_metadata()
+
+        return metadata.AcquisitionMetadata(
+            lines_per_frame=self.lines_per_frame,
+            pixels_per_line=self.pixels_per_line,
+            nchan=nchan,
+            frames=self.frames_acquired,
+            channels_mask=channels_mask,
+            scanmode=scanmode,
+            resonant_freq=scanner_cfg.get('resonant_freq', 7930),
+            post_trigger_samples=post_trigger,
+            records_per_buffer=records_per_buffer,
+            sample_rate=alazar_cfg.get('sample_rate', 125_000_000),
+            magnification=self.magnification,
+            pmt0_gain=1.0,
+            pmt1_gain=1.0,
+            laser_wavelength=self.config.get('laser', {}).get('wavelength', 0),
+            laser_type=self.config.get('laser', {}).get('type', ''),
+            pockels_base=pockels.get('base', 0),
+            pockels_active=pockels.get('active', 0),
+            objective=self.config.get('objective', {}).get('type', ''),
+            objective_type=self.config.get('objective', {}).get('type', ''),
+            knobby_x=knobby_x,
+            knobby_y=knobby_y,
+            knobby_z=knobby_z,
+            knobby_a=knobby_a,
+            ttl_frame=ttl_frame,
+            ttl_line=ttl_line,
+            ttl_event_id=ttl_event_id,
+            pyscanbox_version=pyscanbox.__version__,
+            plugin_data=plugin_data,
+        )
