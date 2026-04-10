@@ -256,6 +256,8 @@ class QuadraturePlugin(plugin_module.AcquisitionPlugin):
         Args:
             n_frames: Actual number of frames acquired.
         """
+        if not self._output_path:
+            return
         arr = np.asarray(self._data, dtype=np.int32)
         np.save(self._output_path, arr)
 
