@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Knobby is an Arduino-based hardware controller that provides manual positioning control for the Scanbox microscope. It consists of rotary encoders, a touchscreen display, and acts as an intermediary between the user and the Trinamic motor controller.
+The Knobby is an Arduino-based hardware controller that provides manual positioning control for the Neurolabware microscope. It consists of rotary encoders, a touchscreen display, and acts as an intermediary between the user and the Trinamic motor controller.
 
 ## Hardware Components
 
@@ -28,7 +28,7 @@ The Knobby is an Arduino-based hardware controller that provides manual position
 ```
 ┌──────────────┐         ┌──────────────┐         ┌──────────────────────┐
 │   Knobby     │ Serial  │   PC/Host    │ Serial  │ Trinamic Motor Ctrl  │
-│  (Arduino)   │◄───────►│ (MATLAB/Py)  │◄───────►│      (COM4)          │
+│  (Arduino)   │◄───────►│ (pyscanbox)  │◄───────►│      (COM4)          │
 │   COM5       │ 57600   │              │ 57600   │                      │
 │   baud       │         │              │  baud   │  TMCL Protocol       │
 └──────────────┘         └──────────────┘         └──────────────────────┘
@@ -62,25 +62,9 @@ float motor_gain[4] = {
 };
 ```
 
-**Python equivalents:**
-```python
-motor_gain = [
-    2000.0 / 400.0 / 32.0 / 2.0,      # Motor 0 (Z): 0.078125 steps/μm
-    (0.02 * 25400.0) / 400.0 / 64.0,  # Motor 1 (Y): 19.8425 steps/μm
-    (0.02 * 25400.0) / 400.0 / 64.0,  # Motor 2 (X): 19.8425 steps/μm
-    0.0225 / 64.0,                     # Motor 3 (A): 0.000351563 steps/deg
-]
-
-# Convert steps to microns (or degrees for A-axis):
-if motor_id == 3:
-    position_deg = position_steps * motor_gain[motor_id]
-else:
-    position_um = position_steps * motor_gain[motor_id]
-```
-
 ### Motor-Axis Mapping
 
-**Important**: The motor numbering is:
+The motor numbering is:
 - Motor 0 = **Z-axis** (focus/depth)
 - Motor 1 = **Y-axis** (vertical stage position)
 - Motor 2 = **X-axis** (horizontal stage position)
@@ -120,10 +104,12 @@ for (int j = 0; j <= 3; j++) {
 
 The PC can send **9-byte command packets** to control Knobby:
 ```
-[0x01, 0xC8, reserved, cmd_id, val_high, val_low, 0, 0, 0]
+[0x01, 0xC8, reserved, cmd_id, val_high, val_low, val_high2, val_low2, reserved]
 ```
 
-Where `cmd_id` includes:
+**Note:** The first two bytes (0x01 and 0xC8) are documented packet header values but are **not validated** by the Arduino firmware — they are ignored. The Arduino firmware reads all 9 bytes unconditionally, regardless of their values. These bytes appear to be convention/documentation only.
+
+Where `cmd_id` (byte 3) includes:
 - 0-2: Move motors Z, Y, X by X microns (converted to steps internally based on current velocity mode and gain)
 - 3-5: Move motors Z, Y, X by explicit hardware steps **(v2_3 and v3+ only)**
 - 10-12: Set velocity (coarse, fine, superfine)
@@ -151,6 +137,8 @@ TMCL commands used:
 - **SAP** (Set Axis Parameter): Command 5
 - **ROR/ROL** (Rotate Right/Left): Commands 1/2
 - **MST** (Motor Stop): Command 3
+
+For more details, see [Trinamic Motor Protocol](trinamic_motor.md).
 
 ## Data Flow for Position Reading
 
@@ -180,7 +168,7 @@ TMCL commands used:
 9. Motor moves to the absolute target position.
 ```
 
-> **Why absolute, not relative?** While the original documentation (and some older implementations) suggested sending relative commands (`MVP Type 1`), the `pyscanbox` implementation specifically uses absolute moves (`MVP Type 0`) to a locally tracked coordinate. Using absolute moves is much smoother: if the knobs are turned faster than the motor can settle, each new command simply updates the target to the correct final destination, rather than compounding trajectory errors from executing multiple relative steps while the motor is already in motion. The PC-side `desired_steps` tracker is seeded at startup with the motor board's absolute hardware counter, ensuring that Knobby's `dpos` coordinate system and the hardware coordinates stay correctly aligned.
+> **Why absolute, not relative?** While an older implementation attempted sending relative commands (`MVP Type 1`), the current `pyscanbox` implementation specifically uses absolute moves (`MVP Type 0`) to a locally tracked coordinate. Using absolute moves is much smoother: if the knobs are turned faster than the motor can settle, each new command simply updates the target to the correct final destination, rather than compounding trajectory errors from executing multiple relative steps while the motor is already in motion. The PC-side `desired_steps` tracker is seeded at startup with the motor board's absolute hardware counter, ensuring that Knobby's `dpos` coordinate system and the hardware coordinates stay correctly aligned.
 
 ## Step Multipliers (mstep)
 
@@ -193,60 +181,6 @@ float mstep[3][4] = {
     {5,  3.9370 * 5,  3.9370 * 5,  5},   // Fine
     {1,  3.9370,      3.9370,      1}    // Superfine
 };
-```
-
-## Python Integration
-
-### Reading Positions from Motor Controller
-
-```python
-import pyscanbox.hardware.motor
-import pyscanbox.config
-
-# Load configuration
-config = pyscanbox.config.AppConfig('config.yaml')
-config['emulation']['enabled'] = False  # Use real hardware
-
-# Connect to motor controller
-motor = pyscanbox.hardware.motor.TrinamicMotor(config)
-motor.open()
-
-# Motor-to-micron conversion factors (from knobby2.ino)
-motor_gain = [
-    2000.0 / 400.0 / 32.0 / 2.0,      # Motor 0 (Z)
-    (0.02 * 25400.0) / 400.0 / 64.0,  # Motor 1 (Y)
-    (0.02 * 25400.0) / 400.0 / 64.0,  # Motor 2 (X)
-    0.0225 / 64.0,                     # Motor 3 (A)
-]
-
-# Read positions
-axis_names = ['Z', 'Y', 'X', 'A']
-units = ['μm', 'μm', 'μm', 'deg']
-
-for motor_id in range(4):
-    pos_steps = motor.get_position(motor_id)
-    if pos_steps is not None:
-        pos_converted = pos_steps * motor_gain[motor_id]
-        print(f"{axis_names[motor_id]}: {pos_steps} steps = {pos_converted:.2f} {units[motor_id]}")
-
-motor.close()
-```
-
-### Future: Direct Knobby Communication (Optional)
-
-If you want to read the displayed position directly from Knobby instead of the motor controller:
-
-```python
-import serial
-
-# Connect to Knobby
-knobby = serial.Serial('COM5', 57600, timeout=1)
-
-# Send command to request current position (if protocol supports it)
-# Note: Current knobby firmware doesn't have a "query position" command
-# You would need to track positions sent from Knobby or modify firmware
-
-knobby.close()
 ```
 
 ## Important Notes
@@ -263,7 +197,6 @@ knobby.close()
 4. **Coordinate system**: 
    - Knobby uses Motor 0=Z, 1=Y, 2=X, 3=A
    - Z = focus/depth, Y = vertical stage, X = horizontal stage, A = objective angle
-   - This matches the physical axes on the microscope stage
 
 5. **Startup zero-packets (firmware quirk):** On the very first iteration of the
    Arduino `loop()`, the firmware detects that `page` (initialised to 1) differs
