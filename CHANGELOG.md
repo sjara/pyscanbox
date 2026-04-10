@@ -6,6 +6,18 @@ All notable changes to this project are documented here. This file is append-onl
 
 ---
 
+## v1.6.5 - April 9, 2026
+- **Mock signal parameters configurable from config file**
+  - Mock frame generation parameters (`mock_n_neurons`, `mock_noise_sigma_16bit`, `mock_signal_min_brightness_16bit`, `mock_signal_max_brightness_16bit`) are now defined in the `emulation` section of `config.yaml` and expressed in intuitive 16-bit non-inverted units (0 = dark, 65535 = bright).
+  - A `_to_14bit()` helper converts user-facing values to the 14-bit inverted ADC scale used internally.
+  - Added `Board.configure_from_config(config)` to `mock_alazar.py` as the single entry-point for applying emulation config; `alazar.py` calls it with one stable line and no longer enumerates individual mock keys.
+  - Added `_N_MOCK_NEURONS` module-level constant; both `_prepare_test_frames()` and `_prepare_test_frames_raw()` now use per-instance attributes so parameters take effect without modifying code.
+- **Bug Fix: Quadrature plugin creating spurious output file**
+  - `QuadraturePlugin.save_data()` now returns early when `_output_path` is not set, preventing an empty `.npy` file from being written when a session is stopped before any frames are acquired.
+- **Documentation: Hardware Protocols**
+  - Expanded `docs/hardware_protocols/alazar_digitizer.md` with detailed buffer geometry, bidirectional mode description, and LSB output configuration.
+  - Revised `docs/hardware_protocols/knobby.md` for clarity and accuracy.
+
 ## v1.6.4 - April 9, 2026
 - **Continuous Resonant Mode Phase Synchronization**
   - Implemented missing `CMD_DEADBAND_PERIOD` (ID 10) command to synchronize PSoC5 hardware to resonant scanner oscillation phase.
