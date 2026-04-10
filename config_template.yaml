@@ -275,3 +275,11 @@ emulation:
   verbose: true              # Set to true for detailed emulation logging
   raw_mode: true             # false = pre-shaped buffers (lines × pixels); true = raw ADC layout (lines × samples_per_line)
   samples_per_buffer: 407552 # Pre-shaped buffer size when raw_mode=false: lines × pixels × 2 = 512*796*2
+  # --- Mock frame generation ---
+  # These parameters control the appearance of synthetic test frames.
+  # All brightness values use the 16-bit non-inverted scale: 0 = dark, 65535 = bright.
+  # The module converts them internally to 14-bit inverted ADC units.
+  mock_n_neurons: 15                      # Number of simulated fluorescent spots per frame
+  mock_noise_sigma_16bit: 4000            # Background noise standard deviation (16-bit non-inverted)
+  mock_signal_min_brightness_16bit: 16384 # Dimmest spot brightness (16-bit non-inverted)
+  mock_signal_max_brightness_16bit: 65535 # Brightest spot brightness (16-bit non-inverted)

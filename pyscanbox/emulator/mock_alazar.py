@@ -34,10 +34,53 @@ _SIGNAL_BASELINE_14BIT = 16383
 # without having to touch any sliders immediately after opening the GUI.
 _AMBIENT_SCALE = 0.25
 
-# Standard deviation of the per-pixel Gaussian background noise added to
-# every pre-computed test frame (14-bit units, full scale = 16383).
-# Increase this to make the histogram broader; decrease for a sharper peak.
-_BACKGROUND_NOISE_SIGMA = 2000
+# ============================================================================
+# Mock frame generation parameters — expressed in 16-bit non-inverted units
+# (0 = dark / no fluorescence, 65535 = maximum brightness).
+#
+# These user-facing values are converted internally to 14-bit inverted ADC
+# units by _to_14bit().  You should only need to edit the three _16BIT /
+# _N_MOCK_NEURONS constants below; the derived _14BIT counterparts are
+# computed automatically.
+# ============================================================================
+
+# Number of simulated fluorescent spots (neurons) per test frame.
+_N_MOCK_NEURONS = 15
+
+# Standard deviation of per-pixel Gaussian background noise in 16-bit
+# non-inverted units (0 = dark, 65535 = bright).
+# Increase to make the histogram broader; decrease for a sharper noise floor.
+_BACKGROUND_NOISE_SIGMA_16BIT = 4000
+
+# Brightness range of synthetic spots in 16-bit non-inverted units.
+# _MIN: dimmest spot (e.g. 16384 ≈ 25% of full brightness)
+# _MAX: brightest spot (65535 = ADC driven to zero, maximum contrast)
+_MOCK_SIGNAL_MIN_BRIGHTNESS_16BIT = 16384
+_MOCK_SIGNAL_MAX_BRIGHTNESS_16BIT = 65535
+
+
+def _to_14bit(value_16bit: int) -> int:
+    """Scale a 16-bit non-inverted brightness value to 14-bit internal units.
+
+    The ADC uses a 14-bit scale (0–16383) where bright fluorescence appears as
+    a *dip* below the dark baseline.  This helper converts user-facing 16-bit
+    brightness magnitudes (0–65535) to the equivalent 14-bit amplitude so that
+    ``_prepare_test_frames*`` methods never need to be aware of the user scale.
+
+    Args:
+        value_16bit: Brightness value in unsigned 16-bit range [0, 65535].
+
+    Returns:
+        Equivalent value in 14-bit range [0, 16383], rounded to nearest int.
+    """
+    return round(int(value_16bit) * _SIGNAL_BASELINE_14BIT / 65535)
+
+
+# Derived 14-bit inverted equivalents — computed automatically from the
+# user-facing 16-bit constants above.  Do not edit these directly.
+_BACKGROUND_NOISE_SIGMA = _to_14bit(_BACKGROUND_NOISE_SIGMA_16BIT)
+_MOCK_SIGNAL_MIN_DIP_14BIT = _to_14bit(_MOCK_SIGNAL_MIN_BRIGHTNESS_16BIT)
+_MOCK_SIGNAL_MAX_DIP_14BIT = _to_14bit(_MOCK_SIGNAL_MAX_BRIGHTNESS_16BIT)
 
 
 class Board:
@@ -112,6 +155,13 @@ class Board:
         # When True, _prepare_test_frames*() uses the bidir buffer layout
         # (records_per_frame = lines//2, samples_per_record = samples_per_line_bidir).
         self.bidirectional: bool = False
+
+        # Mock frame generation parameters.  Defaults are taken from the
+        # module-level constants; override with configure_mock_params().
+        self._n_neurons: int = _N_MOCK_NEURONS
+        self._noise_sigma_14bit: int = _BACKGROUND_NOISE_SIGMA
+        self._signal_min_dip_14bit: int = _MOCK_SIGNAL_MIN_DIP_14BIT
+        self._signal_max_dip_14bit: int = _MOCK_SIGNAL_MAX_DIP_14BIT
 
         logger.info(f"Mock Alazar board initialized: System {system_id}, Board {board_id}")
 
@@ -500,6 +550,51 @@ class Board:
             self.pockels_level, self.pmt_gains[0], self.pmt_gains[1],
         )
 
+    def configure_from_config(self, config: dict) -> None:
+        """Apply mock frame generation parameters from the application config dict.
+
+        Reads all relevant keys from ``config['emulation']`` and updates the
+        instance attributes accordingly.  Any key that is absent keeps its
+        current value (the module-level default).
+
+        This is the single entry-point used by ``AlazarDigitizer.open()`` so
+        that ``alazar.py`` never needs to know which specific config keys the
+        mock board cares about.
+
+        Config keys read (all under the ``emulation`` section):
+            mock_n_neurons (int): Number of simulated fluorescent spots.
+            mock_noise_sigma_16bit (int): Background noise sigma in 16-bit
+                non-inverted units (0 = dark, 65535 = bright).
+            mock_signal_min_brightness_16bit (int): Dimmest spot brightness
+                in 16-bit non-inverted units.
+            mock_signal_max_brightness_16bit (int): Brightest spot brightness
+                in 16-bit non-inverted units.
+
+        Args:
+            config: Full application configuration dictionary.
+        """
+        mock_cfg = config.get('emulation', {})
+        n_neurons = mock_cfg.get('mock_n_neurons')
+        noise_sigma_16bit = mock_cfg.get('mock_noise_sigma_16bit')
+        min_brightness_16bit = mock_cfg.get('mock_signal_min_brightness_16bit')
+        max_brightness_16bit = mock_cfg.get('mock_signal_max_brightness_16bit')
+        if n_neurons is not None:
+            self._n_neurons = int(n_neurons)
+        if noise_sigma_16bit is not None:
+            self._noise_sigma_14bit = _to_14bit(noise_sigma_16bit)
+        if min_brightness_16bit is not None:
+            self._signal_min_dip_14bit = _to_14bit(min_brightness_16bit)
+        if max_brightness_16bit is not None:
+            self._signal_max_dip_14bit = _to_14bit(max_brightness_16bit)
+        # Invalidate cached frames so the next capture regenerates them.
+        self._test_frames = None
+        logger.debug(
+            "Mock Alazar params: n_neurons=%d, noise_sigma=%d (14-bit), "
+            "dip=[%d, %d] (14-bit)",
+            self._n_neurons, self._noise_sigma_14bit,
+            self._signal_min_dip_14bit, self._signal_max_dip_14bit,
+        )
+
     def _apply_signal_scale(self, buf: np.ndarray) -> np.ndarray:
         """Scale the fluorescence dip in a wire-format buffer.
 
@@ -562,11 +657,15 @@ class Board:
         rng = np.random.default_rng(42)   # fixed seed → reproducible layout
 
         # --- Fixed neuron positions and signal strengths ---
-        n_neurons = 15
+        n_neurons = self._n_neurons
         ny = rng.integers(2, max(3, lines  - 2), n_neurons).astype(np.float32)
         nx = rng.integers(2, max(3, pixels - 2), n_neurons).astype(np.float32)
         # Signal strength: how much the signal dips below baseline (inverted PMT)
-        signal_strength = rng.uniform(8000, 16383, n_neurons).astype(np.float32)  
+        signal_strength = rng.uniform(
+            self._signal_min_dip_14bit,
+            self._signal_max_dip_14bit,
+            n_neurons
+        ).astype(np.float32)
         sigma = rng.uniform(8, 20, n_neurons).astype(np.float32)       # px
 
         # 1-D coordinate arrays for outer-product Gaussian computation.
@@ -577,7 +676,7 @@ class Board:
         for f in range(n):
             # Start with full-dark baseline (inverted PMT: high = dark)
             imgs = np.full((2, lines, pixels), 16383.0, dtype=np.float32)
-            imgs += rng.normal(0, _BACKGROUND_NOISE_SIGMA, imgs.shape).astype(np.float32)
+            imgs += rng.normal(0, self._noise_sigma_14bit, imgs.shape).astype(np.float32)
 
             for i in range(n_neurons):
                 dy2 = (yy - ny[i]) ** 2           # (lines,)
@@ -645,10 +744,14 @@ class Board:
         n = self._n_test_frames
         rng = np.random.default_rng(42)   # same seed as _prepare_test_frames
 
-        n_neurons = 15
+        n_neurons = self._n_neurons
         ny = rng.integers(2, max(3, lines  - 2), n_neurons).astype(np.float32)
         nx = rng.integers(2, max(3, pixels - 2), n_neurons).astype(np.float32)
-        signal_strength = rng.uniform(8000, 16383, n_neurons).astype(np.float32)
+        signal_strength = rng.uniform(
+            self._signal_min_dip_14bit,
+            self._signal_max_dip_14bit,
+            n_neurons
+        ).astype(np.float32)
         sigma = rng.uniform(8, 20, n_neurons).astype(np.float32)
 
         yy = np.arange(lines,  dtype=np.float32)
@@ -681,7 +784,7 @@ class Board:
             frames = []
             for f in range(n):
                 imgs = np.full((2, lines, pixels), 16383.0, dtype=np.float32)
-                imgs += rng.normal(0, _BACKGROUND_NOISE_SIGMA,
+                imgs += rng.normal(0, self._noise_sigma_14bit,
                                    imgs.shape).astype(np.float32)
                 for i in range(n_neurons):
                     dy2 = (yy - ny[i]) ** 2
@@ -711,9 +814,9 @@ class Board:
                 raw_ch0[:, bwd_valid_samp] = imgs[0, 1::2, :][:, bwd_display_px]
                 raw_ch1[:, bwd_valid_samp] = imgs[1, 1::2, :][:, bwd_display_px]
 
-                raw_ch0 += rng.normal(0, _BACKGROUND_NOISE_SIGMA,
+                raw_ch0 += rng.normal(0, self._noise_sigma_14bit,
                                       raw_ch0.shape).astype(np.float32)
-                raw_ch1 += rng.normal(0, _BACKGROUND_NOISE_SIGMA,
+                raw_ch1 += rng.normal(0, self._noise_sigma_14bit,
                                       raw_ch1.shape).astype(np.float32)
                 raw_ch0 = np.clip(raw_ch0, 0, 16383)
                 raw_ch1 = np.clip(raw_ch1, 0, 16383)
@@ -757,7 +860,7 @@ class Board:
         frames = []
         for f in range(n):
             imgs = np.full((2, lines, pixels), 16383.0, dtype=np.float32)
-            imgs += rng.normal(0, _BACKGROUND_NOISE_SIGMA,
+            imgs += rng.normal(0, self._noise_sigma_14bit,
                                imgs.shape).astype(np.float32)
             for i in range(n_neurons):
                 dy2 = (yy - ny[i]) ** 2
@@ -778,9 +881,9 @@ class Board:
             raw_ch0[:, valid_samples] = imgs[0][:, mapped_pixels]
             raw_ch1[:, valid_samples] = imgs[1][:, mapped_pixels]
 
-            raw_ch0 += rng.normal(0, _BACKGROUND_NOISE_SIGMA,
+            raw_ch0 += rng.normal(0, self._noise_sigma_14bit,
                                   raw_ch0.shape).astype(np.float32)
-            raw_ch1 += rng.normal(0, _BACKGROUND_NOISE_SIGMA,
+            raw_ch1 += rng.normal(0, self._noise_sigma_14bit,
                                   raw_ch1.shape).astype(np.float32)
             raw_ch0 = np.clip(raw_ch0, 0, 16383)
             raw_ch1 = np.clip(raw_ch1, 0, 16383)

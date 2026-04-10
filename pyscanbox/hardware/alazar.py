@@ -251,6 +251,11 @@ class AlazarDigitizer:
             )
             self.board_handle.set_scan_mode(bidirectional)
 
+        # Let the mock board read any emulation-specific config it cares about.
+        # alazar.py deliberately knows nothing about which keys are involved.
+        if self.use_emulation and hasattr(self.board_handle, 'configure_from_config'):
+            self.board_handle.configure_from_config(self.config)
+
     def configure(self) -> None:
         """Configure Alazar board for PMT acquisition.
 
