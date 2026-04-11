@@ -74,11 +74,13 @@ def _metadata_to_mat_dict(meta: metadata.AcquisitionMetadata) -> Dict[str, Any]:
         # config sub-struct mirrors scanbox_getconfig() in scanbox.m.
         # Suite2p accesses config.magnification and config.lines unconditionally.
         # magnification is 1-based to match the MATLAB listbox Value convention.
+        # magnification_list contains float zoom values (1.0, 1.2, ..., 8.0).
         'config': {
             'wavelength':   np.int64(meta.laser_wavelength),
             'frames':       np.int64(meta.frames),
             'lines':        np.int64(meta.lines_per_frame),
             'magnification': np.int64(meta.magnification + 1),
+            'magnification_list': np.array(meta.magnification_list, dtype=np.float64),
             'pmt0_gain':    np.float64(meta.pmt0_gain),
             'pmt1_gain':    np.float64(meta.pmt1_gain),
             'knobby': {

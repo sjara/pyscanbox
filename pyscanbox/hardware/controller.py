@@ -162,15 +162,20 @@ class ScanboxController:
     ETL_CURRENT_MAX = 1760
     ETL_CURRENT_MID = (ETL_CURRENT_MIN + ETL_CURRENT_MAX) // 2
 
-    # Magnification labels for the 13 discrete zoom levels (index 0–12).
+    # Magnification numeric values (floats) for 13 discrete zoom levels (index 0–12).
     # Derived from sbconfig.gain_galvo = logspace(log10(1), log10(8), 13) in
-    # scanbox_config.m, formatted as "%.1f" (same as MATLAB's sprintf).
-    # Index 0 = largest FOV (1.0x); index 12 = smallest FOV (8.0x).
-    # This is the single source of truth consumed by GUI combo boxes.
-    MAG_LABELS = (
-        '1.0x', '1.2x', '1.4x', '1.7x', '2.0x', '2.4x', '2.8x',
-        '3.4x', '4.0x', '4.8x', '5.7x', '6.7x', '8.0x',
+    # scanbox_config.m. Index 0 = largest FOV (1.0x); index 12 = smallest FOV (8.0x).
+    # This is the single source of truth for all magnification operations.
+    # Required by sbxreader (used by Suite2p) which accesses
+    # info.config.magnification_list[magidx] and expects float values.
+    MAG_VALUES = (
+        1.0, 1.2, 1.4, 1.7, 2.0, 2.4, 2.8,
+        3.4, 4.0, 4.8, 5.7, 6.7, 8.0,
     )
+
+    # Magnification labels generated from MAG_VALUES, formatted as "%.1fx".
+    # Used by GUI combo boxes and config for human-readable display.
+    MAG_LABELS = tuple(f'{v:.1f}x' for v in MAG_VALUES)
 
     # Resonant mirror frequency (Hz). Source: sbconfig.resfreq in scanbox_config.m.
     # Frame-rate formula (scanbox.m line 503):

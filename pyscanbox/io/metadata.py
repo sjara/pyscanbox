@@ -49,7 +49,7 @@ class AcquisitionMetadata:
 
     Optional fields (grouped by topic)
     -----------------------------------
-    *Magnification* — magnification
+    *Magnification* — magnification, magnification_list
 
     *PMT gains* — pmt0_gain, pmt1_gain
 
@@ -120,6 +120,15 @@ class AcquisitionMetadata:
 
     magnification: int = 0
     """0-based index into the magnification list (0 = lowest magnification)."""
+
+    magnification_list: List[float] = field(
+        default_factory=list
+    )
+    """List of magnification values (floats, e.g., [1.0, 1.2, 1.4, ...]).
+    
+    This list maps magnification indices to their numeric zoom levels.
+    Required by sbxreader (used by Suite2p) which reads these values directly.
+    """
 
     # ------------------------------------------------------------------
     # PMT gains

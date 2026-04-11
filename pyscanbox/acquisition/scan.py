@@ -854,6 +854,7 @@ class Scanner:
             records_per_buffer=records_per_buffer,
             sample_rate=alazar_cfg.get('sample_rate', 125_000_000),
             magnification=self.magnification,
+            magnification_list=list(controller.ScanboxController.MAG_VALUES),
             pmt0_gain=1.0,
             pmt1_gain=1.0,
             laser_wavelength=self.config.get('laser', {}).get('wavelength', 0),

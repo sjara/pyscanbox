@@ -5,6 +5,15 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
+## v1.7.0 - April 11, 2026
+- **Bug Fix: Suite2p / sbxreader compatibility — missing `magnification_list` in config**
+  - `sbxreader` (used by Suite2p for .sbx import) expects `float(info.config.magnification_list[magidx])` to retrieve zoom levels; absence of this field caused `AttributeError: 'mat_struct' object has no attribute 'magnification_list'`.
+  - **Added `magnification_list` field to `AcquisitionMetadata`:** New `magnification_list: List[float]` field populated during acquisition with zoom levels from controller (13 values: 1.0, 1.2, 1.4, ..., 8.0 via logspace(1, 8, 13)).
+  - **Updated `sbx_writer._metadata_to_mat_dict()`:** Now includes `magnification_list` in the `config` sub-struct with dtype `np.float64` for numeric compatibility.
+  - **Established single source of truth:** Added `MAG_VALUES` tuple to `ScanboxController` (13-element magnification array); refactored `MAG_LABELS` to auto-generate from `MAG_VALUES` using f-string formatting, eliminating manual sync risk.
+  - **Updated `scan.py`:** `AcquisitionMetadata` instantiation now populates `magnification_list=list(controller.ScanboxController.MAG_VALUES)` at acquisition start.
+  - **Migration tool for old files:** New `scripts/fix_mat.py` reconstructs old `.mat` files (created before this fix) to include missing `magnification_list` and other config fields. Features idempotent operation (skips already-fixed files), automatic backup to `.old.mat`, and `--dry-run` preview mode. Resolves Suite2p import failures on legacy recordings.
+
 ## v1.6.8 - April 10, 2026
 - **Refactor: Format-Agnostic Metadata Layer (Single Source of Truth)**
   - **New module:** `pyscanbox/io/metadata.py` containing `AcquisitionMetadata`, a format-agnostic dataclass that defines all metadata fields captured during acquisition.  Attribute names follow Python conventions (snake_case); format-specific mapping to `.mat` field names happens in the writer, not in the acquisition code.
