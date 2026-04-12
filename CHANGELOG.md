@@ -5,6 +5,13 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
+## v1.8.0 - April 12, 2026
+- **Maintenance: Tighten Python version requirements**
+  - Updated `requires-python` from `>=3.8` to `>=3.11` to reflect actual tested versions (3.11 and 3.12). The codebase uses `X | Y` union type annotations which are a runtime error on Python < 3.10, and `list[T]`/`dict[K, V]` generic aliases which require Python 3.9+.
+  - Updated `[tool.black]` `target-version` to `['py311', 'py312']`, removing untested 3.8–3.10 targets.
+  - Updated `[tool.mypy]` `python_version` to `"3.12"` (primary tested version) so mypy type-checks against the correct stdlib.
+  - Removed Python 3.8, 3.9, and 3.10 `Programming Language :: Python :: 3.x` PyPI classifiers.
+
 ## v1.7.3 - April 12, 2026
 - **Enhancement: Configurable mock neuron size and shape in emulator**
   - **Uniform neuron size:** Synthetic neuron spots in `mock_alazar.py` now all share the same size instead of random per-neuron sizes. Controlled by the new `mock_neuron_size_px` parameter (diameter / twice the characteristic scale, consistent across both spot modes).

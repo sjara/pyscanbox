@@ -1,6 +1,6 @@
-# All runtime dependencies are declared in pyproject.toml (the single source
-# of truth).  This file just delegates to that declaration so that tools that
-# only understand requirements.txt (e.g. some CI/CD systems) still work.
+# All runtime dependencies are declared in pyproject.toml (to keep a single
+# source of truth).  This file just delegates to that declaration so that tools
+# that only understand requirements.txt (e.g. some CI/CD systems) still work.
 #
 # Install runtime deps:    pip install -e .
 # Install with dev extras: pip install -e .[dev]
