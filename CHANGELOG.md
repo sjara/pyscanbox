@@ -5,6 +5,13 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
+## v1.7.2 - April 11, 2026
+- **Enhancement: Add `--version` flag and application icon**
+  - **Added `--version` command-line flag:** Displays the current version (e.g., `pyscanbox --version` → `pyscanbox 1.7.2`) and exits. Invokes argparse with `action='version'`.
+  - **Set application icon:** The app now displays `docs/assets/icon_gray.svg` in Alt-TAB switcher, taskbar, and window title bar. Path is resolved at runtime with a safety check; icon is optional (app runs without it if file is missing).
+  - **Performance optimization:** Deferred heavy imports (`PyQt6`, `qdarktheme`, `pyscanbox.gui`) into `run()` so `--version` is fast (~40 ms instead of ~1 s). Non-GUI entry points no longer pay the import cost.
+  - **Added clarity comments:** Top-level imports now document why PyQt modules are absent; `pylint: disable=import-outside-toplevel` suppresses linter warnings for deferred imports.
+
 ## v1.7.1 - April 11, 2026
 - **Refactor & Enhancement: HistogramWidget extracted to its own module with new features**
   - **Extracted `HistogramWidget`** from `pyscanbox/gui/widgets.py` into a new dedicated module `pyscanbox/gui/histogram_widget.py`. `widgets.py` re-exports it via `from .histogram_widget import HistogramWidget` so all existing callers are unaffected.
