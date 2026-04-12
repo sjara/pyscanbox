@@ -431,6 +431,13 @@ class MainWindow(QtWidgets.QMainWindow):
         frame_sel.setVisible(True)
         self._frame_selector_action.setChecked(True)
 
+        # Restrict the channel combobox to only the channels present in the
+        # recording and auto-select a valid one so the user immediately sees
+        # real data (e.g. PMT1 is auto-selected for PMT1-only recordings).
+        self._right_panel.image_display_group.configure_channels(
+            int(reader.info['channels'])
+        )
+
         # Display the first frame immediately.
         self._on_frame_selected(0)
 
@@ -1283,6 +1290,9 @@ class MainWindow(QtWidgets.QMainWindow):
         acq = self._left_panel.acquisition_group
         if checked:
             self._grab_active = False
+            # Restore all channel options when entering live mode (a previously
+            # loaded file may have restricted the combobox to a single channel).
+            self._right_panel.image_display_group.reset_channels()
             try:
                 self._ctrl.start_focus()
             except RuntimeError as exc:
@@ -1328,6 +1338,9 @@ class MainWindow(QtWidgets.QMainWindow):
                     acq.grab_button.setChecked(False)
                     return
 
+            # Restore all channel options when entering live mode (a previously
+            # loaded file may have restricted the combobox to a single channel).
+            self._right_panel.image_display_group.reset_channels()
             # 0 = run forever, matching MATLAB convention.
             frames = self._left_panel.scanner_group.total_frames_spinbox.value()
             # Combobox indices: 0 = PMT0 only, 1 = PMT1 only, 2 = both.

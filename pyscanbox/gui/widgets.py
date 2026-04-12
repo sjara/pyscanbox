@@ -30,80 +30,7 @@ import PyQt6.QtCore as QtCore
 from pyscanbox.hardware import controller as hw_controller
 import PyQt6.QtGui as QtGui
 
-from .histogram_widget import HistogramWidget
-
-
-def _build_colormap_lut(name: str, red_boost: float | None = None) -> np.ndarray:
-    """Return a 256×3 uint8 lookup table for the named display colormap.
-
-    Colormaps available:
-
-    ``'green'``
-        Black → green.  Only the G channel is set.
-        Matches the original Scanbox MATLAB display convention for PMT0.
-
-    ``'green_white'``
-        Black → green → white.  Intensity 0=black, ~128=pure green,
-        255=white.  Similar in spirit to matplotlib's ``hot`` colormap
-        but using green as the midpoint colour.  Useful when bright
-        fluorescence should saturate to white rather than stay green.
-
-    ``'red'``
-        Black → red.  Only the R channel is set.
-        Mirrors ``'green'`` but for PMT1 (tdTomato, RFP, …).
-
-    ``'red_white'``
-        Black → red → white.  Mirrors ``'green_white'`` but using the
-        R channel as the primary ramp.  Default colormap for PMT1.
-        The R ramp speed is controlled by ``red_boost`` (or the module-level
-        ``_RED_BOOST`` constant when not supplied).  The white onset is
-        always fixed at v=128, independent of ``red_boost``.
-
-    ``'gray'``
-        Black → white.  Grayscale reference colormap.
-
-    Args:
-        name: One of ``'green'``, ``'green_white'``, ``'red'``,
-            ``'red_white'``, ``'gray'``.
-        red_boost: Override for the R-channel ramp multiplier used by
-            ``'red_white'``.  Defaults to the module-level ``_RED_BOOST``
-            constant when ``None``.
-
-    Returns:
-        numpy array of shape (256, 3), dtype uint8 (R, G, B columns).
-    """
-    v = np.arange(256, dtype=np.float32)
-    lut = np.zeros((256, 3), dtype=np.uint8)
-    if name == 'green_white':
-        # G ramps 0→255 linearly (same as plain green).
-        lut[:, 1] = v.astype(np.uint8)
-        # R and B stay 0 until v=128, then ramp to 255 — creates the
-        # transition from green to white in the upper half of the range.
-        white = np.clip(2.0 * v - 255.0, 0.0, 255.0).astype(np.uint8)
-        lut[:, 0] = white
-        lut[:, 2] = white
-    elif name == 'red_white':
-        # R ramps 0→255 scaled by the module-level _RED_BOOST constant.
-        # Tune _RED_BOOST to adjust perceived brightness independently of the
-        # white blend.  The white onset is fixed at v=128 (same fraction as
-        # green_white) so changing _RED_BOOST never shifts when the colour
-        # saturates to white.
-        boost = red_boost if red_boost is not None else _RED_BOOST
-        r = np.clip(v * boost, 0.0, 255.0).astype(np.uint8)
-        lut[:, 0] = r
-        # White blend: G and B kick in at v=128, independent of boost.
-        white = np.clip(2.0 * v - 255.0, 0.0, 255.0).astype(np.uint8)
-        lut[:, 1] = white
-        lut[:, 2] = white
-    elif name == 'red':
-        lut[:, 0] = v.astype(np.uint8)
-    elif name == 'gray':
-        lut[:, 0] = v.astype(np.uint8)
-        lut[:, 1] = v.astype(np.uint8)
-        lut[:, 2] = v.astype(np.uint8)
-    else:  # 'green' (default)
-        lut[:, 1] = v.astype(np.uint8)
-    return lut
+from .histogram_widget import HistogramWidget, _build_colormap_lut, _RED_BOOST
 
 
 # ---------------------------------------------------------------------------
@@ -117,13 +44,6 @@ _DISPLAY_COLORMAP: str = 'green_white'
 # Colormap used for PMT1 display.
 # Allowed values: 'red', 'red_white', 'gray'  (see _build_colormap_lut).
 _DISPLAY_COLORMAP_PMT1: str = 'red_white'
-
-# Perceptual brightness boost for the red_white colormap.
-# Controls how quickly the R channel ramps up — increase to make red brighter,
-# decrease to dim it.  The white saturation point (v=128) is fixed and does
-# NOT move when you change this value, so you can tune brightness freely.
-# ITU-R theoretical value: 0.587/0.299 ≈ 1.963.  Adjust to taste.
-_RED_BOOST: float = 1.963
 
 # Precomputed lookup table for PMT0 display.  The PMT1 LUT is built
 # per-widget in ImageDisplayWidget.__init__ so that the config-file red_boost
@@ -1749,6 +1669,47 @@ class ImageDisplayControlGroup(QtWidgets.QGroupBox):
 
         layout.addStretch()
         self.setLayout(layout)
+
+    def configure_channels(self, channels: int) -> None:
+        """Restrict the channel combobox to match the recorded channels.
+
+        Disables items that cannot be shown for the given recording and
+        auto-selects a valid item.  Call this after opening an .sbx file.
+
+        Args:
+            channels: Value of the ``channels`` field in the Scanbox .mat
+                file: ``1`` = both PMT0 & PMT1, ``2`` = PMT0 only,
+                ``3`` = PMT1 only.
+        """
+        model = self.channel_combobox.model()
+        if channels == 2:
+            # PMT0 only: keep PMT0 (0), disable PMT1 (1), overlay (2), side-by-side (3).
+            for idx in (1, 2, 3):
+                item = model.item(idx)
+                item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEnabled)
+            self.channel_combobox.setCurrentIndex(0)
+        elif channels == 3:
+            # PMT1 only: disable PMT0 (0), keep PMT1 (1), disable overlay (2) and
+            # side-by-side (3).
+            for idx in (0, 2, 3):
+                item = model.item(idx)
+                item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEnabled)
+            self.channel_combobox.setCurrentIndex(1)
+        else:
+            # Both channels: enable everything.
+            self.reset_channels()
+
+    def reset_channels(self) -> None:
+        """Re-enable all channel combobox items and select PMT0.
+
+        Call this when switching back to live-acquisition mode or when no
+        file is loaded so that all four display modes are available again.
+        """
+        model = self.channel_combobox.model()
+        for idx in range(self.channel_combobox.count()):
+            item = model.item(idx)
+            item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsEnabled)
+        self.channel_combobox.setCurrentIndex(0)
 
 
 class OptotuneGroup(QtWidgets.QGroupBox):
