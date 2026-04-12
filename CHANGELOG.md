@@ -5,6 +5,14 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
+## v1.7.1 - April 11, 2026
+- **Refactor & Enhancement: HistogramWidget extracted to its own module with new features**
+  - **Extracted `HistogramWidget`** from `pyscanbox/gui/widgets.py` into a new dedicated module `pyscanbox/gui/histogram_widget.py`. `widgets.py` re-exports it via `from .histogram_widget import HistogramWidget` so all existing callers are unaffected.
+  - **Added linear/log y-scale toggle:** Small "Linear"/"Log" button overlaid in the top-right corner of the histogram. Log scale uses `1 + log10(max(1, count))` so empty bins map to 0 and weak signals remain visible. Switching scale resets the y-zoom to show the full range.
+  - **Histogram shown immediately on widget open:** `force_update_frame` now caches the frame in `_last_frame` before the `isVisible()` check, matching the behaviour of `update_frame`. Opening the histogram after loading a recording now populates it immediately from the cached frame.
+  - **Removed `setMaximumHeight(120)` limit** from `HistogramWidget` so the user can drag the splitter handle to make it taller.
+  - **Controls panel moved outside the vertical splitter** in `RightDisplayPanel`: the secondary controls strip now lives in a fixed `QVBoxLayout` below the splitter, so it cannot be accidentally resized. A `QFrame(HLine)` separator is placed between the splitter and the controls panel for visual clarity.
+
 ## v1.7.0 - April 11, 2026
 - **Bug Fix: Suite2p / sbxreader compatibility — missing `magnification_list` in config**
   - `sbxreader` (used by Suite2p for .sbx import) expects `float(info.config.magnification_list[magidx])` to retrieve zoom levels; absence of this field caused `AttributeError: 'mat_struct' object has no attribute 'magnification_list'`.

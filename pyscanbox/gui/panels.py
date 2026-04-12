@@ -85,14 +85,16 @@ class RightDisplayPanel(QtWidgets.QWidget):
         
     def _init_ui(self):
         """Initialize the UI components."""
-        # Create vertical splitter for image display, histogram, and controls
+        # Vertical splitter for image display, histogram, and frame selector.
+        # Controls panel is placed below the splitter in a fixed QVBoxLayout
+        # so the user cannot accidentally shrink it by dragging a handle.
         splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
 
         # Top: Main image display
         self.image_display = widgets.ImageDisplayWidget(config=self.config)
         splitter.addWidget(self.image_display)
 
-        # Middle: Pixel-intensity histogram (full panel width, thin strip)
+        # Middle: Pixel-intensity histogram (full panel width)
         self.histogram = widgets.HistogramWidget()
         splitter.addWidget(self.histogram)
 
@@ -100,16 +102,13 @@ class RightDisplayPanel(QtWidgets.QWidget):
         self.frame_selector = widgets.FrameSelectorWidget()
         splitter.addWidget(self.frame_selector)
 
-        # Bottom: Secondary controls
-        controls_panel = self._create_secondary_controls()
-        splitter.addWidget(controls_panel)
-
         # Distribute vertical space: image gets most, histogram and frame
-        # selector are thin strips, controls take a fixed chunk.
-        # stretch factor 0 prevents the controls row from growing when the
-        # window is resized vertically.
-        splitter.setSizes([800, 90, 36, 200])
-        splitter.setStretchFactor(3, 0)
+        # selector start as thin strips but can be dragged freely.
+        splitter.setSizes([800, 90, 36])
+
+        # Bottom: Secondary controls — outside the splitter so they always
+        # keep their natural height regardless of how the handles are dragged.
+        controls_panel = self._create_secondary_controls()
 
         # Wire the Image Display gain slider to the image display widget so
         # that moving the slider re-scales the brightness of the next frame.
@@ -133,9 +132,17 @@ class RightDisplayPanel(QtWidgets.QWidget):
             )
         )
 
-        # Add splitter to layout
+        # Add splitter and fixed controls panel to the outer layout.
+        # Horizontal separator between the splitter and the fixed controls panel,
+        # matching the visual appearance of a splitter handle.
+        separator = QtWidgets.QFrame()
+        separator.setFrameShape(QtWidgets.QFrame.Shape.HLine)
+        separator.setFrameShadow(QtWidgets.QFrame.Shadow.Plain)
+
         layout = QtWidgets.QVBoxLayout()
         layout.addWidget(splitter)
+        layout.addWidget(separator)
+        layout.addWidget(controls_panel)
         layout.setContentsMargins(5, 5, 5, 5)
         self.setLayout(layout)
         

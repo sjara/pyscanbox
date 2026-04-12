@@ -127,7 +127,6 @@ class HistogramWidget(QtWidgets.QWidget):
         self._last_frame: np.ndarray | None = None  # last received frame (used on show)
         self._log_scale: bool = False  # Linear by default
         self.setMinimumHeight(80)
-        self.setMaximumHeight(120)
         self.setMinimumWidth(100)
         self.setToolTip(
             "Pixel intensity histogram (256 bins, 16-bit wire-format range)\n"
