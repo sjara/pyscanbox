@@ -58,6 +58,16 @@ _BACKGROUND_NOISE_SIGMA_16BIT = 4000
 _MOCK_SIGNAL_MIN_BRIGHTNESS_16BIT = 16384
 _MOCK_SIGNAL_MAX_BRIGHTNESS_16BIT = 65535
 
+# Size of synthetic neuron spots in pixels (diameter / twice standard deviation).
+# For 'gaussian' mode: sigma = size / 2.  For 'circle' mode: radius = size / 2.
+# All neurons have the same size.
+_MOCK_NEURON_SIZE_PX = 16.0
+
+# Shape of synthetic neuron spots.
+# 'gaussian': smooth Gaussian profile (realistic PSF approximation).
+# 'circle'  : uniform filled disk (flat top, hard edge).
+_MOCK_NEURON_SHAPE = 'circle' #'gaussian'
+
 
 def _to_14bit(value_16bit: int) -> int:
     """Scale a 16-bit non-inverted brightness value to 14-bit internal units.
@@ -157,11 +167,13 @@ class Board:
         self.bidirectional: bool = False
 
         # Mock frame generation parameters.  Defaults are taken from the
-        # module-level constants; override with configure_mock_params().
+        # module-level constants; override with configure_from_config().
         self._n_neurons: int = _N_MOCK_NEURONS
         self._noise_sigma_14bit: int = _BACKGROUND_NOISE_SIGMA
         self._signal_min_dip_14bit: int = _MOCK_SIGNAL_MIN_DIP_14BIT
         self._signal_max_dip_14bit: int = _MOCK_SIGNAL_MAX_DIP_14BIT
+        self._neuron_size_px: float = _MOCK_NEURON_SIZE_PX
+        self._neuron_shape: str = _MOCK_NEURON_SHAPE
 
         logger.info(f"Mock Alazar board initialized: System {system_id}, Board {board_id}")
 
@@ -569,6 +581,11 @@ class Board:
                 in 16-bit non-inverted units.
             mock_signal_max_brightness_16bit (int): Brightest spot brightness
                 in 16-bit non-inverted units.
+            mock_neuron_size_px (float): Spot size in pixels, defined as the
+                diameter (twice the standard deviation for 'gaussian', twice
+                the radius for 'circle'). All neurons have the same size.
+            mock_neuron_shape (str): Spot profile shape. 'gaussian' (default)
+                for a smooth Gaussian; 'circle' for a uniform filled disk.
 
         Args:
             config: Full application configuration dictionary.
@@ -578,6 +595,8 @@ class Board:
         noise_sigma_16bit = mock_cfg.get('mock_noise_sigma_16bit')
         min_brightness_16bit = mock_cfg.get('mock_signal_min_brightness_16bit')
         max_brightness_16bit = mock_cfg.get('mock_signal_max_brightness_16bit')
+        neuron_size_px = mock_cfg.get('mock_neuron_size_px')
+        neuron_shape = mock_cfg.get('mock_neuron_shape')
         if n_neurons is not None:
             self._n_neurons = int(n_neurons)
         if noise_sigma_16bit is not None:
@@ -586,13 +605,18 @@ class Board:
             self._signal_min_dip_14bit = _to_14bit(min_brightness_16bit)
         if max_brightness_16bit is not None:
             self._signal_max_dip_14bit = _to_14bit(max_brightness_16bit)
+        if neuron_size_px is not None:
+            self._neuron_size_px = float(neuron_size_px)
+        if neuron_shape is not None:
+            self._neuron_shape = str(neuron_shape)
         # Invalidate cached frames so the next capture regenerates them.
         self._test_frames = None
         logger.debug(
             "Mock Alazar params: n_neurons=%d, noise_sigma=%d (14-bit), "
-            "dip=[%d, %d] (14-bit)",
+            "dip=[%d, %d] (14-bit), neuron_size=%.1f px, neuron_shape=%s",
             self._n_neurons, self._noise_sigma_14bit,
             self._signal_min_dip_14bit, self._signal_max_dip_14bit,
+            self._neuron_size_px, self._neuron_shape,
         )
 
     def _apply_signal_scale(self, buf: np.ndarray) -> np.ndarray:
@@ -637,6 +661,30 @@ class Board:
         result |= sync_bits
         return result.astype(np.uint16)
 
+    def _compute_spot_mask(self, dy2: np.ndarray, dx2: np.ndarray,
+                           size: float) -> np.ndarray:
+        """Compute a 2D spot profile for a simulated neuron.
+
+        Args:
+            dy2: Squared vertical distances from spot center, shape (lines,).
+            dx2: Squared horizontal distances from spot center, shape (pixels,).
+            size: Spot size in pixels (diameter / twice the characteristic
+                scale). For 'gaussian': sigma = size / 2. For 'circle':
+                radius = size / 2.
+
+        Returns:
+            2D float32 array of shape (lines, pixels) with values in [0.0, 1.0].
+        """
+        half = size / 2.0
+        if self._neuron_shape == 'circle':
+            dist2 = dy2[:, np.newaxis] + dx2[np.newaxis, :]  # (lines, pixels)
+            return (dist2 <= half ** 2).astype(np.float32)
+        # Default: 'gaussian'
+        return np.outer(
+            np.exp(-dy2 / (2 * half ** 2)),
+            np.exp(-dx2 / (2 * half ** 2)),
+        )
+
     def _prepare_test_frames(self) -> None:
         """Pre-compute a bank of synthetic test frames.
 
@@ -666,7 +714,8 @@ class Board:
             self._signal_max_dip_14bit,
             n_neurons
         ).astype(np.float32)
-        sigma = rng.uniform(8, 20, n_neurons).astype(np.float32)       # px
+        # All neurons have the same fixed size
+        size = np.full(n_neurons, self._neuron_size_px, dtype=np.float32)  # px
 
         # 1-D coordinate arrays for outer-product Gaussian computation.
         yy = np.arange(lines,  dtype=np.float32)   # (lines,)
@@ -681,16 +730,15 @@ class Board:
             for i in range(n_neurons):
                 dy2 = (yy - ny[i]) ** 2           # (lines,)
                 dx2 = (xx - nx[i]) ** 2           # (pixels,)
-                gauss = np.outer(np.exp(-dy2 / (2 * sigma[i] ** 2)),
-                                 np.exp(-dx2 / (2 * sigma[i] ** 2)))  # (lines, pixels)
+                spot = self._compute_spot_mask(dy2, dx2, size[i])  # (lines, pixels)
 
                 # Sinusoidal modulation per neuron simulates calcium transients.
                 phase = 2 * np.pi * f / n + i * 0.7
                 activity = 0.7 + 0.3 * np.sin(phase)
 
                 # Subtract signal (bright spots are dips in PMT signal)
-                imgs[0] -= signal_strength[i] * activity * gauss
-                imgs[1] -= signal_strength[i] * activity * gauss   # ch1 same magnitude as ch0
+                imgs[0] -= signal_strength[i] * activity * spot
+                imgs[1] -= signal_strength[i] * activity * spot   # ch1 same magnitude as ch0
 
             imgs = np.clip(imgs, 0, 16383)
 
@@ -752,7 +800,8 @@ class Board:
             self._signal_max_dip_14bit,
             n_neurons
         ).astype(np.float32)
-        sigma = rng.uniform(8, 20, n_neurons).astype(np.float32)
+        # All neurons have the same fixed size
+        size = np.full(n_neurons, self._neuron_size_px, dtype=np.float32)
 
         yy = np.arange(lines,  dtype=np.float32)
         xx = np.arange(pixels, dtype=np.float32)
@@ -789,14 +838,11 @@ class Board:
                 for i in range(n_neurons):
                     dy2 = (yy - ny[i]) ** 2
                     dx2 = (xx - nx[i]) ** 2
-                    gauss = np.outer(
-                        np.exp(-dy2 / (2 * sigma[i] ** 2)),
-                        np.exp(-dx2 / (2 * sigma[i] ** 2)),
-                    )
+                    spot = self._compute_spot_mask(dy2, dx2, size[i])
                     phase = 2 * np.pi * f / n + i * 0.7
                     activity = 0.7 + 0.3 * np.sin(phase)
-                    imgs[0] -= signal_strength[i] * activity * gauss
-                    imgs[1] -= signal_strength[i] * activity * gauss
+                    imgs[0] -= signal_strength[i] * activity * spot
+                    imgs[1] -= signal_strength[i] * activity * spot
                 imgs = np.clip(imgs, 0, 16383)
 
                 bg = 16383.0
@@ -865,14 +911,11 @@ class Board:
             for i in range(n_neurons):
                 dy2 = (yy - ny[i]) ** 2
                 dx2 = (xx - nx[i]) ** 2
-                gauss = np.outer(
-                    np.exp(-dy2 / (2 * sigma[i] ** 2)),
-                    np.exp(-dx2 / (2 * sigma[i] ** 2)),
-                )
+                spot = self._compute_spot_mask(dy2, dx2, size[i])
                 phase = 2 * np.pi * f / n + i * 0.7
                 activity = 0.7 + 0.3 * np.sin(phase)
-                imgs[0] -= signal_strength[i] * activity * gauss
-                imgs[1] -= signal_strength[i] * activity * gauss
+                imgs[0] -= signal_strength[i] * activity * spot
+                imgs[1] -= signal_strength[i] * activity * spot
             imgs = np.clip(imgs, 0, 16383)
 
             bg = 16383.0

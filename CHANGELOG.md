@@ -5,6 +5,13 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
+## v1.7.3 - April 12, 2026
+- **Enhancement: Configurable mock neuron size and shape in emulator**
+  - **Uniform neuron size:** Synthetic neuron spots in `mock_alazar.py` now all share the same size instead of random per-neuron sizes. Controlled by the new `mock_neuron_size_px` parameter (diameter / twice the characteristic scale, consistent across both spot modes).
+  - **Circle spot mode:** Added a second spot profile alongside the existing Gaussian: `'circle'` renders a uniform filled disk with a hard edge. Controlled by the new `mock_neuron_shape` parameter (`'gaussian'` or `'circle'`). A new `_compute_spot_mask()` helper is the single source of truth for the profile geometry.
+  - **Module-level defaults:** `_MOCK_NEURON_SIZE_PX = 24` and `_MOCK_NEURON_SHAPE = 'gaussian'` can be changed as a quick override without touching the config file.
+  - **Config-file support:** Both parameters are read from the `emulation` section of `config.yaml` via `configure_from_config()`. Added `mock_neuron_size_px` and `mock_neuron_shape` entries (with comments) to `config_template.yaml`.
+
 ## v1.7.2 - April 11, 2026
 - **Enhancement: Add `--version` flag and application icon**
   - **Added `--version` command-line flag:** Displays the current version (e.g., `pyscanbox --version` → `pyscanbox 1.7.2`) and exits. Invokes argparse with `action='version'`.
