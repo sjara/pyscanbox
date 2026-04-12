@@ -32,13 +32,10 @@ import signal
 import sys
 import traceback
 
-import PyQt6.QtWidgets as QtWidgets
-import PyQt6.QtCore as QtCore
-import qdarktheme
-
 import pyscanbox
 from pyscanbox import config as config_mod
-from pyscanbox import gui as gui_mod
+# PyQt6, qdarktheme, and pyscanbox.gui are imported inside run() to keep
+# --version and other non-GUI entry points fast.
 
 
 def run(cfg, config_path, frame_data_callback=None):
@@ -51,10 +48,25 @@ def run(cfg, config_path, frame_data_callback=None):
             ``frame_data_ready`` signal after window creation.  Intended for
             development tools (e.g. per-frame stats printing).
     """
+    # pylint: disable=import-outside-toplevel
+    import PyQt6.QtWidgets as QtWidgets
+    import PyQt6.QtCore as QtCore
+    import PyQt6.QtGui as QtGui
+    import qdarktheme
+    from pyscanbox import gui as gui_mod
+
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName('pyscanbox')
     app.setOrganizationName('pyscanbox')
     app.setApplicationVersion(pyscanbox.__version__)
+
+    # Set application icon from the docs/assets directory.
+    icon_path = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)),
+        'docs', 'assets', 'icon_blue.svg'
+    )
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QtGui.QIcon(icon_path))
 
     stylesheet = qdarktheme.load_stylesheet()
     stylesheet += """
@@ -89,6 +101,12 @@ def main():
     """Launch the pyscanbox GUI application."""
     parser = argparse.ArgumentParser(
         description='Two-Photon Microscope Control Software'
+    )
+    parser.add_argument(
+        '--version',
+        action='version',
+        version=f'%(prog)s {pyscanbox.__version__}',
+        help='Show version and exit',
     )
     parser.add_argument(
         '--config',
