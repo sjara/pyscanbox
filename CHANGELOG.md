@@ -11,6 +11,8 @@ All notable changes to this project are documented here. This file is append-onl
   - Updated `[tool.black]` `target-version` to `['py311', 'py312']`, removing untested 3.8–3.10 targets.
   - Updated `[tool.mypy]` `python_version` to `"3.12"` (primary tested version) so mypy type-checks against the correct stdlib.
   - Removed Python 3.8, 3.9, and 3.10 `Programming Language :: Python :: 3.x` PyPI classifiers.
+  - Updated installation instructions in `docs/user_guide/installation.md`.
+  - Set default deadbands to 40 in `config_template.yaml`.
 
 ## v1.7.3 - April 12, 2026
 - **Enhancement: Configurable mock neuron size and shape in emulator**

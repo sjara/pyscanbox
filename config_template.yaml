@@ -69,7 +69,7 @@ pmt:
 # MATLAB: sbconfig.resfreq, sbconfig.deadband, sbconfig.gain_*, etc.
 scanner:
   resonant_freq: 7930         # Resonant mirror frequency in Hz - sbconfig.resfreq
-  deadband: [120, 150]        # Laser deadband at margins [left, right] - sbconfig.deadband
+  deadband: [40, 40]          # Laser deadband at margins [left, right] - sbconfig.deadband
   hsync_sign: 1               # Horizontal sync polarity (0=normal, 1=flip) - sbconfig.hsync_sign
   warmup_delay: 50            # Resonant scanner warmup delay (×10ms) - sbconfig.wdelay
   # --- Galvo/resonant gain tables uploaded to PSoC5 at startup ---
@@ -79,7 +79,7 @@ scanner:
   gain_override: true         # Send custom gain tables at startup - sbconfig.gain_override
   dv_galvo: 64                # Galvo voltage step per line (max 64) - sbconfig.dv_galvo
   gain_galvo: [1.0, 1.189, 1.414, 1.682, 2.0, 2.378, 2.828, 3.364, 4.0, 4.757, 5.657, 6.727, 8.0]
-  gain_resonant_mult: 1       # Resonant (X-axis) multiplier - sbconfig.gain_resonant_mult
+  gain_resonant_mult: 1.0     # Resonant (X-axis) multiplier - sbconfig.gain_resonant_mult
   # NOTES:
   # gain_galvo is 13 galvo (Y-axis) gain values, logspaced from 1.0 to 8.0;
   #     index 0 = widest FOV (1.0x); index 12 = narrowest FOV (8.0x).
