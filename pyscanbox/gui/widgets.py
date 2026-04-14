@@ -94,7 +94,7 @@ class LaserControlGroup(QtWidgets.QGroupBox):
         self.power_slider.setValue(0)
         self.power_slider.setTickPosition(QtWidgets.QSlider.TickPosition.TicksBelow)
         self.power_slider.setTickInterval(10)
-        self.power_slider.setSingleStep(2)  # 2% step for mouse wheel
+        self.power_slider.setSingleStep(2)
         power_layout.addWidget(self.power_slider)
 
         self.power_slider.valueChanged.connect(
@@ -338,7 +338,6 @@ class AcquisitionControlGroup(QtWidgets.QGroupBox):
     - Focus and Grab buttons
     - Frames collected counter
     - Time recorded counter
-    - Snapshot and Load buttons
     """
     
     def __init__(self):
@@ -355,7 +354,7 @@ class AcquisitionControlGroup(QtWidgets.QGroupBox):
         self.focus_button = QtWidgets.QPushButton("Focus")
         self.focus_button.setCheckable(True)
         self.focus_button.setStyleSheet(
-            "QPushButton { min-height: 40px; font-size: 14px; }"
+            "QPushButton { min-height: 28px; font-size: 14px; }"
         )
         self.focus_button.clicked.connect(self._on_focus_toggle)
         top_row.addWidget(self.focus_button)
@@ -363,7 +362,7 @@ class AcquisitionControlGroup(QtWidgets.QGroupBox):
         self.grab_button = QtWidgets.QPushButton("Grab")
         self.grab_button.setCheckable(True)
         self.grab_button.setStyleSheet(
-            "QPushButton { min-height: 40px; font-size: 14px; }"
+            "QPushButton { min-height: 28px; font-size: 14px; }"
         )
         self.grab_button.clicked.connect(self._on_grab_toggle)
         top_row.addWidget(self.grab_button)
@@ -393,12 +392,6 @@ class AcquisitionControlGroup(QtWidgets.QGroupBox):
         middle_row.addLayout(time_layout)
         
         layout.addLayout(middle_row)
-        
-        # Bottom row: Snapshot button
-        bottom_row = QtWidgets.QHBoxLayout()
-        self.snapshot_button = QtWidgets.QPushButton("Snapshot")
-        bottom_row.addWidget(self.snapshot_button)
-        layout.addLayout(bottom_row)
         
         self.setLayout(layout)
         
@@ -587,17 +580,17 @@ class FileStorageGroup(QtWidgets.QGroupBox):
     def _auto_set_snapshot_index(self) -> None:
         """Initialise the snapshot counter to the next available number.
 
-        Scans the output directory for ``*_{date}_???.png`` files and
+        Scans the output directory for ``*_{date}_snap???.png`` files and
         sets ``_snapshot_index`` past the highest existing number.
         Falls back to ``0`` when the directory is empty or unreachable.
         """
         directory = self.directory_edit.text()
         date = self.date_edit.text() or DEFAULT_DATE
         highest = -1
-        pattern = os.path.join(directory, f'*_{date}_???.png')
+        pattern = os.path.join(directory, f'*_{date}_snap???.png')
         for filepath in glob.glob(pattern):
             basename = os.path.splitext(os.path.basename(filepath))[0]
-            parts = basename.rsplit('_', 1)
+            parts = basename.rsplit('_snap', 1)
             if len(parts) == 2:
                 try:
                     n = int(parts[1])
@@ -610,16 +603,17 @@ class FileStorageGroup(QtWidgets.QGroupBox):
     def get_snapshot_path(self) -> str:
         """Return the full path for the next snapshot PNG file.
 
-        Combines the output directory, subject, date, and the internal
-        snapshot counter.  Does not increment the counter; call
-        ``increment_snapshot_index()`` after a successful save.
+        Combines the output directory, subject, date, the literal token
+        ``snap``, and the internal snapshot counter.  For example:
+        ``test000_20260413_snap000.png``.  Does not increment the counter;
+        call ``increment_snapshot_index()`` after a successful save.
 
         Returns:
             Absolute file path string ending in .png.
         """
         subject = self.subject_edit.text() or DEFAULT_SUBJECT
         date = self.date_edit.text() or DEFAULT_DATE
-        filename = f'{subject}_{date}_{self._snapshot_index:03d}.png'
+        filename = f'{subject}_{date}_snap{self._snapshot_index:03d}.png'
         return os.path.join(self.directory_edit.text(), filename)
 
     def increment_snapshot_index(self) -> None:
@@ -641,6 +635,9 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
     switches to *manual zoom* mode.  "Fit to Window" in the context menu
     (or ``fit_to_window()``) restores fit mode.
     """
+
+    # Emitted when the user selects "Save Snapshot" from the context menu.
+    snapshot_requested = QtCore.pyqtSignal()
 
     _ZOOM_FACTOR = 1.25    # scale multiplier per wheel step
     _MARKER_COLOR = QtGui.QColor("#80AAAA00")   # Qt uses ARGB not RGBA
@@ -842,7 +839,7 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         super().keyPressEvent(event)
 
     def contextMenuEvent(self, event: QtGui.QContextMenuEvent) -> None:
-        """Show a right-click context menu with zoom/view actions."""
+        """Show a right-click context menu with zoom/view and snapshot actions."""
         menu = QtWidgets.QMenu(self)
         fit_action       = menu.addAction("Fit to Window")
         menu.addSeparator()
@@ -851,6 +848,8 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         actual_action    = menu.addAction("Actual Size (1:1)")
         menu.addSeparator()
         clear_action     = menu.addAction("Clear Markers")
+        menu.addSeparator()
+        snapshot_action  = menu.addAction("Save Snapshot")
         action = menu.exec(event.globalPos())
         if action == fit_action:
             self.fit_to_window()
@@ -868,6 +867,9 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
             self._update_zoom_label()
         elif action == clear_action:
             self.clear_markers()
+        elif action == snapshot_action:
+            # Emit a signal that will be connected to MainWindow._on_save_snapshot
+            self.snapshot_requested.emit()
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -1423,12 +1425,12 @@ class LightPathGroup(QtWidgets.QGroupBox):
 
     _STYLE_ACTIVE = (
         "QPushButton { background-color: #2c6fbb; color: #fff; "
-        "font-weight: bold; font-size: 14px; padding: 8px 18px; "
+        "font-weight: bold; font-size: 14px; padding: 4px 18px; "
         "border: 2px solid #5a9bf5; border-radius: 4px; }"
     )
     _STYLE_INACTIVE = (
         "QPushButton { background-color: #2a2a2a; color: #555; "
-        "font-size: 14px; padding: 8px 18px; "
+        "font-size: 14px; padding: 4px 18px; "
         "border: 1px solid #444; border-radius: 4px; }"
     )
 
@@ -1468,8 +1470,11 @@ class LightPathGroup(QtWidgets.QGroupBox):
         self._update_styles()
         self._button_group.buttonClicked.connect(self._on_button_clicked)
 
-        layout.addStretch()
         self.setLayout(layout)
+        self.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Preferred,
+            QtWidgets.QSizePolicy.Policy.Maximum,
+        )
 
     # ------------------------------------------------------------------
     # Public API
@@ -1511,10 +1516,23 @@ class PMTControlGroup(QtWidgets.QGroupBox):
     - PMT0 gain slider
     - PMT1 gain slider
     """
+
+    _DEFAULT_PRESETS = [50, 70]
     
-    def __init__(self):
-        """Initialize the PMT control group."""
+    def __init__(self, config=None):
+        """Initialize the PMT control group.
+
+        Args:
+            config: Optional AppConfig or plain dict.  When provided,
+                ``pmt.gain_presets`` is used to set the quick-access button
+                values.  Defaults to ``[50, 70]``.
+        """
         super().__init__("PMT Control")
+        config_dict = (
+            config.to_dict() if hasattr(config, 'to_dict') else (config or {})
+        )
+        presets = config_dict.get('pmt', {}).get('gain_presets', self._DEFAULT_PRESETS)
+        self._presets = list(presets)[:2]  # use at most two preset values
         self._init_ui()
         
     def _init_ui(self):
@@ -1527,19 +1545,20 @@ class PMTControlGroup(QtWidgets.QGroupBox):
         self.pmt0_label = QtWidgets.QLabel("PMT0 Gain:  0%")
         pmt0_top_layout.addWidget(self.pmt0_label)
         pmt0_top_layout.addStretch()
-        self.pmt0_50_btn = QtWidgets.QPushButton("50%")
+        self.pmt0_50_btn = QtWidgets.QPushButton(f"{self._presets[0]}%")
         self.pmt0_50_btn.setMaximumWidth(42)
-        self.pmt0_50_btn.clicked.connect(lambda: self.pmt0_slider.setValue(50))
+        self.pmt0_50_btn.clicked.connect(lambda: self.pmt0_slider.setValue(self._presets[0]))
         pmt0_top_layout.addWidget(self.pmt0_50_btn)
-        self.pmt0_75_btn = QtWidgets.QPushButton("75%")
+        self.pmt0_75_btn = QtWidgets.QPushButton(f"{self._presets[1]}%")
         self.pmt0_75_btn.setMaximumWidth(42)
-        self.pmt0_75_btn.clicked.connect(lambda: self.pmt0_slider.setValue(75))
+        self.pmt0_75_btn.clicked.connect(lambda: self.pmt0_slider.setValue(self._presets[1]))
         pmt0_top_layout.addWidget(self.pmt0_75_btn)
         pmt0_layout.addLayout(pmt0_top_layout)
 
         self.pmt0_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.pmt0_slider.setRange(0, 100)
         self.pmt0_slider.setValue(0)
+        self.pmt0_slider.setSingleStep(1)
         pmt0_layout.addWidget(self.pmt0_slider)
 
         self.pmt0_slider.valueChanged.connect(
@@ -1554,19 +1573,20 @@ class PMTControlGroup(QtWidgets.QGroupBox):
         self.pmt1_label = QtWidgets.QLabel("PMT1 Gain:  0%")
         pmt1_top_layout.addWidget(self.pmt1_label)
         pmt1_top_layout.addStretch()
-        self.pmt1_50_btn = QtWidgets.QPushButton("50%")
+        self.pmt1_50_btn = QtWidgets.QPushButton(f"{self._presets[0]}%")
         self.pmt1_50_btn.setMaximumWidth(42)
-        self.pmt1_50_btn.clicked.connect(lambda: self.pmt1_slider.setValue(50))
+        self.pmt1_50_btn.clicked.connect(lambda: self.pmt1_slider.setValue(self._presets[0]))
         pmt1_top_layout.addWidget(self.pmt1_50_btn)
-        self.pmt1_75_btn = QtWidgets.QPushButton("75%")
+        self.pmt1_75_btn = QtWidgets.QPushButton(f"{self._presets[1]}%")
         self.pmt1_75_btn.setMaximumWidth(42)
-        self.pmt1_75_btn.clicked.connect(lambda: self.pmt1_slider.setValue(75))
+        self.pmt1_75_btn.clicked.connect(lambda: self.pmt1_slider.setValue(self._presets[1]))
         pmt1_top_layout.addWidget(self.pmt1_75_btn)
         pmt1_layout.addLayout(pmt1_top_layout)
 
         self.pmt1_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
         self.pmt1_slider.setRange(0, 100)
         self.pmt1_slider.setValue(0)
+        self.pmt1_slider.setSingleStep(1)
         pmt1_layout.addWidget(self.pmt1_slider)
 
         self.pmt1_slider.valueChanged.connect(
@@ -1580,8 +1600,11 @@ class PMTControlGroup(QtWidgets.QGroupBox):
         self.zero_button.clicked.connect(self._zero_gains)
         layout.addWidget(self.zero_button)
         
-        layout.addStretch()
         self.setLayout(layout)
+        self.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Preferred,
+            QtWidgets.QSizePolicy.Policy.Maximum,
+        )
         
     def _zero_gains(self):
         """Set both PMT gains to zero."""

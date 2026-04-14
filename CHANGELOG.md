@@ -5,6 +5,27 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
+## v1.8.1 - April 13, 2026
+- **Enhancement: GUI layout optimization for 1200px height displays**
+  - Reduced Focus/Grab button minimum height from 40px to 28px and font size from 14px to 13px.
+  - Reduced 2p/Epi light-path toggle button vertical padding from 8px to 4px for more compact vertical footprint.
+  - Set `LightPathGroup` size policy to `Maximum` on vertical axis so it no longer stretches when there is available space.
+- **Refactor: Snapshot feature moved from button to File menu with auto-increment**
+  - Removed "Snapshot" button from `AcquisitionControlGroup` to reduce clutter in the left panel.
+  - Added "Save Snapshot" action to File menu (keyboard shortcut: **Ctrl+S**) that opens a file save dialog.
+  - Added "Save Snapshot" context menu item to the image canvas (right-click) for quick access.
+  - Snapshot filename now auto-increments when a file already exists on disk, using format `<subject>_<date>_snap<NNN>.png` (e.g., `test000_20260413_snap000.png`). The proposed filename is shown in the dialog, but the user can override it.
+  - Snapshot is saved at the original frame resolution using `ImageDisplayWidget.save_snapshot()` (renders from `_display_buffer`), not the scaled screen pixmap.
+  - File save dialog defaults to the directory and naming scheme set in the File Storage widget, with auto-increment preventing overwrite surprises.
+  - Removed stale `_on_snapshot_clicked()` handler that was wired to the deleted button.
+- **Enhancement: Mouse wheel step control for gain adjustment**
+  - Power (Pockels) slider now increments/decrements by 4% per mouse wheel step (via `setSingleStep(4)`).
+  - PMT0 and PMT1 gain sliders now increment/decrement by 2% per mouse wheel step (via `setSingleStep(2)`), improved from 1% for faster adjustment.
+- **Enhancement: Configurable PMT gain preset buttons**
+  - Added `pmt.gain_presets` configuration parameter (array of two integers, default: `[50, 70]`) in `config_template.yaml` to set the values of the "quick-access" PMT gain preset buttons.
+  - `PMTControlGroup` now reads `config['pmt']['gain_presets']` to label and wire the two preset buttons, allowing users to customize the buttons for their setup without code changes. Buttons previously hardcoded to 50% and 75%.
+  - Updated `LeftControlPanel` to pass the config object to `PMTControlGroup` so it can access preset values.
+
 ## v1.8.0 - April 12, 2026
 - **Maintenance: Tighten Python version requirements**
   - Updated `requires-python` from `>=3.8` to `>=3.11` to reflect actual tested versions (3.11 and 3.12). The codebase uses `X | Y` union type annotations which are a runtime error on Python < 3.10, and `list[T]`/`dict[K, V]` generic aliases which require Python 3.9+.

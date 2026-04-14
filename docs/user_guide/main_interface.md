@@ -19,6 +19,8 @@ The sizes of the major sections can be adjusted by clicking and dragging the spl
 ### File
 - **Open Data**: Allows openning previously collected `.sbx` / `.mat` file pairs for data playback. When data is loaded successfully, the *Frame Selector Widget* will appear (it can also be toggled explicitly from the **View** menu). It acts as a timeline transport bar. Changing *Image Display* settings (like rolling avgerage) will work on the loaded data.
 
+- **Save Snapshot**: Saves the current image canvas view as a PNG file.
+
 - **Exit**: Exits the software.
 
 ### Hardware

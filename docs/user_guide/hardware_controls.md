@@ -10,8 +10,8 @@ The left side of the **pyscanbox** GUI houses the primary hardware and acquisiti
 - **Power slider**: Controls the laser power reaching the sample via the Pockels cell voltage. 
 
 ## PMT Control
-- **PMT0 Gain**: slider to set the photomultiplier gain for channel 0 (green). Small buttons will set the gain to the specified level.
-- **PMT1 Gain**: slider to set the photomultiplier gain for channel 1 (red). Small buttons will set the gain to the specified level.
+- **PMT0 Gain**: slider to set the photomultiplier gain for channel 0 (green). Small buttons will set the gain to the specified level (which you can set in the config file).
+- **PMT1 Gain**: slider to set the photomultiplier gain for channel 1 (red). Small buttons will set the gain to the specified level (which you can set in the config file).
 - **Zero**: Resets the PMT gains to zero.
 
 ## Scanner
@@ -25,7 +25,6 @@ The left side of the **pyscanbox** GUI houses the primary hardware and acquisiti
 ## Acquisition Control
 - **Focus**: Start streaming data (endlessly) without saving to the disk.
 - **Grab**: Start acquiring frames and save them to the disk, halting automatically when the limit set by *Total frames* is reached.
-- **Snapshot**: Collect a single still image, saved as PNG. The name of the file is defined by the *File Storage* section. An image index (independent from that in *File Storage*) is appended to the base file name and increases automatically with each snapshot.
 
 ## File Storage
 - **Directory**: Base directory for saving files.

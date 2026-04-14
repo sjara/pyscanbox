@@ -43,7 +43,7 @@ class MainWindow(QtWidgets.QMainWindow):
     DEFAULT_WINDOW_HEIGHT = 900
     
     # Default panel widths (for splitter)
-    DEFAULT_LEFT_PANEL_WIDTH = 300
+    DEFAULT_LEFT_PANEL_WIDTH = 280
     DEFAULT_RIGHT_PANEL_WIDTH = DEFAULT_WINDOW_WIDTH - DEFAULT_LEFT_PANEL_WIDTH
     
     def __init__(self, config=None, config_path=None):
@@ -132,6 +132,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self._on_display_gain_changed
         )
 
+        # Connect canvas snapshot signal to save handler.
+        self._right_panel.image_display._canvas.snapshot_requested.connect(
+            self._on_save_snapshot
+        )
+
         # Create status bar
         self.statusBar = QtWidgets.QStatusBar()
         self.setStatusBar(self.statusBar)
@@ -183,6 +188,13 @@ class MainWindow(QtWidgets.QMainWindow):
         open_data_action.setShortcut("Ctrl+D")
         open_data_action.triggered.connect(self._open_data_file)
         file_menu.addAction(open_data_action)
+
+        file_menu.addSeparator()
+
+        save_snapshot_action = QtGui.QAction("Save &Snapshot", self)
+        save_snapshot_action.setShortcut("Ctrl+S")
+        save_snapshot_action.triggered.connect(self._on_save_snapshot)
+        file_menu.addAction(save_snapshot_action)
 
         file_menu.addSeparator()
         
@@ -487,6 +499,51 @@ class MainWindow(QtWidgets.QMainWindow):
         self._on_frame_selected(
             self._right_panel.frame_selector.current_frame
         )
+
+    def _on_save_snapshot(self) -> None:
+        """Save the current frame as a PNG file.
+
+        Opens a file dialog defaulting to the File Storage output directory,
+        with a pre-built filename like ``test000_20260413_snap000.png``.
+        The proposed index is incremented until the filename does not already
+        exist on disk, so the dialog always suggests a fresh file name.
+        The image is saved at the original frame resolution using
+        ``ImageDisplayWidget.save_snapshot()``.
+        """
+        if self._right_panel.image_display._display_buffer is None:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "No image to save",
+                "There is no image currently displayed. "
+                "Please load a recording or start live acquisition."
+            )
+            return
+
+        # Advance the index until the proposed path does not exist.
+        file_grp = self._left_panel.file_group
+        default_path = file_grp.get_snapshot_path()
+        while os.path.exists(default_path):
+            file_grp.increment_snapshot_index()
+            default_path = file_grp.get_snapshot_path()
+
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self,
+            "Save Snapshot",
+            default_path,
+            "PNG Image (*.png);;All files (*)",
+        )
+        if not path:
+            return
+
+        saved = self._right_panel.image_display.save_snapshot(path)
+        if saved:
+            self.statusBar.showMessage(f"Snapshot saved: {os.path.basename(path)}")
+        else:
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Failed to save snapshot",
+                f"Could not write to {path}",
+            )
 
     def _on_log_dock_floating(self, floating: bool) -> None:
         """Resize the main window when the log dock is detached or re-docked.
@@ -798,7 +855,6 @@ class MainWindow(QtWidgets.QMainWindow):
         # Acquisition buttons -> AppController
         acq.focus_button.clicked.connect(self._on_focus_clicked)
         acq.grab_button.clicked.connect(self._on_grab_clicked)
-        acq.snapshot_button.clicked.connect(self._on_snapshot_clicked)
 
         # Zero-angle button -> AppController
         pos_grp = self._right_panel.position_group
@@ -1362,43 +1418,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.statusBar.showMessage(f"Grabbing: {output_path}")
         else:
             self._ctrl.stop_acquisition()
-
-    def _on_snapshot_clicked(self):
-        """Save a PNG snapshot of the current frame.
-
-        The file is written to the directory and subject/date fields from
-        File Storage, but uses an independently incrementing numeric suffix
-        instead of the Session ID, giving filenames like
-        ``mouse01_20260306_002.png``.
-
-        Shows a status-bar message on success or failure.
-        """
-        file_grp = self._left_panel.file_group
-        path = file_grp.get_snapshot_path()
-        if os.path.exists(path):
-            import PyQt6.QtWidgets as _QtW
-            reply = _QtW.QMessageBox.question(
-                self,
-                "Overwrite Snapshot?",
-                f"The snapshot '{os.path.basename(path)}' already exists.\nDo you want to overwrite it?",
-                _QtW.QMessageBox.StandardButton.Yes | _QtW.QMessageBox.StandardButton.No,
-                _QtW.QMessageBox.StandardButton.No,
-            )
-            if reply == _QtW.QMessageBox.StandardButton.No:
-                return
-
-        saved = self._right_panel.image_display.save_snapshot(path)
-        if saved:
-            auto_inc = True
-            if self._ctrl is not None and hasattr(self._ctrl, 'config'):
-                auto_inc = self._ctrl.config.get('io', {}).get('auto_increment', True)
-            if auto_inc:
-                file_grp.increment_snapshot_index()
-            self.statusBar.showMessage(f"Snapshot saved: {path}")
-        else:
-            self.statusBar.showMessage(
-                "Snapshot: no frame available yet — start Focus or Grab first."
-            )
 
     # ------------------------------------------------------------------
     # AppController signal handlers

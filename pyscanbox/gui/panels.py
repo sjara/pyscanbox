@@ -44,7 +44,7 @@ class LeftControlPanel(QtWidgets.QWidget):
         # Add control group boxes
         self.light_path_group = widgets.LightPathGroup()
         self.laser_group = widgets.LaserControlGroup(self.config)
-        self.pmt_group = widgets.PMTControlGroup()
+        self.pmt_group = widgets.PMTControlGroup(self.config)
         self.scanner_group = widgets.ScannerControlGroup()
         self.acquisition_group = widgets.AcquisitionControlGroup()
         self.file_group = widgets.FileStorageGroup(self.config)
