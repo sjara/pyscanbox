@@ -137,6 +137,15 @@ class MainWindow(QtWidgets.QMainWindow):
             self._on_save_snapshot
         )
 
+        # Sync Save Channels with Image Display channel selection (if enabled in config).
+        config_dict = (
+            self.config.to_dict() if hasattr(self.config, 'to_dict') else (self.config or {})
+        )
+        if config_dict.get('io', {}).get('link_display_save_channels', True):
+            self._right_panel.image_display_group.channel_combobox.currentIndexChanged.connect(
+                self._on_display_channel_changed
+            )
+
         # Create status bar
         self.statusBar = QtWidgets.QStatusBar()
         self.setStatusBar(self.statusBar)
@@ -499,6 +508,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self._on_frame_selected(
             self._right_panel.frame_selector.current_frame
         )
+
+    def _on_display_channel_changed(self, display_index: int) -> None:
+        """Sync the Save Channels selector with the Image Display channel.
+
+        Maps the display channel index to the nearest save channel option.
+        Both dual-channel display modes (PMT0 & PMT1, PMT0 | PMT1) map to
+        the "PMT0 & PMT1" save option.
+
+        Args:
+            display_index: Current index of the Image Display channel combobox.
+        """
+        # PMT0 → 0, PMT1 → 1, PMT0 & PMT1 → 2, PMT0 | PMT1 → 2
+        save_index = min(display_index, 2)
+        self._left_panel.file_group.channels_combobox.setCurrentIndex(save_index)
 
     def _on_save_snapshot(self) -> None:
         """Save the current frame as a PNG file.
