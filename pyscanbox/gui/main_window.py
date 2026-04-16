@@ -142,7 +142,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.config.to_dict() if hasattr(self.config, 'to_dict') else (self.config or {})
         )
         if config_dict.get('io', {}).get('link_display_save_channels', True):
-            self._right_panel.image_display_group.channel_combobox.currentIndexChanged.connect(
+            self._right_panel.image_display_group.channel_combobox.activated.connect(
                 self._on_display_channel_changed
             )
 
