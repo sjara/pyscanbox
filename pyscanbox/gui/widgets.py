@@ -1723,7 +1723,7 @@ class ImageDisplayControlGroup(QtWidgets.QGroupBox):
             self.reset_channels()
 
     def reset_channels(self) -> None:
-        """Re-enable all channel combobox items and select PMT0.
+        """Re-enable all channel combobox items without changing the selection.
 
         Call this when switching back to live-acquisition mode or when no
         file is loaded so that all four display modes are available again.
@@ -1732,7 +1732,6 @@ class ImageDisplayControlGroup(QtWidgets.QGroupBox):
         for idx in range(self.channel_combobox.count()):
             item = model.item(idx)
             item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsEnabled)
-        self.channel_combobox.setCurrentIndex(0)
 
 
 class OptotuneGroup(QtWidgets.QGroupBox):

@@ -169,8 +169,9 @@ optotune:
 
 io:
   output_directory: /tmp/      # Default data directory - sbconfig.datadir
-  file_prefix: scan            # File prefix for output files
   auto_increment: true         # Auto-increment experiment number - sbconfig.autoinc
+  link_display_save_channels: true  # When true, changing the channel in "Image Display"
+                               # automatically updates "Save Channels" in "File Storage".
 
 
 # ============================================================================

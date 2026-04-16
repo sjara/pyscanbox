@@ -68,6 +68,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # Used to gate post-acquisition actions that only apply to Grab (e.g.
         # Session ID increment).
         self._grab_active = False
+        # Set to True when the user checks "don't show again" in the channel
+        # mismatch dialog; resets to False on application restart.
+        self._suppress_channel_mismatch_dialog = False
         self._elapsed_timer = QtCore.QTimer(self)
         self._elapsed_timer.setInterval(1000)
         self._elapsed_timer.timeout.connect(self._update_elapsed_time)
@@ -136,6 +139,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._right_panel.image_display._canvas.snapshot_requested.connect(
             self._on_save_snapshot
         )
+
+        # Sync Save Channels with Image Display channel selection (if enabled in config).
+        config_dict = (
+            self.config.to_dict() if hasattr(self.config, 'to_dict') else (self.config or {})
+        )
+        if config_dict.get('io', {}).get('link_display_save_channels', True):
+            self._right_panel.image_display_group.channel_combobox.activated.connect(
+                self._on_display_channel_changed
+            )
 
         # Create status bar
         self.statusBar = QtWidgets.QStatusBar()
@@ -499,6 +511,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self._on_frame_selected(
             self._right_panel.frame_selector.current_frame
         )
+
+    def _on_display_channel_changed(self, display_index: int) -> None:
+        """Sync the Save Channels selector with the Image Display channel.
+
+        Maps the display channel index to the nearest save channel option.
+        Both dual-channel display modes (PMT0 & PMT1, PMT0 | PMT1) map to
+        the "PMT0 & PMT1" save option.
+
+        Args:
+            display_index: Current index of the Image Display channel combobox.
+        """
+        # PMT0 → 0, PMT1 → 1, PMT0 & PMT1 → 2, PMT0 | PMT1 → 2
+        save_index = min(display_index, 2)
+        self._left_panel.file_group.channels_combobox.setCurrentIndex(save_index)
 
     def _on_save_snapshot(self) -> None:
         """Save the current frame as a PNG file.
@@ -1401,6 +1427,52 @@ class MainWindow(QtWidgets.QMainWindow):
             frames = self._left_panel.scanner_group.total_frames_spinbox.value()
             # Combobox indices: 0 = PMT0 only, 1 = PMT1 only, 2 = both.
             save_channels = file_grp.channels_combobox.currentIndex()
+
+            # Warn if Save Channels differs from what Image Display is showing.
+            # Block the grab button's signals while the dialog is open so that
+            # setChecked(False) on cancel does not re-enter _on_grab_clicked.
+            acq.grab_button.blockSignals(True)
+            if not self._suppress_channel_mismatch_dialog:
+                display_index = (
+                    self._right_panel.image_display_group.channel_combobox.currentIndex()
+                )
+                # Display indices 2 and 3 both mean "both channels shown".
+                display_is_dual = display_index >= 2
+                save_is_dual = save_channels == 2
+                mismatch = (
+                    (display_is_dual and not save_is_dual)
+                    or (not display_is_dual and save_channels != display_index)
+                )
+                if mismatch:
+                    _display_names = ["PMT0", "PMT1", "PMT0 & PMT1", "PMT0 | PMT1"]
+                    _save_names = ["PMT0", "PMT1", "PMT0 & PMT1"]
+                    display_name = _display_names[display_index]
+                    save_name = _save_names[save_channels]
+                    dialog = QtWidgets.QMessageBox(self)
+                    dialog.setWindowTitle("Channel Mismatch")
+                    dialog.setText(
+                        f"Image Display is showing <b>{display_name}</b> but "
+                        f"Save Channels is set to <b>{save_name}</b>.<br><br>"
+                        "Do you want to continue?"
+                    )
+                    dialog.setStandardButtons(
+                        QtWidgets.QMessageBox.StandardButton.Yes |
+                        QtWidgets.QMessageBox.StandardButton.No
+                    )
+                    dialog.setDefaultButton(QtWidgets.QMessageBox.StandardButton.Yes)
+                    suppress_checkbox = QtWidgets.QCheckBox("Don't show this again")
+                    dialog.setCheckBox(suppress_checkbox)
+                    reply = dialog.exec()
+                    if suppress_checkbox.isChecked():
+                        self._suppress_channel_mismatch_dialog = True
+                    if reply == QtWidgets.QMessageBox.StandardButton.No:
+                        acq.grab_button.setChecked(False)
+                        acq.grab_button.setText("Grab")
+                        acq.grab_button.blockSignals(False)
+                        return
+
+            acq.grab_button.setText("Abort")
+            acq.grab_button.blockSignals(False)
             self._grab_active = True
             try:
                 self._ctrl.start_grab(output_path=output_path, frames=frames,
