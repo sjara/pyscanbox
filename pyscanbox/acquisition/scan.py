@@ -66,8 +66,7 @@ class Scanner:
         Args:
             config: Configuration dictionary
             output_path: Optional output file path (excluding extension).
-                If None, uses config['io']['output_directory'] and
-                config['io']['file_prefix'].
+                If None, defaults to config['io']['output_directory']/scan_<timestamp>.
             focus_mode: If True, run indefinitely without writing to disk.
                 Used for live-preview (Focus button). Sets frames_to_acquire
                 to sys.maxsize and skips file-writer initialisation.
@@ -267,9 +266,8 @@ class Scanner:
         """
         if self.output_path is None:
             output_dir = self.config['io']['output_directory']
-            file_prefix = self.config['io']['file_prefix']
             timestamp = time.strftime('%Y%m%d_%H%M%S')
-            self.output_path = f"{output_dir}/{file_prefix}_{timestamp}"
+            self.output_path = f"{output_dir}/scan_{timestamp}"
 
         nchan = 1 if self.save_channels in (0, 1) else 2
         pmt_channel = self.save_channels if self.save_channels in (0, 1) else 0
