@@ -5,6 +5,15 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
+## v1.8.2 - April 15, 2026
+- **Enhancement: Link Image Display channel selector to Save Channels**
+  - When the user selects a channel in Image Display, the Save Channels selector in File Storage updates automatically to match. Only responds to explicit user selections (not programmatic resets).
+  - Controlled by the new config key `io.link_display_save_channels` (default: `true`).
+  - Pressing Focus no longer resets the Image Display channel selection; it only re-enables all channel options if they were restricted by a previously loaded file.
+  - A warning dialog is shown before Grab if Save Channels differs from what Image Display is showing, allowing the user to confirm or cancel. A "Don't show this again" checkbox suppresses the dialog for the rest of the session.
+- **Maintenance: Remove `file_prefix` config key**
+  - Removed the unused `io.file_prefix` parameter from `config_template.yaml`. The fallback output path in `scan.py` now uses a hardcoded `scan_` prefix with a timestamp; in normal use the GUI always provides an explicit output path.
+
 ## v1.8.1 - April 13, 2026
 - **Enhancement: GUI layout optimization for 1200px height displays**
   - Reduced Focus/Grab button minimum height from 40px to 28px and font size from 14px to 13px.
