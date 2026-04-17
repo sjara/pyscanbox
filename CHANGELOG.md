@@ -5,6 +5,13 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
+## v1.8.3 - April 16, 2026
+- **Enhancement: TTL input selector added to GUI**
+  - Added a new "Save Channels" widget in the secondary controls bar (to the left of Objective Position) that groups PMT channel selection and TTL input toggles together.
+  - Two independent toggle buttons (TTL0, TTL1) allow enabling or disabling each TTL input. Buttons are seeded from `config['external_events']['interrupt_mask']` at startup and override the config value at grab time.
+  - The PMT channel combobox previously in the File Storage panel has been moved into the new widget, freeing vertical space in the left panel.
+  - Removed the extra icon-placeholder whitespace from all combobox dropdowns.
+
 ## v1.8.2 - April 15, 2026
 - **Enhancement: Link Image Display channel selector to Save Channels**
   - When the user selects a channel in Image Display, the Save Channels selector in File Storage updates automatically to match. Only responds to explicit user selections (not programmatic resets).
