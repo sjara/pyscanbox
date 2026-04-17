@@ -51,6 +51,18 @@ _DISPLAY_COLORMAP_PMT1: str = 'red_white'
 _DISPLAY_LUT: np.ndarray = _build_colormap_lut(_DISPLAY_COLORMAP)
 
 
+def _make_combobox() -> QtWidgets.QComboBox:
+    """Return a QComboBox with the icon placeholder removed.
+
+    By default Qt reserves space for item icons even when none are set,
+    adding visible whitespace before each dropdown entry.  Setting the
+    view's icon size to zero eliminates that gap.
+    """
+    combo = QtWidgets.QComboBox()
+    combo.view().setIconSize(QtCore.QSize(0, 0))
+    return combo
+
+
 class LaserControlGroup(QtWidgets.QGroupBox):
     """Laser control group box.
     
@@ -142,7 +154,7 @@ class ScannerControlGroup(QtWidgets.QGroupBox):
         # Labels come from ScanboxController.MAG_LABELS, the single source of
         # truth (hardware zoom amplitudes from sbconfig.gain_galvo).
         # Index 0–12 is sent directly to the PSoC5 controller (CMD_MAGNIFICATION).
-        self.magnification_combobox = QtWidgets.QComboBox()
+        self.magnification_combobox = _make_combobox()
         self.magnification_combobox.addItems(
             hw_controller.ScanboxController.MAG_LABELS
         )
@@ -155,7 +167,7 @@ class ScannerControlGroup(QtWidgets.QGroupBox):
         layout.addRow("Frame rate:", self.frame_rate_label)
         
         # Scan mode selector (combo box)
-        self.scan_mode_combobox = QtWidgets.QComboBox()
+        self.scan_mode_combobox = _make_combobox()
         self.scan_mode_combobox.addItems(["Unidirectional", "Bidirectional"])
         self.scan_mode_combobox.setCurrentIndex(0)
         layout.addRow("Scan mode:", self.scan_mode_combobox)
@@ -431,7 +443,6 @@ class FileStorageGroup(QtWidgets.QGroupBox):
     Contains:
     - Directory selection button and path display
     - Subject, Date, Session ID fields
-    - Save channels selector
     """
     
     def __init__(self, config=None):
@@ -494,13 +505,6 @@ class FileStorageGroup(QtWidgets.QGroupBox):
         self.session_edit.textChanged.connect(self._update_filename)
         layout.addWidget(self.session_edit, 4, 1)
         
-        # Save channels selector
-        layout.addWidget(QtWidgets.QLabel("Save Channels:"), 5, 0)
-        self.channels_combobox = QtWidgets.QComboBox()
-        self.channels_combobox.addItems(["PMT0", "PMT1", "PMT0 & PMT1"])
-        self.channels_combobox.setCurrentIndex(0)
-        layout.addWidget(self.channels_combobox, 5, 1)
-
         self.setLayout(layout)
 
         # Set initial filename and auto-detect next session/snapshot IDs.
@@ -1509,35 +1513,36 @@ class LightPathGroup(QtWidgets.QGroupBox):
             self._epi_button.setStyleSheet(self._STYLE_ACTIVE)
 
 
-class TTLInputsGroup(QtWidgets.QGroupBox):
-    """TTL inputs toggle group box.
+class SaveChannelsGroup(QtWidgets.QGroupBox):
+    """Save channels group box.
 
-    Presents one small checkable button per TTL input (TTL0, TTL1).  Active
-    inputs are highlighted in blue; inactive inputs are dimmed.  Seeded from
-    config['external_events']['interrupt_mask'] at startup.  Emits no signals
-    — callers read ``get_ttl_mask()`` at grab time.
+    Contains a PMT channel selector combobox (PMT0, PMT1, PMT0 & PMT1) at
+    the top, and independent TTL0/TTL1 toggle buttons below.  TTL buttons are
+    seeded from config['external_events']['interrupt_mask'] at startup.
+    Callers read ``channels_combobox.currentIndex()`` and ``get_ttl_mask()``
+    at grab time.
     """
 
-    _STYLE_ON = (
+    _TTL_STYLE_ON = (
         "QPushButton { background-color: #2c6fbb; color: #fff; "
         "font-weight: bold; font-size: 11px; padding: 2px 6px; "
         "border: 2px solid #5a9bf5; border-radius: 3px; }"
     )
-    _STYLE_OFF = (
+    _TTL_STYLE_OFF = (
         "QPushButton { background-color: #2a2a2a; color: #555; "
         "font-size: 11px; padding: 2px 6px; "
         "border: 1px solid #444; border-radius: 3px; }"
     )
 
     def __init__(self, config=None):
-        """Initialize the TTL inputs group.
+        """Initialize the save channels group.
 
         Args:
             config: Optional configuration dict or AppConfig.  When provided,
-                buttons are seeded from
+                TTL buttons are seeded from
                 config['external_events']['interrupt_mask'].
         """
-        super().__init__("TTL Inputs")
+        super().__init__("Save Channels")
         imask = (
             config.get('external_events', {}).get('interrupt_mask', 0)
             if config is not None
@@ -1549,31 +1554,46 @@ class TTLInputsGroup(QtWidgets.QGroupBox):
         """Initialize UI components.
 
         Args:
-            imask: Initial interrupt mask bitmask.
+            imask: Initial TTL interrupt mask bitmask.
         """
         layout = QtWidgets.QVBoxLayout()
-        layout.setSpacing(4)
+        layout.setSpacing(6)
+        layout.addSpacing(10)
 
+        # PMT channel selector
+        layout.addWidget(QtWidgets.QLabel("PMT :"))
+        self.channels_combobox = _make_combobox()
+        self.channels_combobox.addItems(["PMT0", "PMT1", "PMT0 & PMT1"])
+        self.channels_combobox.setCurrentIndex(0)
+        layout.addWidget(self.channels_combobox)
+
+        # Vertical gap between sections
+        layout.addSpacing(18)
+
+        # TTL toggle buttons
+        layout.addWidget(QtWidgets.QLabel("TTL :"))
         self.ttl0_button = QtWidgets.QPushButton("TTL0")
         self.ttl0_button.setCheckable(True)
         self.ttl0_button.setChecked(bool(imask & 1))
-        self.ttl0_button.toggled.connect(self._update_styles)
+        self.ttl0_button.toggled.connect(self._update_ttl_styles)
 
         self.ttl1_button = QtWidgets.QPushButton("TTL1")
         self.ttl1_button.setCheckable(True)
         self.ttl1_button.setChecked(bool(imask & 2))
-        self.ttl1_button.toggled.connect(self._update_styles)
+        self.ttl1_button.toggled.connect(self._update_ttl_styles)
 
         layout.addWidget(self.ttl0_button)
         layout.addWidget(self.ttl1_button)
         layout.addStretch()
         self.setLayout(layout)
-        self._update_styles()
+        self._update_ttl_styles()
 
-    def _update_styles(self) -> None:
-        """Apply active/inactive stylesheet to each button."""
+    def _update_ttl_styles(self) -> None:
+        """Apply active/inactive stylesheet to each TTL button."""
         for btn in (self.ttl0_button, self.ttl1_button):
-            btn.setStyleSheet(self._STYLE_ON if btn.isChecked() else self._STYLE_OFF)
+            btn.setStyleSheet(
+                self._TTL_STYLE_ON if btn.isChecked() else self._TTL_STYLE_OFF
+            )
 
     def get_ttl_mask(self) -> int:
         """Return the current TTL interrupt mask from button states.
@@ -1724,7 +1744,7 @@ class ImageDisplayControlGroup(QtWidgets.QGroupBox):
 
         # Channel display selector
         layout.addWidget(QtWidgets.QLabel("Channel:"))
-        self.channel_combobox = QtWidgets.QComboBox()
+        self.channel_combobox = _make_combobox()
         self.channel_combobox.addItems(["PMT0", "PMT1", "PMT0 & PMT1", "PMT0 | PMT1"])
         self.channel_combobox.setCurrentIndex(0)
         layout.addWidget(self.channel_combobox)
@@ -1760,7 +1780,7 @@ class ImageDisplayControlGroup(QtWidgets.QGroupBox):
 
         # Rolling average selector
         layout.addWidget(QtWidgets.QLabel("Rolling avg:"))
-        self.rolling_avg_combobox = QtWidgets.QComboBox()
+        self.rolling_avg_combobox = _make_combobox()
         items = ["Off"] + [f"\u03c4 = {t} frames" for t in self.rolling_avg_taus[1:]]
         self.rolling_avg_combobox.addItems(items)
         self.rolling_avg_combobox.setCurrentIndex(0)

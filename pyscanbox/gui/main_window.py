@@ -524,7 +524,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """
         # PMT0 → 0, PMT1 → 1, PMT0 & PMT1 → 2, PMT0 | PMT1 → 2
         save_index = min(display_index, 2)
-        self._left_panel.file_group.channels_combobox.setCurrentIndex(save_index)
+        self._right_panel.save_channels_group.channels_combobox.setCurrentIndex(save_index)
 
     def _on_save_snapshot(self) -> None:
         """Save the current frame as a PNG file.
@@ -1426,8 +1426,8 @@ class MainWindow(QtWidgets.QMainWindow):
             # 0 = run forever, matching MATLAB convention.
             frames = self._left_panel.scanner_group.total_frames_spinbox.value()
             # Combobox indices: 0 = PMT0 only, 1 = PMT1 only, 2 = both.
-            save_channels = file_grp.channels_combobox.currentIndex()
-            ttl_mask = self._right_panel.ttl_group.get_ttl_mask()
+            save_channels = self._right_panel.save_channels_group.channels_combobox.currentIndex()
+            ttl_mask = self._right_panel.save_channels_group.get_ttl_mask()
 
             # Warn if Save Channels differs from what Image Display is showing.
             # Block the grab button's signals while the dialog is open so that

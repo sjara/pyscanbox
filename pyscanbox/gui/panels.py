@@ -161,7 +161,7 @@ class RightDisplayPanel(QtWidgets.QWidget):
         splitter.setContentsMargins(0, 0, 0, 0)
 
         # Add control group boxes side-by-side
-        self.ttl_group = widgets.TTLInputsGroup(config=self.config)
+        self.save_channels_group = widgets.SaveChannelsGroup(config=self.config)
         self.position_group = widgets.PositionDisplayGroup()
         self.image_display_group = widgets.ImageDisplayControlGroup(config=self.config)
         # Extract ETL default value from config; OptotuneGroup uses it as its
@@ -174,8 +174,8 @@ class RightDisplayPanel(QtWidgets.QWidget):
         etl_default = config_dict.get('optotune', {}).get('default_value', None)
         self.optotune_group = widgets.OptotuneGroup(default_value=etl_default)
 
-        # Left side: TTL Inputs (narrow) then Objective Position.
-        splitter.addWidget(self.ttl_group)
+        # Left side: Save Channels (narrow) then Objective Position.
+        splitter.addWidget(self.save_channels_group)
         splitter.addWidget(self.position_group)
 
         # Right side: Image Display, Optotune in a plain
