@@ -500,7 +500,7 @@ class FileStorageGroup(QtWidgets.QGroupBox):
         self.channels_combobox.addItems(["PMT0", "PMT1", "PMT0 & PMT1"])
         self.channels_combobox.setCurrentIndex(0)
         layout.addWidget(self.channels_combobox, 5, 1)
-        
+
         self.setLayout(layout)
 
         # Set initial filename and auto-detect next session/snapshot IDs.
@@ -1509,9 +1509,85 @@ class LightPathGroup(QtWidgets.QGroupBox):
             self._epi_button.setStyleSheet(self._STYLE_ACTIVE)
 
 
+class TTLInputsGroup(QtWidgets.QGroupBox):
+    """TTL inputs toggle group box.
+
+    Presents one small checkable button per TTL input (TTL0, TTL1).  Active
+    inputs are highlighted in blue; inactive inputs are dimmed.  Seeded from
+    config['external_events']['interrupt_mask'] at startup.  Emits no signals
+    — callers read ``get_ttl_mask()`` at grab time.
+    """
+
+    _STYLE_ON = (
+        "QPushButton { background-color: #2c6fbb; color: #fff; "
+        "font-weight: bold; font-size: 11px; padding: 2px 6px; "
+        "border: 2px solid #5a9bf5; border-radius: 3px; }"
+    )
+    _STYLE_OFF = (
+        "QPushButton { background-color: #2a2a2a; color: #555; "
+        "font-size: 11px; padding: 2px 6px; "
+        "border: 1px solid #444; border-radius: 3px; }"
+    )
+
+    def __init__(self, config=None):
+        """Initialize the TTL inputs group.
+
+        Args:
+            config: Optional configuration dict or AppConfig.  When provided,
+                buttons are seeded from
+                config['external_events']['interrupt_mask'].
+        """
+        super().__init__("TTL Inputs")
+        imask = (
+            config.get('external_events', {}).get('interrupt_mask', 0)
+            if config is not None
+            else 0
+        )
+        self._init_ui(imask)
+
+    def _init_ui(self, imask: int) -> None:
+        """Initialize UI components.
+
+        Args:
+            imask: Initial interrupt mask bitmask.
+        """
+        layout = QtWidgets.QVBoxLayout()
+        layout.setSpacing(4)
+
+        self.ttl0_button = QtWidgets.QPushButton("TTL0")
+        self.ttl0_button.setCheckable(True)
+        self.ttl0_button.setChecked(bool(imask & 1))
+        self.ttl0_button.toggled.connect(self._update_styles)
+
+        self.ttl1_button = QtWidgets.QPushButton("TTL1")
+        self.ttl1_button.setCheckable(True)
+        self.ttl1_button.setChecked(bool(imask & 2))
+        self.ttl1_button.toggled.connect(self._update_styles)
+
+        layout.addWidget(self.ttl0_button)
+        layout.addWidget(self.ttl1_button)
+        layout.addStretch()
+        self.setLayout(layout)
+        self._update_styles()
+
+    def _update_styles(self) -> None:
+        """Apply active/inactive stylesheet to each button."""
+        for btn in (self.ttl0_button, self.ttl1_button):
+            btn.setStyleSheet(self._STYLE_ON if btn.isChecked() else self._STYLE_OFF)
+
+    def get_ttl_mask(self) -> int:
+        """Return the current TTL interrupt mask from button states.
+
+        Returns:
+            Bitmask: 0=none, 1=TTL0 only, 2=TTL1 only, 3=both.
+        """
+        return (1 if self.ttl0_button.isChecked() else 0) | \
+               (2 if self.ttl1_button.isChecked() else 0)
+
+
 class PMTControlGroup(QtWidgets.QGroupBox):
     """PMT control group box.
-    
+
     Contains:
     - PMT0 gain slider
     - PMT1 gain slider

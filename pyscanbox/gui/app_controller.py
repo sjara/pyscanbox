@@ -119,6 +119,7 @@ class ScannerThread(QtCore.QThread):
                  controller=None,
                  motor=None,
                  save_channels: int = 2,
+                 ttl_mask: int = 0,
                  plugin_manager=None,
                  parent=None):
         """Initialize the scanner thread.
@@ -142,6 +143,9 @@ class ScannerThread(QtCore.QThread):
             save_channels: Which PMT channels to write to disk.  Matches the
                 FileStorageGroup combobox index: 0 = PMT0 only, 1 = PMT1
                 only, 2 = both channels (default).
+            ttl_mask: Which TTL inputs fire timestamped event records.
+                Bitmask: 0=none, 1=TTL0, 2=TTL1, 3=both.  Overrides the
+                config interrupt_mask value.
             parent: Optional Qt parent object.
         """
         super().__init__(parent)
@@ -152,6 +156,7 @@ class ScannerThread(QtCore.QThread):
         self._controller = controller
         self._motor = motor
         self._save_channels = save_channels
+        self._ttl_mask = ttl_mask
         self._plugin_manager = plugin_manager
         self._scanner = None
 
@@ -169,6 +174,7 @@ class ScannerThread(QtCore.QThread):
                 hw_controller=self._controller,
                 hw_motor=self._motor,
                 save_channels=self._save_channels,
+                ttl_mask=self._ttl_mask,
                 plugin_manager=self._plugin_manager,
             )
             self._scanner.run()
@@ -1712,7 +1718,8 @@ class AppController(QtCore.QObject):
 
     def start_grab(self, output_path: str = None,
                    frames: int = None,
-                   save_channels: int = 2) -> None:
+                   save_channels: int = 2,
+                   ttl_mask: int = 0) -> None:
         """Start a timed grab acquisition and save data to disk.
 
         Acquires the number of frames specified by ``frames`` (or
@@ -1728,6 +1735,9 @@ class AppController(QtCore.QObject):
             save_channels: Which PMT channels to write to disk.  Matches the
                 FileStorageGroup combobox index: 0 = PMT0 only, 1 = PMT1
                 only, 2 = both channels (default).
+            ttl_mask: Which TTL inputs fire timestamped event records.
+                Bitmask: 0=none, 1=TTL0, 2=TTL1, 3=both.  Overrides the
+                config interrupt_mask value.
 
         Raises:
             RuntimeError: If hardware is not open or acquisition is already
@@ -1741,7 +1751,8 @@ class AppController(QtCore.QObject):
             )
         self._start_scanner(focus_mode=False, output_path=output_path,
                             frames_override=frames,
-                            save_channels=save_channels)
+                            save_channels=save_channels,
+                            ttl_mask=ttl_mask)
         logger.info("AppController: grab started, output_path=%s", output_path)
         self._log_event(f'Grab started  →  {output_path}')
 
@@ -1766,7 +1777,8 @@ class AppController(QtCore.QObject):
 
     def _start_scanner(self, focus_mode: bool, output_path,
                         frames_override: int = None,
-                        save_channels: int = 2) -> None:
+                        save_channels: int = 2,
+                        ttl_mask: int = 0) -> None:
         """Create and start a ScannerThread (internal helper).
 
         Args:
@@ -1775,6 +1787,7 @@ class AppController(QtCore.QObject):
             frames_override: Optional frame count override (0 = forever).
             save_channels: Passed to ScannerThread.  Ignored in focus mode
                 (focus mode never writes to disk).
+            ttl_mask: TTL interrupt mask bitmask passed to ScannerThread.
         """
         self._scanner_thread = ScannerThread(
             self.config,
@@ -1784,6 +1797,7 @@ class AppController(QtCore.QObject):
             controller=self._hw_controller,
             motor=self._motor if self._motor.is_open else None,
             save_channels=save_channels,
+            ttl_mask=ttl_mask,
             plugin_manager=self._plugin_manager,
             parent=self,
         )

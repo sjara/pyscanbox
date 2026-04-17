@@ -161,6 +161,7 @@ class RightDisplayPanel(QtWidgets.QWidget):
         splitter.setContentsMargins(0, 0, 0, 0)
 
         # Add control group boxes side-by-side
+        self.ttl_group = widgets.TTLInputsGroup(config=self.config)
         self.position_group = widgets.PositionDisplayGroup()
         self.image_display_group = widgets.ImageDisplayControlGroup(config=self.config)
         # Extract ETL default value from config; OptotuneGroup uses it as its
@@ -173,7 +174,8 @@ class RightDisplayPanel(QtWidgets.QWidget):
         etl_default = config_dict.get('optotune', {}).get('default_value', None)
         self.optotune_group = widgets.OptotuneGroup(default_value=etl_default)
 
-        # Left side: Objective Position (resizable via splitter handle).
+        # Left side: TTL Inputs (narrow) then Objective Position.
+        splitter.addWidget(self.ttl_group)
         splitter.addWidget(self.position_group)
 
         # Right side: Image Display, Optotune in a plain
@@ -186,9 +188,7 @@ class RightDisplayPanel(QtWidgets.QWidget):
         right_layout.addWidget(self.optotune_group, 2)
         splitter.addWidget(right_container)
 
-        # Objective Position 340 px; right container takes the rest.
-        # Optotune panel is twice as wide as PMT/ImageDisplay, so right
-        # container needs ~760 px (vs 600 before) for equal base widths.
-        splitter.setSizes([340, 760])
+        # TTL Inputs narrow (~120 px), Objective Position 340 px, right container rest.
+        splitter.setSizes([120, 340, 640])
 
         return splitter

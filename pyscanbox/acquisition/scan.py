@@ -60,6 +60,7 @@ class Scanner:
                  hw_controller=None,
                  hw_motor=None,
                  save_channels: int = 2,
+                 ttl_mask: Optional[int] = None,
                  plugin_manager=None):
         """Initialize scanner with configuration.
 
@@ -93,6 +94,9 @@ class Scanner:
             save_channels: Which PMT channels to write to disk.  Matches the
                 FileStorageGroup combobox index: 0 = PMT0 only, 1 = PMT1
                 only, 2 = both channels (default).
+            ttl_mask: Which TTL inputs fire timestamped event records.
+                Bitmask: 0=none, 1=TTL0, 2=TTL1, 3=both.  When provided,
+                overrides config['external_events']['interrupt_mask'].
         """
         self.config = config
         self.output_path = output_path
@@ -191,6 +195,7 @@ class Scanner:
         self.on_frame_data = on_frame_data
         self.on_command = on_command
         self.save_channels = save_channels
+        self.ttl_mask = ttl_mask
         self.plugin_manager = plugin_manager
         # Apply GUI override first (0 means "forever", matching MATLAB convention).
         if frames_override is not None:
@@ -309,7 +314,10 @@ class Scanner:
         # Configure TTL interrupt mask so the PSoC5 knows which external
         # TTL inputs to monitor.  imask=0 disables both (safe default).
         # Reference: sb_imask.m; original scanbox.m line 251.
-        imask = self.config.get('external_events', {}).get('interrupt_mask', 0)
+        if self.ttl_mask is not None:
+            imask = self.ttl_mask
+        else:
+            imask = self.config.get('external_events', {}).get('interrupt_mask', 0)
         self.controller.set_ttl_mask(imask)
 
         # Horizontal sync polarity: 0 = normal, 1 = flip scan direction.

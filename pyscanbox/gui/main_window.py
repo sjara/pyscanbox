@@ -1427,6 +1427,7 @@ class MainWindow(QtWidgets.QMainWindow):
             frames = self._left_panel.scanner_group.total_frames_spinbox.value()
             # Combobox indices: 0 = PMT0 only, 1 = PMT1 only, 2 = both.
             save_channels = file_grp.channels_combobox.currentIndex()
+            ttl_mask = self._right_panel.ttl_group.get_ttl_mask()
 
             # Warn if Save Channels differs from what Image Display is showing.
             # Block the grab button's signals while the dialog is open so that
@@ -1476,7 +1477,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._grab_active = True
             try:
                 self._ctrl.start_grab(output_path=output_path, frames=frames,
-                                      save_channels=save_channels)
+                                      save_channels=save_channels,
+                                      ttl_mask=ttl_mask)
             except RuntimeError as exc:
                 acq.grab_button.setChecked(False)
                 acq.grab_button.setText("Grab")
