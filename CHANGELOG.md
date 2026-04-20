@@ -11,6 +11,9 @@ All notable changes to this project are documented here. This file is append-onl
   - Two independent toggle buttons (TTL0, TTL1) allow enabling or disabling each TTL input. Buttons are seeded from `config['external_events']['interrupt_mask']` at startup and override the config value at grab time.
   - The PMT channel combobox previously in the File Storage panel has been moved into the new widget, freeing vertical space in the left panel.
   - Removed the extra icon-placeholder whitespace from all combobox dropdowns.
+- **Docs: Updated user guide to reflect new Save Channels widget**
+  - Added Save Channels section to `visualization_and_tools.md` describing the PMT selector and TTL toggles.
+  - Removed the now-moved Save Channels entry from the File Storage section of `hardware_controls.md`.
 
 ## v1.8.2 - April 15, 2026
 - **Enhancement: Link Image Display channel selector to Save Channels**

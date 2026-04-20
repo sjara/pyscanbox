@@ -13,6 +13,11 @@ The central visual element of `pyscanbox` is the *Image Display Canvas*, where a
   - To disable this mode, click the *[+]* icon again (or press 'Esc').
   - To clear all markers, right click on the image canvas and select "Clear markers".
 
+## Save Channels
+This widget allows selecting what data streams are saved.
+- *PMT*: Select which channel(s) to save — **PMT0**, **PMT1**, or **PMT0 & PMT1** (both). By default, the state of this combobox changes when changing the channel in the *Image Display* widget, but you can also set it independently.
+- *TTL*: Toggle buttons to enable or disable recording of TTL input signals. The initial state is seeded from `interrupt_mask` in the config file.
+
 ## Objective Position
 This widget displays the current position of the objective using information from the Knobby hardware.
 - *Angle*: This value matches the angle displayed in Knobby.

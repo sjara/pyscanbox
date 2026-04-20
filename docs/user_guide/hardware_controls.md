@@ -31,7 +31,6 @@ The left side of the **pyscanbox** GUI houses the primary hardware and acquisiti
 - **Subject**: Subject identifier.
 - **Date/suffix**: Automatically set date used for the output files. You can modify this or append a suffix for the output files. 
 - **Session ID**: A 3-digit number that increments after each recording.
-- **Save Channels**: Select which channel(s) to save. 
 
 ---
 
