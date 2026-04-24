@@ -16,4 +16,5 @@ Note that you can run **pyscanbox** in emulation mode even if you don't have the
 6. [Visualization and Tools (Right Panel)](visualization_and_tools.md)
 7. [Volumetric imaging/Z-stacks](volumetric_imaging.md)
 8. [Hardware Calibration](calibration.md)
+9. [File Formats (.sbx / .mat)](file_formats.md)
 
