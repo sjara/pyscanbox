@@ -303,6 +303,15 @@ class Scanner:
         """
         self.controller.set_lines(self.lines_per_frame)
 
+        # Re-assert scan mode before every acquisition so the PSoC5 resets
+        # its trigger-alignment state.  In continuous resonant mode the
+        # scanner keeps running between acquisitions; re-sending the
+        # bidirectional command ensures the PSoC5 re-aligns to the forward
+        # sweep, preventing the vertical image flip described in issue #1.
+        # Reference: scanbox.m lines 492-499 (set at startup and on toggle).
+        bidirectional = not self.config.get('acquisition', {}).get('unidirectional', True)
+        self.controller.set_scan_mode(bidirectional=bidirectional)
+
         if self.focus_mode or self.frames_to_acquire > 65535:
             hw_frame_count = 0          # 0 = run until explicit stop
         else:
@@ -364,25 +373,27 @@ class Scanner:
     def synchronize_scanner_phase(self) -> None:
         """Synchronize PSoC5 to resonant scanner oscillation phase.
 
-        Sets the deadband period (phase sync) once. This is critical for
-        correct line trigger timing in continuous resonant mode where the
-        scanner is already oscillating when acquisition starts.
+        Sets the deadband period before every acquisition so the PSoC5
+        line-trigger timing re-locks to the resonant scanner's current
+        oscillation phase.  This is especially important in continuous
+        resonant mode, where the scanner keeps oscillating between
+        acquisitions and the PSoC5 phase can drift relative to the mirror
+        (thermal expansion changes resonant frequency slightly over time).
+        Without re-syncing, the PSoC5 may start triggering on the wrong
+        sweep direction, which in bidirectional mode causes all odd/even
+        lines to swap — a vertical image flip visible after ~1-2 minutes.
 
-        This method is called only on the very first hardware initialization
-        to avoid re-synchronizing in the middle of continuous resonant mode,
-        which can cause frame shifts.
+        Unlike the original MATLAB code (which calls sb_deadband_period
+        once at GUI startup when continuous resonant is always off), this
+        method is called before every acquisition because pyscanbox
+        supports continuous resonant mode across multiple acquisitions.
 
         Reference:
-            Original MATLAB: sb_deadband_period.m (called once at startup)
-            scanbox.m line 483
+            Original MATLAB: sb_deadband_period.m; scanbox.m line 483.
         """
-        # Check if we've already synchronized (guard against re-sync)
-        if not hasattr(self.controller, '_deadband_period_set'):
-            resonant_freq = self.config.get('scanner', {}).get('resonant_freq', 7930)
-            deadband_period = round(24e6 / resonant_freq / 2)
-            self.controller.set_deadband_period(deadband_period)
-            # Mark that we've done the synchronization
-            self.controller._deadband_period_set = True
+        resonant_freq = self.config.get('scanner', {}).get('resonant_freq', 7930)
+        deadband_period = round(24e6 / resonant_freq / 2)
+        self.controller.set_deadband_period(deadband_period)
 
     def synchronize_pockels_blanking(self) -> None:
         """Apply Pockels cell blanking regions at line margins.

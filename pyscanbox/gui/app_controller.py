@@ -502,6 +502,17 @@ class AppController(QtCore.QObject):
         self._poll_timer.start()
         logger.info("AppController: hardware open, position polling started.")
 
+        # Disable continuous resonant mode at startup (mirrors MATLAB
+        # scanbox.m line 300: sb_continuous_resonant(0)).  This ensures a
+        # known state even if the hardware was left in continuous resonant
+        # mode from a previous session.
+        try:
+            self._hw_controller.set_continuous_resonant(False)
+        except Exception as exc:
+            msg = f"Could not reset continuous resonant mode: {exc}"
+            logger.error(msg)
+            self.hardware_error.emit(msg)
+
         # Initialize PSoC5 to the configured scan mode (mirrors the MATLAB
         # startup sequence in scanbox.m that calls sb_unidirectional /
         # sb_bidirectional based on sbconfig.unidirectional).
