@@ -20,7 +20,9 @@ Example:
 """
 
 import logging
+import queue
 import sys
+import threading
 import time
 import numpy as np
 from typing import Callable, Optional
@@ -205,7 +207,16 @@ class Scanner:
 
         # File writers
         self.sbx_writer: Optional[sbx_writer.SbxWriter] = None
-        
+
+        # Background write thread state.
+        # Disk writes are decoupled from the Alazar read loop so that slow
+        # I/O (OS write-cache pressure, ~3 GB into a 2-channel session) never
+        # blocks the main loop long enough for the Alazar's onboard FIFO to
+        # fill with a non-multiple of records_per_buffer — which shifts the
+        # bidirectional frame boundary and causes a vertical image flip.
+        self._write_queue: queue.Queue = queue.Queue(maxsize=32)
+        self._write_thread: Optional[threading.Thread] = None
+
         # State
         self.is_running = False
         self.frames_acquired = 0
@@ -286,6 +297,41 @@ class Scanner:
             scanmode=scanmode,
             pmt_channel=pmt_channel,
         )
+
+    def _start_write_thread(self) -> None:
+        """Start the background disk-write thread.
+
+        Frames placed in ``_write_queue`` by the acquisition loop are drained
+        and written to disk by this thread, decoupling slow I/O from the
+        time-critical Alazar buffer re-post cycle.
+        """
+        self._write_thread = threading.Thread(
+            target=self._write_loop,
+            daemon=True,
+            name='SbxWriteThread',
+        )
+        self._write_thread.start()
+
+    def _stop_write_thread(self) -> None:
+        """Signal the write thread to stop and wait for it to drain."""
+        if self._write_thread is not None:
+            self._write_queue.put(None)  # sentinel: no more frames
+            self._write_thread.join()
+            self._write_thread = None
+
+    def _write_loop(self) -> None:
+        """Background loop: drain the write queue and write frames to disk."""
+        while True:
+            frame = self._write_queue.get()
+            if frame is None:  # sentinel — acquisition finished
+                break
+            if self.sbx_writer is not None:
+                self.sbx_writer.write_frame(frame)
+            if self._write_queue.qsize() > 8:
+                logger.warning(
+                    'Write queue depth %d — disk may not keep up with acquisition.',
+                    self._write_queue.qsize(),
+                )
 
     def configure_scan_params(self) -> None:
         """Send scan parameters to the controller before starting acquisition.
@@ -472,6 +518,7 @@ class Scanner:
                 logger.info("Initializing file writers...")
                 self._notify_cmd('System', 'Initializing file writers')
                 self.initialize_writers()
+                self._start_write_thread()
 
             logger.info("Configuring Pockels to zero (safe start)...")
             self.initialize_pockels()
@@ -629,17 +676,20 @@ class Scanner:
                     reshaped, pixel_roll, flip_lines=flip
                 )
             
-            # Write to disk, selecting only the requested channel(s).
-            # SbxWriter.write_frame() accepts wire-format data
-            # (high = dark) directly — no inversion needed here.
+            # Queue frame for disk write (background thread).
+            # Writing is intentionally decoupled from this loop so that OS
+            # write-cache pressure never blocks the Alazar buffer re-post
+            # cycle.  Blocking here would let the Alazar FIFO fill with a
+            # non-multiple of records_per_buffer, shifting the bidirectional
+            # frame boundary and causing a vertical image flip.
             if self.sbx_writer is not None:
                 if self.save_channels == 0:
-                    frame_to_write = reshaped[0:1]   # PMT0 only
+                    frame_to_write = reshaped[0:1].copy()   # PMT0 only
                 elif self.save_channels == 1:
-                    frame_to_write = reshaped[1:2]   # PMT1 only
+                    frame_to_write = reshaped[1:2].copy()   # PMT1 only
                 else:
-                    frame_to_write = reshaped        # both channels
-                self.sbx_writer.write_frame(frame_to_write)
+                    frame_to_write = reshaped.copy()        # both channels
+                self._write_queue.put(frame_to_write)
             
             # Update counters
             self.frames_acquired += 1
@@ -789,6 +839,10 @@ class Scanner:
         # and save their companion data files before the .mat is written.
         if self.plugin_manager is not None:
             self.plugin_manager.on_acquisition_stop(self.frames_acquired)
+
+        # Drain the write queue before closing the file so no queued frames
+        # are lost.  _stop_write_thread() sends the sentinel and joins.
+        self._stop_write_thread()
 
         # Close .sbx file and write companion .mat metadata.
         if self.sbx_writer is not None:
