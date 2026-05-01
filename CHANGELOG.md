@@ -5,6 +5,11 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
+## v1.8.5.dev0 - May 1, 2026
+- **Enhancement: Deadband controls added to Scanner panel**
+  - Two spinboxes (left and right) in the "Deadbands" row of the Scanner group let users adjust the Pockels cell deadband margins directly from the GUI without editing the config file.
+  - Values are seeded from `config['scanner']['deadband']` at startup and written back on change via `AppController.set_deadband()`.
+
 ## v1.8.4 - April 30, 2026
 - **Fix: Vertical image flip in bidirectional + continuous resonant mode (issue #1)**
   - In continuous resonant mode the resonant mirror keeps oscillating between acquisitions. Thermal drift shifts the mirror frequency slightly, causing the PSoC5's fixed deadband period to gradually slip out of phase. After ~1–2 minutes the phase error causes the PSoC5 to fire line triggers on the backward sweep instead of the forward one, swapping odd and even lines in bidirectional mode and producing a vertical image flip.
