@@ -178,6 +178,20 @@ class ScannerControlGroup(QtWidgets.QGroupBox):
         self.bidir_alignment_spinbox.setValue(0)
         layout.addRow("Bidir alignment:", self.bidir_alignment_spinbox)
 
+        # Deadband controls (left and right on the same row)
+        self.deadband_left_spinbox = QtWidgets.QSpinBox()
+        self.deadband_left_spinbox.setRange(0, 255)
+        self.deadband_left_spinbox.setValue(40)
+        self.deadband_right_spinbox = QtWidgets.QSpinBox()
+        self.deadband_right_spinbox.setRange(0, 255)
+        self.deadband_right_spinbox.setValue(40)
+        deadband_widget = QtWidgets.QWidget()
+        deadband_layout = QtWidgets.QHBoxLayout(deadband_widget)
+        deadband_layout.setContentsMargins(0, 0, 0, 0)
+        deadband_layout.addWidget(self.deadband_left_spinbox)
+        deadband_layout.addWidget(self.deadband_right_spinbox)
+        layout.addRow("Deadbands:", deadband_widget)
+
         # Continuous resonant mode checkbox
         self.continuous_resonant_checkbox = QtWidgets.QCheckBox("Continuous resonant")
         self.continuous_resonant_checkbox.setToolTip(

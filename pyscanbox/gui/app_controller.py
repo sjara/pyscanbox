@@ -1089,6 +1089,27 @@ class AppController(QtCore.QObject):
             bishift[mag_index] = shift
         logger.debug("Bishift[%d] set to %d", mag_index, shift)
 
+    def set_deadband(self, left: int, right: int) -> None:
+        """Set the Pockels cell deadband for left and right margins.
+
+        Updates ``config['scanner']['deadband']`` and sends the new values
+        to hardware via ``set_pockels_deadband``.
+
+        Args:
+            left: Left deadband width (0–255).
+            right: Right deadband width (0–255).
+        """
+        scanner = self.config.setdefault('scanner', {})
+        scanner['deadband'] = [left, right]
+        if self._hw_controller is None:
+            return
+        try:
+            self._hw_controller.set_pockels_deadband(left, right)
+        except Exception as exc:
+            msg = f"Could not set Pockels deadband: {exc}"
+            logger.error(msg)
+            self.hardware_error.emit(msg)
+
     def update_scanner_gains(
         self,
         gain_galvo: list,

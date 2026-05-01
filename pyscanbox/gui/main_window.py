@@ -847,6 +847,15 @@ class MainWindow(QtWidgets.QMainWindow):
         # Set the initial spinbox value from config for the default magnification.
         self._sync_bishift_spinbox(scanner.magnification_combobox.currentIndex())
 
+        # Deadband spinboxes -> scanner config
+        scanner.deadband_left_spinbox.valueChanged.connect(
+            self._on_deadband_changed
+        )
+        scanner.deadband_right_spinbox.valueChanged.connect(
+            self._on_deadband_changed
+        )
+        self._sync_deadband_spinboxes()
+
         # Continuous resonant checkbox -> hardware
         scanner.continuous_resonant_checkbox.toggled.connect(
             self._on_continuous_resonant_toggled
@@ -1165,6 +1174,37 @@ class MainWindow(QtWidgets.QMainWindow):
         scanner.bidir_alignment_spinbox.blockSignals(True)
         scanner.bidir_alignment_spinbox.setValue(shift)
         scanner.bidir_alignment_spinbox.blockSignals(False)
+
+    def _on_deadband_changed(self, _value: int) -> None:
+        """Handle deadband left or right spinbox change.
+
+        Reads both spinbox values and forwards them to the controller.
+        """
+        if self._ctrl is None:
+            return
+        scanner = self._left_panel.scanner_group
+        left = scanner.deadband_left_spinbox.value()
+        right = scanner.deadband_right_spinbox.value()
+        self._ctrl.set_deadband(left, right)
+
+    def _sync_deadband_spinboxes(self) -> None:
+        """Initialise the deadband spinboxes from the scanner config.
+
+        Reads ``config['scanner']['deadband']`` and sets both spinboxes
+        without emitting signals (to avoid a feedback loop).
+        """
+        if self._ctrl is None:
+            return
+        deadband = self._ctrl.config.get('scanner', {}).get('deadband', [40, 40])
+        left = int(deadband[0]) if len(deadband) > 0 else 40
+        right = int(deadband[1]) if len(deadband) > 1 else 40
+        scanner = self._left_panel.scanner_group
+        scanner.deadband_left_spinbox.blockSignals(True)
+        scanner.deadband_right_spinbox.blockSignals(True)
+        scanner.deadband_left_spinbox.setValue(left)
+        scanner.deadband_right_spinbox.setValue(right)
+        scanner.deadband_left_spinbox.blockSignals(False)
+        scanner.deadband_right_spinbox.blockSignals(False)
 
     def _on_etl_current_changed(self, current: int):
         """Forward ETL slider / spinbox value to hardware and update depth label.
