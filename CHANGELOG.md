@@ -5,6 +5,17 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
+## v1.8.4 - April 30, 2026
+- **Fix: Vertical image flip in bidirectional + continuous resonant mode (issue #1)**
+  - In continuous resonant mode the resonant mirror keeps oscillating between acquisitions. Thermal drift shifts the mirror frequency slightly, causing the PSoC5's fixed deadband period to gradually slip out of phase. After ~1–2 minutes the phase error causes the PSoC5 to fire line triggers on the backward sweep instead of the forward one, swapping odd and even lines in bidirectional mode and producing a vertical image flip.
+  - `synchronize_scanner_phase()` now calls `set_deadband_period()` before every acquisition (previously guarded to run only once per controller lifetime), re-locking the PSoC5 to the mirror's current phase.
+  - `configure_scan_params()` now sends `set_scan_mode(bidirectional)` before every acquisition to reset the PSoC5 frame-counter alignment to the forward sweep.
+  - `AppController.open()` now calls `set_continuous_resonant(False)` at hardware startup, matching the original MATLAB `scanbox.m` line 300 behavior and ensuring a known state regardless of previous hardware sessions.
+- **Fix: Vertical image flip in two-channel bidirectional mode (issue #1)**
+  - When recording both PMT channels in bidirectional mode, the disk write rate (~51 MB/s at 31 fps) saturates the OS write-behind cache after ~1 minute (~3 GB written). Each `write_frame()` call then blocks for several milliseconds while the OS flushes dirty pages, preventing the Alazar buffer from being re-posted promptly. The Alazar's onboard FIFO accumulates records during the stall; when control returns, the number of accumulated records is not a multiple of `records_per_buffer` (256), permanently shifting the bidirectional frame boundary and causing a vertical image flip. The gradual onset (shift increasing by a few lines per frame over ~0.5–1 second) reflects the incremental nature of the cache saturation.
+  - Disk writes are now handled by a dedicated background thread (`_write_loop`) fed through `_write_queue`. The acquisition loop copies each reshaped frame into the queue (non-blocking) and returns immediately; the Alazar buffer re-post is never delayed by disk I/O.
+  - The write thread logs a warning if queue depth exceeds 8 frames (~250 ms of backlog), giving early notice of a disk bottleneck without dropping data.
+
 ## v1.8.3 - April 16, 2026
 - **Enhancement: TTL input selector added to GUI**
   - Added a new "Save Channels" widget in the secondary controls bar (to the left of Objective Position) that groups PMT channel selection and TTL input toggles together.
