@@ -526,12 +526,7 @@ class AppController(QtCore.QObject):
 
         deadband = self.config.get('scanner', {}).get('deadband', None)
         if deadband is not None:
-            try:
-                self._hw_controller.set_pockels_deadband(int(deadband[0]), int(deadband[1]))
-            except Exception as exc:
-                msg = f"Could not set Pockels deadband: {exc}"
-                logger.error(msg)
-                self.hardware_error.emit(msg)
+            self.set_deadband(int(deadband[0]), int(deadband[1]))
 
         # Upload per-zoom-level scanner gain tables when gain_override is true.
         # Mirrors the gain_override block in core/scanbox.m (lines 253–262).
@@ -645,12 +640,7 @@ class AppController(QtCore.QObject):
 
         deadband = self.config.get('scanner', {}).get('deadband', None)
         if deadband is not None:
-            try:
-                self._hw_controller.set_pockels_deadband(int(deadband[0]), int(deadband[1]))
-            except Exception as exc:
-                msg = f"Could not set Pockels deadband: {exc}"
-                logger.error(msg)
-                self.hardware_error.emit(msg)
+            self.set_deadband(int(deadband[0]), int(deadband[1]))
 
         logger.info("AppController: controller connected.")
 
@@ -1090,21 +1080,26 @@ class AppController(QtCore.QObject):
         logger.debug("Bishift[%d] set to %d", mag_index, shift)
 
     def set_deadband(self, left: int, right: int) -> None:
-        """Set the Pockels cell deadband for left and right margins.
+        """Set the Pockels cell deadband for left and right image margins.
 
-        Updates ``config['scanner']['deadband']`` and sends the new values
-        to hardware via ``set_pockels_deadband``.
+        ``left`` and ``right`` are in visual (image) order. The config is
+        saved in visual order so downstream tools can apply them directly to
+        the image data. The hardware call swaps the values when hsync_sign=1
+        because the physical scan direction is reversed.
 
         Args:
-            left: Left deadband width (0–255).
-            right: Right deadband width (0–255).
+            left: Visual-left deadband width (0–255).
+            right: Visual-right deadband width (0–255).
         """
         scanner = self.config.setdefault('scanner', {})
         scanner['deadband'] = [left, right]
         if self._hw_controller is None:
             return
+        hw_left, hw_right = left, right
+        if scanner.get('hsync_sign', 0):
+            hw_left, hw_right = right, left
         try:
-            self._hw_controller.set_pockels_deadband(left, right)
+            self._hw_controller.set_pockels_deadband(hw_left, hw_right)
         except Exception as exc:
             msg = f"Could not set Pockels deadband: {exc}"
             logger.error(msg)
