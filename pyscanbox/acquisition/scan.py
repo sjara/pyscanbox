@@ -406,10 +406,10 @@ class Scanner:
         # 1. Upload LUT or reset to identity.
         lut = pockels_cfg.get('lut') if pockels_cfg.get('lut_enabled', True) else None
         if lut and len(lut) == 256:
-            logger.info('Uploading Pockels LUT (%d entries).', len(lut))
+            logger.debug('Uploading Pockels LUT (%d entries).', len(lut))
             self.controller.set_pockels_lut(lut)
         else:
-            logger.info('No Pockels LUT in config — resetting to identity.')
+            logger.debug('No Pockels LUT in config — resetting to identity.')
             self.controller.set_pockels_lut_identity()
 
         # 2. Set DAC/PGA range.
@@ -510,17 +510,17 @@ class Scanner:
         """
         try:
             # Setup
-            logger.info("Initializing hardware...")
+            logger.debug("Initializing hardware...")
             self._notify_cmd('System', 'Initializing hardware')
             self.initialize_hardware()
 
             if not self.focus_mode:
-                logger.info("Initializing file writers...")
+                logger.debug("Initializing file writers...")
                 self._notify_cmd('System', 'Initializing file writers')
                 self.initialize_writers()
                 self._start_write_thread()
 
-            logger.info("Configuring Pockels to zero (safe start)...")
+            logger.debug("Configuring Pockels to zero (safe start)...")
             self.initialize_pockels()
             # Re-apply the Pockels level the user had on the GUI slider.
             # AppController.set_pockels() stores the hw value in
@@ -529,10 +529,10 @@ class Scanner:
             # since the last acquisition.
             desired_pockels = self.config.get('laser', {}).get('pockels_active', 0)
             if desired_pockels > 0:
-                logger.info("Restoring Pockels to hw=%d (from slider).", desired_pockels)
+                logger.debug("Restoring Pockels to hw=%d (from slider).", desired_pockels)
                 self.controller.set_pockels(base=0, active=desired_pockels)
 
-            logger.info("Configuring scan parameters...")
+            logger.debug("Configuring scan parameters...")
             self.configure_scan_params()
 
             # Notify plugins that acquisition is about to start.  Called
@@ -560,8 +560,9 @@ class Scanner:
             # shutter automatically via the controller's LASER SHUTTER output.
             # On rigs with a Uniblitz driven by CMD_SHUTTER (ID 16), uncomment:
             #   self.controller.set_shutter(open=True)
-            logger.info("Starting acquisition...")
+            logger.debug("Starting acquisition...")
             self._notify_cmd('System', 'Starting acquisition')
+            logger.info("Acquisition started.")
             
             # Prepare Alazar digitizer FIRST (equivalent to AlazarStartCapture).
             # The digitizer waits for hardware triggers from the PSoC5.
@@ -705,14 +706,15 @@ class Scanner:
                 self.on_frame_data(reshaped)
 
             # Progress update
-            if self.frames_acquired % 100 == 0:
+            interval = self.config.get('terminal', {}).get('frame_progress_interval', 100)
+            if self.frames_acquired % interval == 0:
                 elapsed = time.time() - self.start_time
                 rate = self.frames_acquired / elapsed
                 if self.frames_to_acquire == sys.maxsize:
-                    print(f"Frames: {self.frames_acquired} ({rate:.1f} fps)")
+                    logger.info("Frames: %d (%.1f fps)", self.frames_acquired, rate)
                 else:
-                    print(f"Frames: {self.frames_acquired}/{self.frames_to_acquire} "
-                          f"({rate:.1f} fps)")
+                    logger.info("Frames: %d/%d (%.1f fps)",
+                                self.frames_acquired, self.frames_to_acquire, rate)
 
     def stop(self) -> None:
         """Stop acquisition gracefully.
@@ -801,7 +803,7 @@ class Scanner:
         Stops acquisition, closes hardware connections, and finalizes
         data files.
         """
-        logger.info("Cleaning up...")
+        logger.debug("Cleaning up...")
         
         # Stop acquisition
         if self.alazar is not None:
@@ -853,8 +855,9 @@ class Scanner:
                 logger.warning("Could not build metadata for .mat file: %s", exc)
             self.sbx_writer.close(meta)
         
-        print("Acquisition complete.")
-        print(f"Total frames acquired: {self.frames_acquired}")
+        elapsed = time.time() - self.start_time
+        logger.info("Acquisition complete.  Duration: %.1fs  Total frames: %d",
+                    elapsed, self.frames_acquired)
 
     def _create_acquisition_metadata(self) -> metadata.AcquisitionMetadata:
         """Build an :class:`~pyscanbox.io.metadata.AcquisitionMetadata` for this run.

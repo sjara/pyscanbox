@@ -327,7 +327,7 @@ class BidirCalibration:
         """
         shift = self.compute_shift()
         self.set_shift(mag_index, shift)
-        logger.info(
+        logger.debug(
             'Bidir calibration: mag_index=%d → bishift=%d', mag_index, shift
         )
         return shift
@@ -362,7 +362,7 @@ class BidirCalibration:
         os.makedirs(os.path.dirname(self._calib_path), exist_ok=True)
         with open(self._calib_path, 'w', encoding='utf-8') as fh:
             json.dump(data, fh, indent=2)
-        logger.info('Bidir calibration saved to %s', self._calib_path)
+        logger.debug('Bidir calibration saved to %s', self._calib_path)
 
     def load(self) -> None:
         """Reload calibration from disk, overwriting any unsaved changes."""
@@ -380,7 +380,7 @@ class BidirCalibration:
             n = min(len(shifts), NUM_MAGNIFICATIONS)
             self._shifts[:n] = [int(s) for s in shifts[:n]]
             self._hsync_sign = data.get('hsync_sign', None)
-            logger.info('Bidir calibration loaded from %s', self._calib_path)
+            logger.debug('Bidir calibration loaded from %s', self._calib_path)
         except Exception as exc:  # pylint: disable=broad-except
             logger.warning(
                 'Could not load bidir calibration from %s: %s',

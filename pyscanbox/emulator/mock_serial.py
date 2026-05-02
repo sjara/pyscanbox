@@ -99,7 +99,7 @@ class Serial:
         # Last bytes written to this port (useful for test assertions)
         self._last_written: bytes = b''
 
-        logger.info(f"Mock serial port opened: {port} @ {baudrate} baud")
+        logger.debug(f"Mock serial port opened: {port} @ {baudrate} baud")
 
     def write(self, data: bytes) -> int:
         """Write data to mock serial port.
@@ -158,7 +158,7 @@ class Serial:
     def close(self) -> None:
         """Close mock serial port."""
         self.is_open = False
-        logger.info(f"Mock serial port closed: {self.port}")
+        logger.debug(f"Mock serial port closed: {self.port}")
 
     def reset_input_buffer(self) -> None:
         """Reset input buffer."""
