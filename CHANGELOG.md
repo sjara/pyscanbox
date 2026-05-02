@@ -5,10 +5,11 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
-## v1.8.5.dev0 - May 1, 2026
+## v1.8.5.dev0 - May 2, 2026
 - **Enhancement: Deadband controls added to Scanner panel**
   - Two spinboxes (left and right) in the "Deadbands" row of the Scanner group let users adjust the Pockels cell deadband margins directly from the GUI without editing the config file.
-  - Values are seeded from `config['scanner']['deadband']` at startup and written back on change via `AppController.set_deadband()`.
+  - Values are always in visual (image) order. When `hsync_sign=1` the hardware call swaps left/right so the Pockels cell timing matches the reversed scan direction. The config and saved metadata store deadbands in visual order so downstream tools can apply them directly to the image data without needing to know `hsync_sign`.
+  - A read-only indicator button next to "Continuous resonant" shows whether the horizontal sync is normal or flipped. Can be configured via `hsync_sign` in the config file.
 
 ## v1.8.4 - April 30, 2026
 - **Fix: Vertical image flip in bidirectional + continuous resonant mode (issue #1)**
