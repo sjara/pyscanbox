@@ -192,13 +192,32 @@ class ScannerControlGroup(QtWidgets.QGroupBox):
         deadband_layout.addWidget(self.deadband_right_spinbox)
         layout.addRow("Deadbands:", deadband_widget)
 
-        # Continuous resonant mode checkbox
+        # Continuous resonant mode checkbox + hsync indicator on the same row
         self.continuous_resonant_checkbox = QtWidgets.QCheckBox("Continuous resonant")
         self.continuous_resonant_checkbox.setToolTip(
             "When checked, the resonant scanner keeps running between acquisitions.\n"
             "This maintains thermal stability and prevents bidirectional alignment drift."
         )
-        layout.addRow(self.continuous_resonant_checkbox)
+        self.hsync_label = QtWidgets.QPushButton()
+        self.hsync_label.setEnabled(False)
+        self.hsync_label.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+        self.hsync_label.setToolTip(
+            "Indicates whether the image is horizontally flipped.\n"
+            "When flipped, the scanner reads lines in the reverse direction,\n"
+            "mirroring the image left-to-right.\n"
+            "Can be set via hsync_sign in the config file (0 = normal, 1 = flipped)."
+        )
+        self.hsync_label.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Fixed,
+            QtWidgets.QSizePolicy.Policy.Fixed,
+        )
+        resonant_widget = QtWidgets.QWidget()
+        resonant_layout = QtWidgets.QHBoxLayout(resonant_widget)
+        resonant_layout.setContentsMargins(0, 0, 0, 0)
+        resonant_layout.addWidget(self.continuous_resonant_checkbox)
+        resonant_layout.addStretch()
+        resonant_layout.addWidget(self.hsync_label)
+        layout.addRow(resonant_widget)
 
         # Update frame rate whenever lines or scan mode changes.
         self.lines_per_frame_spinbox.valueChanged.connect(self._update_frame_rate)

@@ -1175,10 +1175,17 @@ class MainWindow(QtWidgets.QMainWindow):
         scanner.bidir_alignment_spinbox.setValue(shift)
         scanner.bidir_alignment_spinbox.blockSignals(False)
 
+    def _hsync_flipped(self) -> bool:
+        """Return True if hsync_sign is 1 (image is horizontally flipped)."""
+        if self._ctrl is None:
+            return False
+        return bool(self._ctrl.config.get('scanner', {}).get('hsync_sign', 0))
+
     def _on_deadband_changed(self, _value: int) -> None:
         """Handle deadband left or right spinbox change.
 
-        Reads both spinbox values and forwards them to the controller.
+        Spinbox values are always in visual (image) order and are forwarded
+        as-is. The swap for hsync_sign is handled inside set_deadband.
         """
         if self._ctrl is None:
             return
@@ -1188,14 +1195,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self._ctrl.set_deadband(left, right)
 
     def _sync_deadband_spinboxes(self) -> None:
-        """Initialise the deadband spinboxes from the scanner config.
+        """Initialise the deadband spinboxes and hsync indicator from config.
 
-        Reads ``config['scanner']['deadband']`` and sets both spinboxes
-        without emitting signals (to avoid a feedback loop).
+        Reads ``config['scanner']['deadband']`` (stored in visual order) and
+        populates both spinboxes without emitting signals. Also sets the
+        hsync status label.
         """
         if self._ctrl is None:
             return
-        deadband = self._ctrl.config.get('scanner', {}).get('deadband', [40, 40])
+        scanner_cfg = self._ctrl.config.get('scanner', {})
+        deadband = scanner_cfg.get('deadband', [40, 40])
         left = int(deadband[0]) if len(deadband) > 0 else 40
         right = int(deadband[1]) if len(deadband) > 1 else 40
         scanner = self._left_panel.scanner_group
@@ -1205,6 +1214,10 @@ class MainWindow(QtWidgets.QMainWindow):
         scanner.deadband_right_spinbox.setValue(right)
         scanner.deadband_left_spinbox.blockSignals(False)
         scanner.deadband_right_spinbox.blockSignals(False)
+        if self._hsync_flipped():
+            scanner.hsync_label.setText("Flipped")
+        else:
+            scanner.hsync_label.setText("Normal")
 
     def _on_etl_current_changed(self, current: int):
         """Forward ETL slider / spinbox value to hardware and update depth label.
