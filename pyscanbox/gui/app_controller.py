@@ -573,11 +573,13 @@ class AppController(QtCore.QObject):
         self._scanner_thread = None
 
         if self._hw_controller.is_open:
-            # Zero PMT gains and Pockels before disconnecting.
+            # Zero PMT gains, Pockels, and continuous resonant before disconnecting.
             try:
                 self._hw_controller.set_pmt_gain(0, 0)
                 self._hw_controller.set_pmt_gain(1, 0)
                 self._hw_controller.set_pockels(base=0, active=0)
+                self._hw_controller.set_continuous_resonant(False)
+                logger.info("Shutdown: PMT gains, Pockels, and continuous resonant set to off.")
             except Exception:
                 pass  # best-effort; do not block the rest of shutdown
             self._hw_controller.close()
@@ -658,6 +660,8 @@ class AppController(QtCore.QObject):
             self._hw_controller.set_pmt_gain(0, 0)
             self._hw_controller.set_pmt_gain(1, 0)
             self._hw_controller.set_pockels(base=0, active=0)
+            self._hw_controller.set_continuous_resonant(False)
+            logger.info("Disconnect: PMT gains, Pockels, and continuous resonant set to off.")
         except Exception:
             pass  # best-effort; do not block disconnect
         self._hw_controller.close()
