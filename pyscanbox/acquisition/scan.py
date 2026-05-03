@@ -755,6 +755,16 @@ class Scanner:
         """
         if self.on_command is None:
             return
+        if cmd_id == controller.ScanboxController.CMD_POCKELS_LUT_ENTRY:
+            if param1 == 0:
+                func_call = 'set_pockels_lut() \u2014 uploading 256 entries...'
+            elif param1 == 255:
+                func_call = 'set_pockels_lut() \u2014 upload complete'
+            else:
+                return
+            packet_str = f'[{cmd_id:02X} ...]'
+            self.on_command(f'PC \u2192 Controller ({com_port})', func_call, packet_str)
+            return
         direction = f'PC \u2192 Controller ({com_port})'
         func_call = controller.ScanboxController.format_command(
             cmd_id, param1, param2
