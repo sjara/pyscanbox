@@ -8,6 +8,7 @@ This module defines the main application window with a two-panel layout:
 - Right panel: Image display and secondary controls
 """
 
+import logging
 import os
 import time
 
@@ -25,6 +26,8 @@ from pyscanbox.gui import cal_dialog_scanner_gains
 from pyscanbox.gui import widgets
 from pyscanbox.io import sbx_reader
 from pyscanbox.utils import coordinate_transform
+
+logger = logging.getLogger(__name__)
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -465,11 +468,21 @@ class MainWindow(QtWidgets.QMainWindow):
         # Display the first frame immediately.
         self._on_frame_selected(0)
 
-        self.statusBar.showMessage(
+        sbx_path = base_path + '.sbx'
+        size_mb = os.path.getsize(sbx_path) / 1e6 if os.path.exists(sbx_path) else 0
+        status_msg = (
             f"Loaded: {os.path.basename(base_path)}.sbx  "
             f"({reader.num_frames} frames, "
             f"{reader.num_channels} ch, "
             f"{reader.lines_per_frame}\u00d7{reader.pixels_per_line})"
+        )
+        self.statusBar.showMessage(status_msg)
+        logger.info(
+            "Loaded: %s  (%d frames, %d ch, %d\u00d7%d, %.1f MB)",
+            os.path.basename(base_path) + '.sbx',
+            reader.num_frames, reader.num_channels,
+            reader.lines_per_frame, reader.pixels_per_line,
+            size_mb,
         )
 
     def _on_frame_selected(self, index: int) -> None:
