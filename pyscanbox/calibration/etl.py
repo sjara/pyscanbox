@@ -112,7 +112,7 @@ def load_calibration(path: str) -> Optional[np.ndarray]:
             raise ValueError(
                 f'Expected 3 coefficients, got shape {coeffs.shape}'
             )
-        logger.info("ETL calibration loaded from %s", path)
+        logger.debug("ETL calibration loaded from %s", path)
         return coeffs
     except Exception as exc:  # pylint: disable=broad-except
         logger.warning(
@@ -152,7 +152,7 @@ def save_calibration(
     }
     with open(path, 'w', encoding='utf-8') as fh:
         json.dump(data, fh, indent=2)
-    logger.info("ETL calibration saved to %s", path)
+    logger.debug("ETL calibration saved to %s", path)
 
 
 def fit_etl_curve(

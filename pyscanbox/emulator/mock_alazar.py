@@ -175,7 +175,7 @@ class Board:
         self._neuron_size_px: float = _MOCK_NEURON_SIZE_PX
         self._neuron_shape: str = _MOCK_NEURON_SHAPE
 
-        logger.info(f"Mock Alazar board initialized: System {system_id}, Board {board_id}")
+        logger.debug(f"Mock Alazar board initialized: System {system_id}, Board {board_id}")
 
     def set_capture_clock(self, source: int, rate: int,
                        edge: int = 0, decimation: int = 0) -> int:
@@ -275,7 +275,7 @@ class Board:
         self._test_frames = None   # will be built lazily by _prepare_test_frames()
         self._frame_idx = 0
         self._sample_pos = 0
-        logger.info("Mock Alazar frame shape set to %d x %d", lines_per_frame, pixels_per_line)
+        logger.debug("Mock Alazar frame shape set to %d x %d", lines_per_frame, pixels_per_line)
 
     def set_raw_mode(self, raw_mode: bool, samples_per_line: int,
                      laser_freq: float, res_freq: float,
@@ -320,7 +320,7 @@ class Board:
             # Pre-compute test frames now so the generation thread doesn't stall
             # on the first buffer request.
             self._prepare_test_frames_raw()
-            logger.info(
+            logger.debug(
                 "Mock Alazar raw mode enabled: buffer_size_samples=%d",
                 self.buffer_size_samples,
             )
@@ -332,7 +332,7 @@ class Board:
             if not raw_mode and self.frame_shape is not None:
                 self._prepare_test_frames()
 
-        logger.info(
+        logger.debug(
             "Mock Alazar raw mode %s (samples_per_line=%d, samples_per_line_bidir=%d)",
             "enabled" if raw_mode else "disabled",
             samples_per_line,
@@ -366,7 +366,7 @@ class Board:
                     )
                 else:
                     self.buffer_size_samples = lines * self.samples_per_line * 2
-        logger.info(
+        logger.debug(
             "Mock Alazar scan mode: %s",
             "bidirectional" if bidirectional else "unidirectional",
         )
@@ -404,7 +404,7 @@ class Board:
     def start_capture(self) -> None:
         """Start data acquisition."""
         self.is_acquiring = True
-        logger.info("Mock acquisition started")
+        logger.debug("Mock acquisition started")
 
         # Start background thread to generate data
         self._generation_thread = threading.Thread(
@@ -448,7 +448,7 @@ class Board:
     def abort_async_read(self) -> None:
         """Abort asynchronous acquisition."""
         self.is_acquiring = False
-        logger.info("Mock acquisition aborted")
+        logger.debug("Mock acquisition aborted")
 
     def _generate_data_loop(self) -> None:
         """Background thread to generate synthetic data.
@@ -764,7 +764,7 @@ class Board:
             frames.append(packed)
 
         self._test_frames = frames
-        logger.info(
+        logger.debug(
             "Mock Alazar: prepared %d test frames (%d x %d, %d neurons)",
             n, lines, pixels, n_neurons
         )
@@ -876,7 +876,7 @@ class Board:
                 frames.append(packed)
 
             self._test_frames = frames
-            logger.info(
+            logger.debug(
                 "Mock Alazar: prepared %d bidir raw test frames "
                 "(%d records × %d samples, %d neurons)",
                 n, records, n_samp, n_neurons,
@@ -939,7 +939,7 @@ class Board:
             frames.append(packed)
 
         self._test_frames = frames
-        logger.info(
+        logger.debug(
             "Mock Alazar: prepared %d raw test frames (%d lines × %d samples, %d neurons)",
             n, lines, n_samp, n_neurons,
         )

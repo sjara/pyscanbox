@@ -6,6 +6,14 @@ All notable changes to this project are documented here. This file is append-onl
 
 
 ## v1.8.5.dev0 - May 2, 2026
+- **Enhancement: Configurable terminal output via `terminal.log_level`**
+  - New `terminal` config section controls what the pyscanbox logger prints to the terminal, independent of the `--verbose` CLI flag.
+  - `log_level: INFO` (default) shows acquisition start/stop, frame progress, file loads, and safety resets. `DEBUG` adds every hardware command. `WARNING` silences routine output.
+  - `frame_progress_interval` controls how often frame-count progress lines are printed (default: 1000 frames).
+  - PMT gains, Pockels, and continuous resonant are now explicitly reset on disconnect/shutdown, with a confirmation line printed at INFO level.
+  - Loading an `.sbx` recording logs filename, frame count, channel count, resolution, and file size.
+  - Pockels LUT upload (256 entries) is collapsed to two summary lines in the acquisition command log; manual uploads from the calibration dialog still show all entries.
+  - Welcome message printed to terminal on startup.
 - **Enhancement: Deadband controls added to Scanner panel**
   - Two spinboxes (left and right) in the "Deadbands" row of the Scanner group let users adjust the Pockels cell deadband margins directly from the GUI without editing the config file.
   - Values are always in visual (image) order. When `hsync_sign=1` the hardware call swaps left/right so the Pockels cell timing matches the reversed scan direction. The config and saved metadata store deadbands in visual order so downstream tools can apply them directly to the image data without needing to know `hsync_sign`.

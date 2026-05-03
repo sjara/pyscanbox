@@ -234,14 +234,14 @@ class Knobby:
             timeout=self.timeout
         )
         self.is_open = True
-        logger.info("Knobby: Connected to %s at %d baud", self.com_port, self.baud_rate)
+        logger.debug("Knobby: Connected to %s at %d baud", self.com_port, self.baud_rate)
 
     def close(self) -> None:
         """Close serial connection to Knobby."""
         if self.port is not None and self.is_open:
             self.port.close()
             self.is_open = False
-            logger.info("Knobby: Closed connection to %s", self.com_port)
+            logger.debug("Knobby: Closed connection to %s", self.com_port)
 
     def send_command(self, command_id: int, value: int = 0) -> bool:
         """Send command to Knobby.

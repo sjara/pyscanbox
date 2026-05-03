@@ -68,6 +68,10 @@ class AppConfig:
         self.quadrature = config_dict.get('quadrature', {})
         self.plugins = config_dict.get('plugins', {})
         self.display = config_dict.get('display', {})
+        self.terminal = config_dict.get('terminal', {
+            'log_level': 'INFO',
+            'frame_progress_interval': 100,
+        })
 
     def __getitem__(self, key: str) -> Any:
         """Get configuration value by key (dictionary-like access).
@@ -160,6 +164,7 @@ class AppConfig:
             'quadrature': self.quadrature,
             'plugins': self.plugins,
             'display': self.display,
+            'terminal': self.terminal,
         }
 
 

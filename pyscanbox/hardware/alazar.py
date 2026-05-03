@@ -120,7 +120,7 @@ class AlazarDigitizer:
         self.samples_per_buffer = self._align_sample_count(raw_samples)
 
         if self.samples_per_buffer != raw_samples:
-            logger.info("Aligned buffer size from %d to %d samples",
+            logger.debug("Aligned buffer size from %d to %d samples",
                         raw_samples, self.samples_per_buffer)
         
         # Check if emulation is enabled

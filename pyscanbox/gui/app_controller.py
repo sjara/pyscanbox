@@ -383,7 +383,7 @@ class AppController(QtCore.QObject):
             # Skip version mismatch warning if in emulation mode (emulator sends 99.99)
             if emulation_enabled:
                 info_msg = f'Running in emulation mode (v{version})'
-                logger.info(info_msg)
+                logger.debug(info_msg)
                 self._log_event(info_msg)
             elif configured_version and version != str(configured_version):
                 warn_msg = (
@@ -465,10 +465,10 @@ class AppController(QtCore.QObject):
             cal_path = cal_filename or etl_calibration.DEFAULT_CALIBRATION_FILE
         self._etl_calibration = etl_calibration.load_calibration(cal_path)
         if self._etl_calibration is not None:
-            logger.info("ETL calibration loaded from %s", cal_path)
+            logger.debug("ETL calibration loaded from %s", cal_path)
             self._log_event(f'ETL calibration loaded ({cal_path})')
         else:
-            logger.info(
+            logger.debug(
                 "No ETL calibration at %s; depth label shows raw current",
                 cal_path,
             )
@@ -487,7 +487,7 @@ class AppController(QtCore.QObject):
             stored = self._bidir_cal.shifts
             for i, shift in enumerate(stored):
                 acq['bishift'][i] = shift
-            logger.info(
+            logger.debug(
                 'Bidir calibration loaded from %s', self._bidir_cal.calib_path
             )
             self._log_event(
@@ -500,7 +500,7 @@ class AppController(QtCore.QObject):
 
         self.is_open = True
         self._poll_timer.start()
-        logger.info("AppController: hardware open, position polling started.")
+        logger.debug("AppController: hardware open, position polling started.")
 
         # Disable continuous resonant mode at startup (mirrors MATLAB
         # scanbox.m line 300: sb_continuous_resonant(0)).  This ensures a
@@ -573,11 +573,13 @@ class AppController(QtCore.QObject):
         self._scanner_thread = None
 
         if self._hw_controller.is_open:
-            # Zero PMT gains and Pockels before disconnecting.
+            # Zero PMT gains, Pockels, and continuous resonant before disconnecting.
             try:
                 self._hw_controller.set_pmt_gain(0, 0)
                 self._hw_controller.set_pmt_gain(1, 0)
                 self._hw_controller.set_pockels(base=0, active=0)
+                self._hw_controller.set_continuous_resonant(False)
+                logger.info("Shutdown: PMT gains, Pockels, and continuous resonant set to off.")
             except Exception:
                 pass  # best-effort; do not block the rest of shutdown
             self._hw_controller.close()
@@ -598,7 +600,7 @@ class AppController(QtCore.QObject):
         self._plugin_manager = acq_plugin.PluginManager()
 
         self.is_open = False
-        logger.info("AppController: hardware closed.")
+        logger.debug("AppController: hardware closed.")
         self._log_event('Hardware disconnected')
 
     # ------------------------------------------------------------------
@@ -642,7 +644,7 @@ class AppController(QtCore.QObject):
         if deadband is not None:
             self.set_deadband(int(deadband[0]), int(deadband[1]))
 
-        logger.info("AppController: controller connected.")
+        logger.debug("AppController: controller connected.")
 
     def close_controller(self) -> None:
         """Zero laser/PMT outputs, then disconnect the ScanboxController.
@@ -658,11 +660,13 @@ class AppController(QtCore.QObject):
             self._hw_controller.set_pmt_gain(0, 0)
             self._hw_controller.set_pmt_gain(1, 0)
             self._hw_controller.set_pockels(base=0, active=0)
+            self._hw_controller.set_continuous_resonant(False)
+            logger.info("Disconnect: PMT gains, Pockels, and continuous resonant set to off.")
         except Exception:
             pass  # best-effort; do not block disconnect
         self._hw_controller.close()
         self.is_open = False
-        logger.info("AppController: controller disconnected.")
+        logger.debug("AppController: controller disconnected.")
         self._log_event('Controller disconnected')
 
     def open_knobby(self) -> None:
@@ -675,7 +679,7 @@ class AppController(QtCore.QObject):
             self._log_event(
                 f'Knobby connected ({self._knobby.com_port})'
             )
-            logger.info("AppController: Knobby connected.")
+            logger.debug("AppController: Knobby connected.")
         except Exception as exc:
             msg = f"Could not open Knobby: {exc}"
             logger.warning(msg)
@@ -686,7 +690,7 @@ class AppController(QtCore.QObject):
         if not self._knobby.is_open:
             return
         self._knobby.close()
-        logger.info("AppController: Knobby disconnected.")
+        logger.debug("AppController: Knobby disconnected.")
         self._log_event('Knobby disconnected')
 
     def open_motor(self) -> None:
@@ -715,7 +719,7 @@ class AppController(QtCore.QObject):
                 steps = pos if pos is not None else 0
                 self._motor_origin_steps[motor_id] = steps
                 self._desired_steps[motor_id] = steps
-            logger.info("AppController: motor connected.")
+            logger.debug("AppController: motor connected.")
         except Exception as exc:
             msg = f"Could not open motor controller: {exc}"
             logger.warning(msg)
@@ -726,7 +730,7 @@ class AppController(QtCore.QObject):
         if not self._motor.is_open:
             return
         self._motor.close()
-        logger.info("AppController: motor disconnected.")
+        logger.debug("AppController: motor disconnected.")
         self._log_event('Motor disconnected')
 
     # ------------------------------------------------------------------
@@ -768,7 +772,7 @@ class AppController(QtCore.QObject):
         )
         self._plugin_connect_threads[name] = thread
         thread.start()
-        logger.info("AppController: starting connection for plugin '%s'.", name)
+        logger.debug("AppController: starting connection for plugin '%s'.", name)
 
     def disable_plugin(self, name: str) -> None:
         """Close a plugin's hardware connection and remove it from the manager.
@@ -787,7 +791,7 @@ class AppController(QtCore.QObject):
             logger.warning("Plugin '%s': close() raised: %s", name, exc)
         self._plugin_manager.unregister(name)
         self.plugin_status_changed.emit(name, 'disconnected')
-        logger.info("AppController: plugin '%s' disabled.", name)
+        logger.debug("AppController: plugin '%s' disabled.", name)
         self._log_event(f"Plugin '{name}' disconnected")
 
     def _build_plugin(
@@ -839,7 +843,7 @@ class AppController(QtCore.QObject):
         self._active_plugins[name] = plugin
         self._plugin_manager.register(plugin)
         self.plugin_status_changed.emit(name, 'connected')
-        logger.info("AppController: plugin '%s' connected.", name)
+        logger.debug("AppController: plugin '%s' connected.", name)
         self._log_event(f"Plugin '{name}' connected")
 
     def _on_plugin_connect_failed(self, name: str, msg: str) -> None:
@@ -1187,7 +1191,7 @@ class AppController(QtCore.QObject):
             self._bidir_cal = bidir_calibration.BidirCalibration(tmp.name)
 
         mag_index = self.config.get('acquisition', {}).get('magnification', 0)
-        logger.info(
+        logger.debug(
             'Starting bidir calibration for magnification index %d', mag_index
         )
 
@@ -1208,7 +1212,7 @@ class AppController(QtCore.QObject):
             self.frame_data_ready.disconnect(self._on_bidir_calibration_frame)
         except (RuntimeError, TypeError):
             pass
-        logger.info('Bidir calibration cancelled.')
+        logger.debug('Bidir calibration cancelled.')
 
     def _on_bidir_calibration_frame(self, frame) -> None:
         """Internal slot: feed one live frame into the calibration accumulator."""
@@ -1238,7 +1242,7 @@ class AppController(QtCore.QObject):
             self._log_event(
                 f'Bidir calibration done: mag={mag_index}, bishift={shift}'
             )
-            logger.info(
+            logger.debug(
                 'Bidir calibration complete: mag=%d, shift=%d', mag_index, shift
             )
 
@@ -1269,7 +1273,7 @@ class AppController(QtCore.QObject):
         self._bidir_cal.save(hsync_sign=hsync_sign)
         path = self._bidir_cal.calib_path
         self._log_event(f'Bidir calibration saved manually ({path})')
-        logger.info('Manual bidir calibration saved to %s', path)
+        logger.debug('Manual bidir calibration saved to %s', path)
         return path
 
     # ------------------------------------------------------------------
@@ -1353,7 +1357,7 @@ class AppController(QtCore.QObject):
                 f'{frames_per_plane} frames/plane '
                 f'(ETL {top}\u2192{bottom}, {total} entries)'
             )
-            logger.info(
+            logger.debug(
                 "Focus stack uploaded: %d planes × %d frames, ETL %d→%d",
                 n_planes, frames_per_plane, top, bottom,
             )
@@ -1383,7 +1387,7 @@ class AppController(QtCore.QObject):
             self._hw_controller.set_etl_waveform_active(active)
             state = 'enabled' if active else 'disabled'
             self._log_event(f'Focus stack {state}')
-            logger.info("Focus stack %s", state)
+            logger.debug("Focus stack %s", state)
         except Exception as exc:
             msg = f"enable_focus_stack failed: {exc}"
             logger.error(msg)
@@ -1417,7 +1421,7 @@ class AppController(QtCore.QObject):
         """
         import numpy as np
         self._etl_calibration = np.asarray(coeffs, dtype=float)
-        logger.info('ETL calibration reloaded (live update): %s', self._etl_calibration)
+        logger.debug('ETL calibration reloaded (live update): %s', self._etl_calibration)
 
     # ------------------------------------------------------------------
     # Pockels cell LUT upload
@@ -1458,7 +1462,7 @@ class AppController(QtCore.QObject):
         self._log_event(
             f'Pockels LUT uploaded ({len(lut)} entries)'
         )
-        logger.info('Pockels LUT uploaded (%d entries).', len(lut))
+        logger.debug('Pockels LUT uploaded (%d entries).', len(lut))
 
     # ------------------------------------------------------------------
     # Angle motor
@@ -1481,7 +1485,7 @@ class AppController(QtCore.QObject):
                 return to normal angle-only rotation.
         """
         self._keep_tip_fixed = enabled
-        logger.info("set_keep_tip_fixed: %s", enabled)
+        logger.debug("set_keep_tip_fixed: %s", enabled)
 
     def zero_angle(self) -> bool:
         """Move the angle motor (A-axis, motor 3) to absolute step 0.
@@ -1536,7 +1540,7 @@ class AppController(QtCore.QObject):
 
         self._emit_positions()
         self._log_event('zero_angle(): A-axis motor → step 0')
-        logger.info("zero_angle: motor 3 commanded to step 0.")
+        logger.debug("zero_angle: motor 3 commanded to step 0.")
         return success
 
     # ------------------------------------------------------------------
@@ -1791,7 +1795,7 @@ class AppController(QtCore.QObject):
         """
         if self._scanner_thread is not None and self._scanner_thread.isRunning():
             self._scanner_thread.request_stop()
-            logger.info("AppController: stop requested.")
+            logger.debug("AppController: stop requested.")
             self._log_event('Stop requested')
 
     @property
@@ -1848,7 +1852,7 @@ class AppController(QtCore.QObject):
             and self._scanner_thread._scanner is not None
         ):
             frames = self._scanner_thread._scanner.frames_acquired
-        logger.info("AppController: acquisition finished (frames=%s)", frames)
+        logger.debug("AppController: acquisition finished (frames=%s)", frames)
         self._log_event(f'Acquisition finished  ({frames} frames)')
         self.acquisition_finished.emit()
 

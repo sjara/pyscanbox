@@ -269,12 +269,25 @@ plugins:
 
 
 # ============================================================================
+# Terminal Output Settings
+# ============================================================================
+
+terminal:
+  log_level: INFO               # Logging level for terminal output: DEBUG, INFO, WARNING, ERROR
+                                # INFO shows acquisition start/stop and frame progress.
+                                # DEBUG also shows every hardware command sent to PSoC/Alazar.
+                                # WARNING silences all routine output.
+                                # Overridden to DEBUG by the --verbose CLI flag.
+  frame_progress_interval: 1000 # Print a frame progress line every N frames (at INFO level)
+
+
+# ============================================================================
 # Hardware Emulation Settings (for development without physical hardware)
 # ============================================================================
 
 emulation:
   enabled: true              # Set to true to use mock hardware (enables Linux development)
-  verbose: true              # Set to true for detailed emulation logging
+  verbose: false             # Set to true for detailed emulation logging
   raw_mode: true             # false = pre-shaped buffers (lines × pixels); true = raw ADC layout (lines × samples_per_line)
   samples_per_buffer: 407552 # Pre-shaped buffer size when raw_mode=false: lines × pixels × 2 = 512*796*2
   # --- Mock frame generation ---

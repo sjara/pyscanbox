@@ -259,7 +259,7 @@ def save_calibration(
     }
     with open(path, 'w', encoding='utf-8') as fh:
         json.dump(data, fh, indent=2)
-    logger.info('Pockels calibration saved to %s', path)
+    logger.debug('Pockels calibration saved to %s', path)
 
 
 def load_calibration(path: str) -> Optional[dict]:
@@ -287,7 +287,7 @@ def load_calibration(path: str) -> Optional[dict]:
             )
         # Ensure integer values.
         data['lut'] = [int(v) for v in lut]
-        logger.info('Pockels calibration loaded from %s', path)
+        logger.debug('Pockels calibration loaded from %s', path)
         return data
     except Exception as exc:  # pylint: disable=broad-except
         logger.warning(

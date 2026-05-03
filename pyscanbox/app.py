@@ -138,6 +138,8 @@ def main():
     )
     logging.getLogger('numba').setLevel(logging.WARNING)
 
+    # Defer terminal handler setup until after config is loaded (see below).
+
     # Install an exception hook so exceptions in Qt slots are visible in full.
     def _qt_exception_hook(exc_type, exc_value, exc_tb):
         print('\n--- Unhandled exception in Qt slot ---', file=sys.stderr)
@@ -154,6 +156,24 @@ def main():
         print(f'Error: {exc}')
         sys.exit(1)
 
+    print(f'————  pyscanbox v{pyscanbox.__version__}  ————')
+
+    # Add a StreamHandler on the pyscanbox logger at the level from config,
+    # unless --verbose was passed (root logger already captures everything).
+    if not args.verbose:
+        terminal_level_name = cfg.terminal.get('log_level', 'INFO')
+        terminal_level = getattr(logging, terminal_level_name.upper(), logging.INFO)
+        _handler = logging.StreamHandler()
+        _handler.setLevel(terminal_level)
+        _handler.setFormatter(logging.Formatter(
+            fmt='%(asctime)s  %(levelname)-8s  %(message)s',
+            datefmt='%H:%M:%S',
+        ))
+        _psb_logger = logging.getLogger('pyscanbox')
+        _psb_logger.setLevel(terminal_level)
+        _psb_logger.addHandler(_handler)
+        _psb_logger.propagate = False
+
     cfg.emulation['enabled'] = args.emulation
     if args.emulation:
         print('Emulation mode enabled.')
@@ -161,6 +181,6 @@ def main():
         print('⚠  Real hardware mode — ensure you are on the Windows rig.')
 
     print(f'Config:    {os.path.abspath(config_path)}')
-    print(f'Emulation: {args.emulation}')
+    #print(f'Emulation: {args.emulation}')
 
     run(cfg, os.path.abspath(config_path))
