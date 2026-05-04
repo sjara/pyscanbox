@@ -750,10 +750,6 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         self._logical_markers: list[QtCore.QPointF] = []
         self._drawn_markers: list = []
         
-        self._sbs_enabled: bool = False
-        self._sbs_width: int = 0
-        self._sbs_spacing: int = 0
-
         # Peer canvas for synchronized dual-canvas mode ("PMT0 | PMT1").
         self._peer: "_ImageCanvas | None" = None
         self._syncing: bool = False
@@ -985,22 +981,12 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
             self._peer._mark_button.setChecked(enabled)
             self._syncing = False
 
-    def set_side_by_side(self, enabled: bool, width: int = 0, spacing: int = 0) -> None:
-        """Configure marker duplication for side-by-side display mode."""
-        if (self._sbs_enabled == enabled and self._sbs_width == width 
-                and self._sbs_spacing == spacing):
-            return
-        self._sbs_enabled = enabled
-        self._sbs_width = width
-        self._sbs_spacing = spacing
-        self._draw_markers()
-
     def _draw_markers(self) -> None:
-        """Clear and redraw all markers based on logical positions and SBS state."""
+        """Clear and redraw all markers based on logical positions."""
         for item in self._drawn_markers:
             self._scene.removeItem(item)
         self._drawn_markers.clear()
-        
+
         r = self._MARKER_SIZE
         pen = QtGui.QPen(self._MARKER_COLOR, 1.5)
 
@@ -1021,20 +1007,11 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
 
         for log_pos in self._logical_markers:
             make_marker(log_pos)
-            if self._sbs_enabled:
-                right_pos = QtCore.QPointF(log_pos.x() + self._sbs_width + self._sbs_spacing, log_pos.y())
-                make_marker(right_pos)
 
     def _add_marker(self, scene_pos: QtCore.QPointF) -> None:
         """Add a plus-sign marker at *scene_pos* (image coordinates)."""
         x = scene_pos.x()
         y = scene_pos.y()
-        if self._sbs_enabled:
-            if x > self._sbs_width + self._sbs_spacing:
-                x -= (self._sbs_width + self._sbs_spacing)
-            elif x >= self._sbs_width:
-                return  # Clicked in the gap
-        
         self._logical_markers.append(QtCore.QPointF(x, y))
         self._draw_markers()
         if self._peer and not self._syncing:
@@ -1265,8 +1242,6 @@ class ImageDisplayWidget(QtWidgets.QWidget):
             h, w = g_rgb.shape[:2]
             img0 = QtGui.QImage(g_rgb.data, w, h, w * 3, QtGui.QImage.Format.Format_RGB888)
             img1 = QtGui.QImage(r_rgb.data, w, h, w * 3, QtGui.QImage.Format.Format_RGB888)
-            self._canvas.set_side_by_side(False)
-            self._canvas2.set_side_by_side(False)
             # Keep references alive until the next frame.
             self._display_buffer = g_rgb
             self._display_buffer2 = r_rgb
@@ -1282,33 +1257,14 @@ class ImageDisplayWidget(QtWidgets.QWidget):
             rgb = np.zeros((height, width, 3), dtype=np.uint8)
             rgb[:, :, 0] = r
             rgb[:, :, 1] = g
-            self._canvas.set_side_by_side(False)
-        elif self._channel == 4 and n_channels >= 2:
-            # Side-by-side: left = PMT0 with colormap, right = PMT1 with PMT1 colormap.
-            g = _scale(frame_data[0])
-            r = _scale(frame_data[1])
-            g_rgb = self._lut[g]
-            r_rgb = self._lut_pmt1[r]
-            height, width = g.shape
-            spacing = 10
-            new_width = width * 2 + spacing
-            rgb = np.zeros((height, new_width, 3), dtype=np.uint8)
-            # Fill gap with background color from theme
-            bg_color = self.palette().color(self.backgroundRole())
-            rgb[:, width:width + spacing, :] = [bg_color.red(), bg_color.green(), bg_color.blue()]
-            rgb[:, :width] = g_rgb
-            rgb[:, width + spacing:] = r_rgb
-            self._canvas.set_side_by_side(True, width, spacing)
         elif self._channel == 1:
             # PMT1 → apply the PMT1-specific colormap (red_white by default).
             v = _scale(frame_data[min(1, n_channels - 1)])
             rgb = self._lut_pmt1[v]  # fancy indexing: (H, W) → (H, W, 3)
-            self._canvas.set_side_by_side(False)
         else:
             # PMT0 (default) → apply colormap.
             v = _scale(frame_data[0])
             rgb = self._lut[v]  # fancy indexing: (H, W) → (H, W, 3)
-            self._canvas.set_side_by_side(False)
 
         self._display_buffer = np.ascontiguousarray(rgb)
         height, width = self._display_buffer.shape[:2]
@@ -1341,8 +1297,7 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         """Set the PMT channel to display.  Re-renders the last frame.
 
         Args:
-            index: 0 = PMT0, 1 = PMT1, 2 = overlay, 3 = dual synchronized canvases,
-                4 = side-by-side composite.
+            index: 0 = PMT0, 1 = PMT1, 2 = overlay, 3 = dual synchronized canvases.
         """
         self._channel = index
         if index == 3:
@@ -1895,7 +1850,7 @@ class ImageDisplayControlGroup(QtWidgets.QGroupBox):
         # Channel display selector
         layout.addWidget(QtWidgets.QLabel("Channel:"))
         self.channel_combobox = _make_combobox()
-        self.channel_combobox.addItems(["PMT0", "PMT1", "PMT0 & PMT1", "PMT0 | PMT1", "PMT0 : PMT1"])
+        self.channel_combobox.addItems(["PMT0", "PMT1", "PMT0 & PMT1", "PMT0 | PMT1"])
         self.channel_combobox.setCurrentIndex(0)
         layout.addWidget(self.channel_combobox)
 
@@ -1952,15 +1907,15 @@ class ImageDisplayControlGroup(QtWidgets.QGroupBox):
         """
         model = self.channel_combobox.model()
         if channels == 2:
-            # PMT0 only: keep PMT0 (0), disable PMT1 (1), overlay (2), side-by-side (3, 4).
-            for idx in (1, 2, 3, 4):
+            # PMT0 only: keep PMT0 (0), disable PMT1 (1), overlay (2), dual-canvas (3).
+            for idx in (1, 2, 3):
                 item = model.item(idx)
                 item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEnabled)
             self.channel_combobox.setCurrentIndex(0)
         elif channels == 3:
             # PMT1 only: disable PMT0 (0), keep PMT1 (1), disable overlay (2) and
-            # side-by-side (3, 4).
-            for idx in (0, 2, 3, 4):
+            # dual-canvas (3).
+            for idx in (0, 2, 3):
                 item = model.item(idx)
                 item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEnabled)
             self.channel_combobox.setCurrentIndex(1)

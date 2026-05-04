@@ -529,13 +529,13 @@ class MainWindow(QtWidgets.QMainWindow):
         """Sync the Save Channels selector with the Image Display channel.
 
         Maps the display channel index to the nearest save channel option.
-        Both dual-channel display modes (PMT0 & PMT1, PMT0 : PMT1, PMT0 | PMT1)
+        Both dual-channel display modes (PMT0 & PMT1, PMT0 | PMT1)
         map to the "PMT0 & PMT1" save option.
 
         Args:
             display_index: Current index of the Image Display channel combobox.
         """
-        # PMT0 → 0, PMT1 → 1, PMT0 & PMT1 → 2, PMT0 | PMT1 → 2, PMT0 : PMT1 → 2
+        # PMT0 → 0, PMT1 → 1, PMT0 & PMT1 → 2, PMT0 | PMT1 → 2
         save_index = min(display_index, 2)
         self._right_panel.save_channels_group.channels_combobox.setCurrentIndex(save_index)
 
@@ -1511,7 +1511,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     or (not display_is_dual and save_channels != display_index)
                 )
                 if mismatch:
-                    _display_names = ["PMT0", "PMT1", "PMT0 & PMT1", "PMT0 | PMT1", "PMT0 : PMT1"]
+                    _display_names = ["PMT0", "PMT1", "PMT0 & PMT1", "PMT0 | PMT1"]
                     _save_names = ["PMT0", "PMT1", "PMT0 & PMT1"]
                     display_name = _display_names[display_index]
                     save_name = _save_names[save_channels]
