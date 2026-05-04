@@ -337,7 +337,7 @@ class HistogramWidget(QtWidgets.QWidget):
 
         # --- Select which counts / colours to use ---
         ch = self._channel
-        use_both = (ch in (2, 3) and self._counts1 is not None)
+        use_both = (ch in (2, 3, 4) and self._counts1 is not None)
         if ch == 1:
             # PMT1: use _counts1 for two-channel recordings, _counts for
             # single-channel PMT1 recordings (where nchan=1 and the single
@@ -451,7 +451,7 @@ class HistogramWidget(QtWidgets.QWidget):
             if ch == 2:
                 cb0 = np.ascontiguousarray(_GREEN_LUT)
                 cb1 = np.ascontiguousarray(_RED_LUT)
-            else:  # ch == 3, side-by-side
+            else:  # ch == 3 (dual-canvas) or 4 (side-by-side composite)
                 cb0 = np.ascontiguousarray(_DISPLAY_LUT)
                 cb1 = np.ascontiguousarray(self._lut_pmt1)
             img0 = QtGui.QImage(cb0.data, 256, 1, 256*3, QtGui.QImage.Format.Format_RGB888)

@@ -754,6 +754,10 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         self._sbs_width: int = 0
         self._sbs_spacing: int = 0
 
+        # Peer canvas for synchronized dual-canvas mode ("PMT0 | PMT1").
+        self._peer: "_ImageCanvas | None" = None
+        self._syncing: bool = False
+
         # Small toggle button overlaid on the top-right corner of the view.
         # It is a direct child widget of _ImageCanvas so it floats above the
         # scene without affecting the layout of ImageDisplayWidget.
@@ -837,10 +841,27 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         """Switch to fit mode and scale the image to fill the view."""
         self._is_fit = True
         self._fit_in_view()
+        if self._peer and not self._syncing:
+            self._syncing = True
+            self._peer._syncing = True
+            self._peer.fit_to_window()
+            self._peer._syncing = False
+            self._syncing = False
 
     # ------------------------------------------------------------------
     # Qt event overrides
     # ------------------------------------------------------------------
+
+    def scrollContentsBy(self, dx: int, dy: int) -> None:
+        """Pan sync: mirror every scroll to the peer canvas."""
+        super().scrollContentsBy(dx, dy)
+        if self._peer and not self._syncing:
+            self._syncing = True
+            self._peer._syncing = True  # prevent peer from back-syncing into self
+            self._peer.horizontalScrollBar().setValue(self.horizontalScrollBar().value())
+            self._peer.verticalScrollBar().setValue(self.verticalScrollBar().value())
+            self._peer._syncing = False
+            self._syncing = False
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -858,6 +879,7 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         self._is_fit = False
         self.scale(factor, factor)
         self._update_zoom_label()
+        self._sync_peer_view()
 
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
         """Place a marker on left-click when marker mode is active."""
@@ -894,14 +916,17 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
             self._is_fit = False
             self.scale(self._ZOOM_FACTOR, self._ZOOM_FACTOR)
             self._update_zoom_label()
+            self._sync_peer_view()
         elif action == zoom_out_action:
             self._is_fit = False
             self.scale(1.0 / self._ZOOM_FACTOR, 1.0 / self._ZOOM_FACTOR)
             self._update_zoom_label()
+            self._sync_peer_view()
         elif action == actual_action:
             self._is_fit = False
             self.resetTransform()
             self._update_zoom_label()
+            self._sync_peer_view()
         elif action == clear_action:
             self.clear_markers()
         elif action == snapshot_action:
@@ -917,6 +942,12 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         if not rect.isNull():
             self.fitInView(rect, QtCore.Qt.AspectRatioMode.KeepAspectRatio)
             self._update_zoom_label()
+        if self._peer and not self._syncing and self._peer._is_fit:
+            self._syncing = True
+            self._peer._syncing = True
+            self._peer._fit_in_view()
+            self._peer._syncing = False
+            self._syncing = False
 
     def _reposition_mark_button(self) -> None:
         """Keep the Mark button in the top-right corner of the viewport."""
@@ -949,6 +980,10 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         else:
             self.setDragMode(QtWidgets.QGraphicsView.DragMode.ScrollHandDrag)
             self.unsetCursor()
+        if self._peer and not self._syncing:
+            self._syncing = True
+            self._peer._mark_button.setChecked(enabled)
+            self._syncing = False
 
     def set_side_by_side(self, enabled: bool, width: int = 0, spacing: int = 0) -> None:
         """Configure marker duplication for side-by-side display mode."""
@@ -1002,6 +1037,11 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         
         self._logical_markers.append(QtCore.QPointF(x, y))
         self._draw_markers()
+        if self._peer and not self._syncing:
+            self._syncing = True
+            self._peer._logical_markers.append(QtCore.QPointF(x, y))
+            self._peer._draw_markers()
+            self._syncing = False
 
     def clear_markers(self) -> None:
         """Remove all markers from the scene and reset the counter."""
@@ -1009,6 +1049,43 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
             self._scene.removeItem(item)
         self._drawn_markers.clear()
         self._logical_markers.clear()
+        if self._peer and not self._syncing:
+            self._syncing = True
+            self._peer.clear_markers()
+            self._syncing = False
+
+    def _sync_peer_view(self) -> None:
+        """Copy this canvas's exact transform and scroll position to the peer.
+
+        Called after any zoom action so the peer shows the identical region
+        without being affected by where the mouse cursor is.
+        """
+        if not self._peer or self._syncing:
+            return
+        self._syncing = True
+        self._peer._syncing = True
+        self._peer._is_fit = self._is_fit
+        self._peer.setTransform(self.transform())
+        self._peer._update_zoom_label()
+        self._peer.horizontalScrollBar().setValue(self.horizontalScrollBar().value())
+        self._peer.verticalScrollBar().setValue(self.verticalScrollBar().value())
+        self._peer._syncing = False
+        self._syncing = False
+
+    def set_peer(self, peer: "_ImageCanvas | None") -> None:
+        """Link or unlink a peer canvas for synchronized zoom/pan/markers.
+
+        When a peer is set both canvases mirror each other's scroll position,
+        zoom level, marker placement, and marker-mode state.  Pass ``None``
+        to disconnect.
+        """
+        if self._peer is peer:
+            return
+        if self._peer is not None:
+            self._peer._peer = None
+        self._peer = peer
+        if peer is not None:
+            peer._peer = self
 
 
 class ImageDisplayWidget(QtWidgets.QWidget):
@@ -1043,6 +1120,7 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         # Holds the current uint8 frame buffer so that the QImage's memory
         # reference stays valid until the next frame arrives.
         self._display_buffer: np.ndarray | None = None
+        self._display_buffer2: np.ndarray | None = None
         self._gain: float = 1.0
         # Channel index: 0=PMT0, 1=PMT1, 2=average of both.
         self._channel: int = 0
@@ -1081,11 +1159,18 @@ class ImageDisplayWidget(QtWidgets.QWidget):
 
     def _init_ui(self):
         """Initialize the UI components."""
-        layout = QtWidgets.QVBoxLayout()
+        outer = QtWidgets.QVBoxLayout()
+        outer.setContentsMargins(0, 0, 0, 0)
+        self._canvas_row = QtWidgets.QHBoxLayout()
+        self._canvas_row.setContentsMargins(0, 0, 0, 0)
+        self._canvas_row.setSpacing(0)
         self._canvas = _ImageCanvas(display_config=self._display_cfg)
-        layout.addWidget(self._canvas)
-        layout.setContentsMargins(0, 0, 0, 0)
-        self.setLayout(layout)
+        self._canvas2 = _ImageCanvas(display_config=self._display_cfg)
+        self._canvas_row.addWidget(self._canvas, stretch=1)
+        self._canvas_row.addWidget(self._canvas2, stretch=1)
+        self._canvas2.hide()
+        outer.addLayout(self._canvas_row)
+        self.setLayout(outer)
 
     def set_startup_message(self, text: str) -> None:
         """Update the placeholder text shown before the first frame arrives.
@@ -1173,7 +1258,22 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         # PMT1 = red   (typical fluorescence ch2: tdTomato, RFP, …)
         # Colormap is applied via NumPy fancy indexing (lut[grayscale]) which
         # runs in compiled C code — fast enough for real-time display.
-        if self._channel == 2 and n_channels >= 2:
+        if self._channel == 3 and n_channels >= 2:
+            # Dual synchronized canvases: PMT0 in left canvas, PMT1 in right canvas.
+            g_rgb = np.ascontiguousarray(self._lut[_scale(frame_data[0])])
+            r_rgb = np.ascontiguousarray(self._lut_pmt1[_scale(frame_data[1])])
+            h, w = g_rgb.shape[:2]
+            img0 = QtGui.QImage(g_rgb.data, w, h, w * 3, QtGui.QImage.Format.Format_RGB888)
+            img1 = QtGui.QImage(r_rgb.data, w, h, w * 3, QtGui.QImage.Format.Format_RGB888)
+            self._canvas.set_side_by_side(False)
+            self._canvas2.set_side_by_side(False)
+            # Keep references alive until the next frame.
+            self._display_buffer = g_rgb
+            self._display_buffer2 = r_rgb
+            self._canvas.set_pixmap(QtGui.QPixmap.fromImage(img0))
+            self._canvas2.set_pixmap(QtGui.QPixmap.fromImage(img1))
+            return
+        elif self._channel == 2 and n_channels >= 2:
             # Overlay: R = PMT1 (red), G = PMT0 (green), B = 0.
             # Colormap is not applied to overlay; channel colours are fixed.
             g = _scale(frame_data[0])
@@ -1183,7 +1283,7 @@ class ImageDisplayWidget(QtWidgets.QWidget):
             rgb[:, :, 0] = r
             rgb[:, :, 1] = g
             self._canvas.set_side_by_side(False)
-        elif self._channel == 3 and n_channels >= 2:
+        elif self._channel == 4 and n_channels >= 2:
             # Side-by-side: left = PMT0 with colormap, right = PMT1 with PMT1 colormap.
             g = _scale(frame_data[0])
             r = _scale(frame_data[1])
@@ -1241,9 +1341,26 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         """Set the PMT channel to display.  Re-renders the last frame.
 
         Args:
-            index: 0 = PMT0, 1 = PMT1, 2 = average of PMT0 & PMT1.
+            index: 0 = PMT0, 1 = PMT1, 2 = overlay, 3 = dual synchronized canvases,
+                4 = side-by-side composite.
         """
         self._channel = index
+        if index == 3:
+            self._canvas2.show()
+            # Copy the current zoom/pan state from canvas1 to canvas2 before
+            # linking them as peers, so both start in sync.
+            self._canvas2._is_fit = self._canvas._is_fit
+            self._canvas2.setTransform(self._canvas.transform())
+            self._canvas2.horizontalScrollBar().setValue(
+                self._canvas.horizontalScrollBar().value()
+            )
+            self._canvas2.verticalScrollBar().setValue(
+                self._canvas.verticalScrollBar().value()
+            )
+            self._canvas.set_peer(self._canvas2)
+        else:
+            self._canvas2.hide()
+            self._canvas.set_peer(None)
         self._render_frame()
 
     def set_display_mode(self, index: int) -> None:
@@ -1778,7 +1895,7 @@ class ImageDisplayControlGroup(QtWidgets.QGroupBox):
         # Channel display selector
         layout.addWidget(QtWidgets.QLabel("Channel:"))
         self.channel_combobox = _make_combobox()
-        self.channel_combobox.addItems(["PMT0", "PMT1", "PMT0 & PMT1", "PMT0 | PMT1"])
+        self.channel_combobox.addItems(["PMT0", "PMT1", "PMT0 & PMT1", "PMT0 | PMT1", "PMT0 : PMT1"])
         self.channel_combobox.setCurrentIndex(0)
         layout.addWidget(self.channel_combobox)
 
@@ -1835,15 +1952,15 @@ class ImageDisplayControlGroup(QtWidgets.QGroupBox):
         """
         model = self.channel_combobox.model()
         if channels == 2:
-            # PMT0 only: keep PMT0 (0), disable PMT1 (1), overlay (2), side-by-side (3).
-            for idx in (1, 2, 3):
+            # PMT0 only: keep PMT0 (0), disable PMT1 (1), overlay (2), side-by-side (3, 4).
+            for idx in (1, 2, 3, 4):
                 item = model.item(idx)
                 item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEnabled)
             self.channel_combobox.setCurrentIndex(0)
         elif channels == 3:
             # PMT1 only: disable PMT0 (0), keep PMT1 (1), disable overlay (2) and
-            # side-by-side (3).
-            for idx in (0, 2, 3):
+            # side-by-side (3, 4).
+            for idx in (0, 2, 3, 4):
                 item = model.item(idx)
                 item.setFlags(item.flags() & ~QtCore.Qt.ItemFlag.ItemIsEnabled)
             self.channel_combobox.setCurrentIndex(1)
