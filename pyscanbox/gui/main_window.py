@@ -529,8 +529,8 @@ class MainWindow(QtWidgets.QMainWindow):
         """Sync the Save Channels selector with the Image Display channel.
 
         Maps the display channel index to the nearest save channel option.
-        Both dual-channel display modes (PMT0 & PMT1, PMT0 | PMT1) map to
-        the "PMT0 & PMT1" save option.
+        Both dual-channel display modes (PMT0 & PMT1, PMT0 | PMT1)
+        map to the "PMT0 & PMT1" save option.
 
         Args:
             display_index: Current index of the Image Display channel combobox.

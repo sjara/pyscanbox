@@ -451,7 +451,7 @@ class HistogramWidget(QtWidgets.QWidget):
             if ch == 2:
                 cb0 = np.ascontiguousarray(_GREEN_LUT)
                 cb1 = np.ascontiguousarray(_RED_LUT)
-            else:  # ch == 3, side-by-side
+            else:  # ch == 3, dual-canvas
                 cb0 = np.ascontiguousarray(_DISPLAY_LUT)
                 cb1 = np.ascontiguousarray(self._lut_pmt1)
             img0 = QtGui.QImage(cb0.data, 256, 1, 256*3, QtGui.QImage.Format.Format_RGB888)
