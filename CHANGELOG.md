@@ -5,6 +5,13 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
+## v1.9.0.dev0 - May 3, 2026
+- **Enhancement: Synchronized dual-canvas two-channel display ('PMT0 | PMT1')**
+  - New channel display mode renders PMT0 and PMT1 in two equal side-by-side canvases instead of compositing them into a single image. Zoom, pan, marker placement, and marker-mode toggle are fully synchronized between the two panels.
+  - Zoom uses AnchorUnderMouse on the active canvas; the peer receives the exact resulting transform so both panels always show the identical region.
+  - Entering the mode copies the current zoom/pan state from the primary canvas so both panels start in sync.
+  - The older single-canvas composite 'PMT0 : PMT1' mode has been removed; 'PMT0 | PMT1' replaces it with a superior synchronized experience.
+
 ## v1.8.5.dev0 - May 2, 2026
 - **Enhancement: Configurable terminal output via `terminal.log_level`**
   - New `terminal` config section controls what the pyscanbox logger prints to the terminal, independent of the `--verbose` CLI flag.
