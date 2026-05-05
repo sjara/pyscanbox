@@ -728,6 +728,8 @@ class ImageDisplayWidget(QtWidgets.QWidget):
             self._canvas2.verticalScrollBar().setValue(
                 self._canvas.verticalScrollBar().value()
             )
+            self._canvas2._logical_markers = list(self._canvas._logical_markers)
+            self._canvas2._draw_markers()
             self._canvas.set_peer(self._canvas2)
         else:
             self._canvas2.hide()
