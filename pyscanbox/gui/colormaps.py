@@ -74,3 +74,9 @@ def build_colormap_lut(name: str, red_boost: float | None = None) -> np.ndarray:
 # LUT via build_colormap_lut(DISPLAY_COLORMAP_PMT1, red_boost=value).
 DISPLAY_LUT_PMT0: np.ndarray = build_colormap_lut(DISPLAY_COLORMAP_PMT0)
 DISPLAY_LUT_PMT1: np.ndarray = build_colormap_lut(DISPLAY_COLORMAP_PMT1)
+
+# Plain single-colour LUTs for the overlay (PMT0 & PMT1) display mode.
+# The overlay composites pure R and G channels without the white-blend
+# transition, so these use the unblended 'green' and 'red' colormaps.
+OVERLAY_LUT_PMT0: np.ndarray = build_colormap_lut('green')
+OVERLAY_LUT_PMT1: np.ndarray = build_colormap_lut('red')

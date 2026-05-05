@@ -14,16 +14,12 @@ import PyQt6.QtCore as QtCore
 import PyQt6.QtGui as QtGui
 
 from .colormaps import (
-    build_colormap_lut,
     DISPLAY_LUT_PMT0, DISPLAY_LUT_PMT1,
+    OVERLAY_LUT_PMT0, OVERLAY_LUT_PMT1,
 )
 
 
 _HISTOGRAM_COLOR_LEVEL: float = 0.4
-# Plain single-colour LUTs used for the overlay (ch==2) colourbar, where the
-# canvas draws pure R/G channels without the white-blend transition.
-_GREEN_LUT: np.ndarray = build_colormap_lut('green')
-_RED_LUT: np.ndarray = build_colormap_lut('red')
 
 
 class HistogramWidget(QtWidgets.QWidget):
@@ -400,8 +396,8 @@ class HistogramWidget(QtWidgets.QWidget):
             # Side-by-side (ch==3): the canvas applies the full green_white /
             # red_white LUTs, so the colorbars match.
             if ch == 2:
-                cb0 = np.ascontiguousarray(_GREEN_LUT)
-                cb1 = np.ascontiguousarray(_RED_LUT)
+                cb0 = np.ascontiguousarray(OVERLAY_LUT_PMT0)
+                cb1 = np.ascontiguousarray(OVERLAY_LUT_PMT1)
             else:  # ch == 3, dual-canvas
                 cb0 = np.ascontiguousarray(DISPLAY_LUT_PMT0)
                 cb1 = np.ascontiguousarray(self._lut_pmt1)
