@@ -69,14 +69,34 @@ def build_colormap_lut(name: str, red_boost: float | None = None) -> np.ndarray:
     return lut
 
 
-# Precomputed LUTs for each PMT channel.  The PMT1 LUT uses the default
-# RED_BOOST; widgets that read display.red_boost from config build their own
-# LUT via build_colormap_lut(DISPLAY_COLORMAP_PMT1, red_boost=value).
-DISPLAY_LUT_PMT0: np.ndarray = build_colormap_lut(DISPLAY_COLORMAP_PMT0)
-DISPLAY_LUT_PMT1: np.ndarray = build_colormap_lut(DISPLAY_COLORMAP_PMT1)
+_DISPLAY_LUT_PMT0: np.ndarray = build_colormap_lut(DISPLAY_COLORMAP_PMT0)
+_DISPLAY_LUT_PMT1: np.ndarray = build_colormap_lut(DISPLAY_COLORMAP_PMT1)
+_OVERLAY_LUT_PMT0: np.ndarray = build_colormap_lut('green')
+_OVERLAY_LUT_PMT1: np.ndarray = build_colormap_lut('red')
 
-# Plain single-colour LUTs for the overlay (PMT0 & PMT1) display mode.
-# The overlay composites pure R and G channels without the white-blend
-# transition, so these use the unblended 'green' and 'red' colormaps.
-OVERLAY_LUT_PMT0: np.ndarray = build_colormap_lut('green')
-OVERLAY_LUT_PMT1: np.ndarray = build_colormap_lut('red')
+
+def get_display_lut(
+    pmt: int,
+    overlay: bool = False,
+    red_boost: float | None = None,
+) -> np.ndarray:
+    """Return the 256×3 uint8 LUT for the requested display context.
+
+    Args:
+        pmt: PMT channel index (0 or 1).
+        overlay: True for the 'PMT0 & PMT1' overlay mode, which uses plain
+            single-colour LUTs (no white-blend transition).
+        red_boost: Optional red-channel scaling override for PMT1 (from
+            display.red_boost in the YAML config).  Ignored for PMT0.
+            Defaults to the module-level RED_BOOST constant.
+
+    Returns:
+        256×3 uint8 numpy array.
+    """
+    if overlay:
+        return _OVERLAY_LUT_PMT0 if pmt == 0 else _OVERLAY_LUT_PMT1
+    if pmt == 1:
+        if red_boost is not None:
+            return build_colormap_lut(DISPLAY_COLORMAP_PMT1, red_boost=red_boost)
+        return _DISPLAY_LUT_PMT1
+    return _DISPLAY_LUT_PMT0

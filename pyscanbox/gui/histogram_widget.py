@@ -13,10 +13,7 @@ import PyQt6.QtWidgets as QtWidgets
 import PyQt6.QtCore as QtCore
 import PyQt6.QtGui as QtGui
 
-from .colormaps import (
-    DISPLAY_LUT_PMT0, DISPLAY_LUT_PMT1,
-    OVERLAY_LUT_PMT0, OVERLAY_LUT_PMT1,
-)
+from .colormaps import get_display_lut
 
 
 _HISTOGRAM_COLOR_LEVEL: float = 0.4
@@ -98,19 +95,19 @@ class HistogramWidget(QtWidgets.QWidget):
 
         # PMT0 bar/border colours (derived from DISPLAY_LUT_PMT0 / green_white).
         _bar_idx = int(_HISTOGRAM_COLOR_LEVEL * 255)
-        _bar_rgb = DISPLAY_LUT_PMT0[_bar_idx]
+        _bar_rgb = get_display_lut(pmt=0)[_bar_idx]
         self._bar_color = QtGui.QColor(
             int(_bar_rgb[0]), int(_bar_rgb[1]), int(_bar_rgb[2])
         )
         self._border_color = self._bar_color.lighter(130)
 
         # PMT1 bar/border colours and LUT (red_white).
-        _bar_rgb1 = DISPLAY_LUT_PMT1[_bar_idx]
+        _bar_rgb1 = get_display_lut(pmt=1)[_bar_idx]
         self._bar_color1 = QtGui.QColor(
             int(_bar_rgb1[0]), int(_bar_rgb1[1]), int(_bar_rgb1[2])
         )
         self._border_color1 = self._bar_color1.lighter(130)
-        self._lut_pmt1 = DISPLAY_LUT_PMT1
+        self._lut_pmt1 = get_display_lut(pmt=1)
 
         # Small toggle button overlaid on the top-right corner.
         self._scale_button = QtWidgets.QPushButton("Linear", self)
@@ -299,13 +296,13 @@ class HistogramWidget(QtWidgets.QWidget):
             counts_a   = self._counts[::-1].copy()
             bar_col_a  = self._bar_color
             brd_col_a  = self._border_color
-            lut_a      = DISPLAY_LUT_PMT0
+            lut_a      = get_display_lut(pmt=0)
             counts_b   = self._counts1[::-1].copy()
         else:  # PMT0 (default)
             counts_a   = self._counts[::-1].copy()
             bar_col_a  = self._bar_color
             brd_col_a  = self._border_color
-            lut_a      = DISPLAY_LUT_PMT0
+            lut_a      = get_display_lut(pmt=0)
             counts_b   = None
 
         # --- Chart geometry ---
@@ -396,10 +393,10 @@ class HistogramWidget(QtWidgets.QWidget):
             # Side-by-side (ch==3): the canvas applies the full green_white /
             # red_white LUTs, so the colorbars match.
             if ch == 2:
-                cb0 = np.ascontiguousarray(OVERLAY_LUT_PMT0)
-                cb1 = np.ascontiguousarray(OVERLAY_LUT_PMT1)
+                cb0 = np.ascontiguousarray(get_display_lut(pmt=0, overlay=True))
+                cb1 = np.ascontiguousarray(get_display_lut(pmt=1, overlay=True))
             else:  # ch == 3, dual-canvas
-                cb0 = np.ascontiguousarray(DISPLAY_LUT_PMT0)
+                cb0 = np.ascontiguousarray(get_display_lut(pmt=0))
                 cb1 = np.ascontiguousarray(self._lut_pmt1)
             img0 = QtGui.QImage(cb0.data, 256, 1, 256*3, QtGui.QImage.Format.Format_RGB888)
             img1 = QtGui.QImage(cb1.data, 256, 1, 256*3, QtGui.QImage.Format.Format_RGB888)

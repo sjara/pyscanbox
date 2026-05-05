@@ -17,10 +17,7 @@ import PyQt6.QtWidgets as QtWidgets
 import PyQt6.QtCore as QtCore
 import PyQt6.QtGui as QtGui
 
-from .colormaps import (
-    build_colormap_lut, DISPLAY_COLORMAP_PMT1,
-    DISPLAY_LUT_PMT0, DISPLAY_LUT_PMT1,
-)
+from .colormaps import get_display_lut
 
 
 class _ImageCanvas(QtWidgets.QGraphicsView):
@@ -471,19 +468,13 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         # False = direct/debug mode (high ADC value = bright).
         self._invert: bool = True
         # Precomputed 256×3 uint8 LUTs for each PMT channel.
-        self._lut: np.ndarray = DISPLAY_LUT_PMT0
-        # PMT1 LUT: use the precomputed default unless the config overrides
-        # the red_boost value (display.red_boost in YAML).
+        self._lut: np.ndarray = get_display_lut(pmt=0)
         config_dict = (
             config.to_dict() if hasattr(config, 'to_dict') else (config or {})
         )
         self._display_cfg: dict = config_dict.get('display', {})
         _cfg_red_boost = self._display_cfg.get('red_boost', None)
-        self._lut_pmt1: np.ndarray = (
-            build_colormap_lut(DISPLAY_COLORMAP_PMT1, red_boost=_cfg_red_boost)
-            if _cfg_red_boost is not None
-            else DISPLAY_LUT_PMT1
-        )
+        self._lut_pmt1: np.ndarray = get_display_lut(pmt=1, red_boost=_cfg_red_boost)
         # Raw 16-bit frame kept so that gain/channel changes can re-render
         # the last frame without waiting for the next acquisition.
         self._raw_frame: np.ndarray | None = None
