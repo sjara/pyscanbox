@@ -106,6 +106,7 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         # Marker state
         # ------------------------------------------------------------------
         self._marker_mode: bool = False
+        self._ctrl_marker_active: bool = False  # True while Ctrl is held
         self._markers: list = []   # deprecated
         self._marker_count: int = 0 # deprecated
 
@@ -249,7 +250,7 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         super().mousePressEvent(event)
 
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
-        """Exit marker mode on Esc."""
+        """Exit latched marker mode on Esc."""
         if event.key() == QtCore.Qt.Key.Key_Escape and self._marker_mode:
             self._mark_button.setChecked(False)
             return
@@ -333,15 +334,53 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         self._zoom_label.setText(f"{scale * 100:.0f}%")
         self._reposition_zoom_label()
 
+    def _enter_marker_mode(self) -> None:
+        """Activate marker mode (cursor + drag mode) without touching the button."""
+        self._marker_mode = True
+        self.setDragMode(QtWidgets.QGraphicsView.DragMode.NoDrag)
+        self.setCursor(QtCore.Qt.CursorShape.CrossCursor)
+        if self._ctrl_marker_active:
+            self._mark_button.blockSignals(True)
+            self._mark_button.setChecked(True)
+            self._mark_button.blockSignals(False)
+        if self._peer and not self._syncing:
+            self._syncing = True
+            self._peer._marker_mode = True
+            self._peer.setDragMode(QtWidgets.QGraphicsView.DragMode.NoDrag)
+            self._peer.setCursor(QtCore.Qt.CursorShape.CrossCursor)
+            if self._ctrl_marker_active:
+                self._peer._mark_button.blockSignals(True)
+                self._peer._mark_button.setChecked(True)
+                self._peer._mark_button.blockSignals(False)
+            self._syncing = False
+
+    def _exit_marker_mode(self) -> None:
+        """Deactivate marker mode (cursor + drag mode) without touching the button."""
+        self._marker_mode = False
+        self.setDragMode(QtWidgets.QGraphicsView.DragMode.ScrollHandDrag)
+        self.unsetCursor()
+        if self._ctrl_marker_active:
+            self._mark_button.blockSignals(True)
+            self._mark_button.setChecked(False)
+            self._mark_button.blockSignals(False)
+        if self._peer and not self._syncing:
+            self._syncing = True
+            self._peer._marker_mode = False
+            self._peer.setDragMode(QtWidgets.QGraphicsView.DragMode.ScrollHandDrag)
+            self._peer.unsetCursor()
+            if self._ctrl_marker_active:
+                self._peer._mark_button.blockSignals(True)
+                self._peer._mark_button.setChecked(False)
+                self._peer._mark_button.blockSignals(False)
+            self._syncing = False
+
     def _on_mark_toggled(self, enabled: bool) -> None:
-        """Switch between marker mode and normal pan mode."""
-        self._marker_mode = enabled
+        """Switch between latched marker mode and normal pan mode."""
+        self._ctrl_marker_active = False
         if enabled:
-            self.setDragMode(QtWidgets.QGraphicsView.DragMode.NoDrag)
-            self.setCursor(QtCore.Qt.CursorShape.CrossCursor)
+            self._enter_marker_mode()
         else:
-            self.setDragMode(QtWidgets.QGraphicsView.DragMode.ScrollHandDrag)
-            self.unsetCursor()
+            self._exit_marker_mode()
         if self._peer and not self._syncing:
             self._syncing = True
             self._peer._mark_button.setChecked(enabled)
@@ -504,6 +543,26 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         self._canvas2.hide()
         outer.addLayout(self._canvas_row)
         self.setLayout(outer)
+        QtWidgets.QApplication.instance().installEventFilter(self)
+
+    def eventFilter(self, obj, event) -> bool:
+        """Activate temporary marker mode via Shift when the mouse is over a canvas."""
+        t = event.type()
+        if t == QtCore.QEvent.Type.KeyPress and not event.isAutoRepeat():
+            if event.key() == QtCore.Qt.Key.Key_Shift:
+                for canvas in (self._canvas, self._canvas2):
+                    if canvas.underMouse() and not canvas._marker_mode:
+                        canvas._ctrl_marker_active = True
+                        canvas._enter_marker_mode()
+                        break
+        elif t == QtCore.QEvent.Type.KeyRelease and not event.isAutoRepeat():
+            if event.key() == QtCore.Qt.Key.Key_Shift:
+                for canvas in (self._canvas, self._canvas2):
+                    if canvas._ctrl_marker_active:
+                        canvas._exit_marker_mode()
+                        canvas._ctrl_marker_active = False
+                        break
+        return super().eventFilter(obj, event)
 
     def set_startup_message(self, text: str) -> None:
         """Update the placeholder text shown before the first frame arrives.
@@ -662,6 +721,7 @@ class ImageDisplayWidget(QtWidgets.QWidget):
             # linking them as peers, so both start in sync.
             self._canvas2._is_fit = self._canvas._is_fit
             self._canvas2.setTransform(self._canvas.transform())
+            self._canvas2._update_zoom_label()
             self._canvas2.horizontalScrollBar().setValue(
                 self._canvas.horizontalScrollBar().value()
             )
