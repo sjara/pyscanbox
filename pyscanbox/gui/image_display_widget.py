@@ -311,16 +311,20 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         """Keep the Mark button in the top-right corner of the viewport."""
         margin = 6
         btn = self._mark_button
-        btn.move(self.width() - btn.width() - margin, margin)
+        scrollbar_width = self.verticalScrollBar().width()
+        btn.move(self.width() - btn.width() - margin - scrollbar_width, margin)
         btn.raise_()
 
     def _reposition_zoom_label(self) -> None:
         """Keep the zoom label in the bottom-right corner of the viewport."""
         margin = 6
         lbl = self._zoom_label
+        scrollbar_width = self.verticalScrollBar().width()
+        hbar = self.horizontalScrollBar()
+        scrollbar_height = hbar.height() if hbar.isVisible() else 0
         lbl.adjustSize()
-        lbl.move(self.width() - lbl.width() - margin,
-                 self.height() - lbl.height() - margin)
+        lbl.move(self.width() - lbl.width() - margin - scrollbar_width,
+                 self.height() - lbl.height() - margin - scrollbar_height)
         lbl.raise_()
 
     def _update_zoom_label(self) -> None:
