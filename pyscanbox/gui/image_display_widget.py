@@ -17,25 +17,10 @@ import PyQt6.QtWidgets as QtWidgets
 import PyQt6.QtCore as QtCore
 import PyQt6.QtGui as QtGui
 
-from .colormaps import _build_colormap_lut, _RED_BOOST
-
-
-# ---------------------------------------------------------------------------
-# Module-level display configuration
-# ---------------------------------------------------------------------------
-
-# Colormap used for PMT0 display and the histogram colourbar.
-# Allowed values: 'green', 'green_white', 'gray'  (see _build_colormap_lut).
-_DISPLAY_COLORMAP: str = 'green_white'
-
-# Colormap used for PMT1 display.
-# Allowed values: 'red', 'red_white', 'gray'  (see _build_colormap_lut).
-_DISPLAY_COLORMAP_PMT1: str = 'red_white'
-
-# Precomputed lookup table for PMT0 display.  The PMT1 LUT is built
-# per-widget in ImageDisplayWidget.__init__ so that the config-file red_boost
-# value (display.red_boost) is applied correctly.
-_DISPLAY_LUT: np.ndarray = _build_colormap_lut(_DISPLAY_COLORMAP)
+from .colormaps import (
+    build_colormap_lut, RED_BOOST,
+    DISPLAY_COLORMAP_PMT0, DISPLAY_COLORMAP_PMT1, DISPLAY_LUT,
+)
 
 
 class _ImageCanvas(QtWidgets.QGraphicsView):
@@ -486,10 +471,10 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         # False = direct/debug mode (high ADC value = bright).
         self._invert: bool = True
         # Active colormap name and precomputed 256×3 uint8 LUT.
-        # Initialised from the module-level _DISPLAY_COLORMAP constant; can
+        # Initialised from the module-level DISPLAY_COLORMAP_PMT0 constant; can
         # still be changed at runtime via set_colormap().
-        self._colormap: str = _DISPLAY_COLORMAP
-        self._lut: np.ndarray = _DISPLAY_LUT
+        self._colormap: str = DISPLAY_COLORMAP_PMT0
+        self._lut: np.ndarray = DISPLAY_LUT
         # Separate LUT for PMT1 (red_white by default).
         # red_boost can be overridden via the 'display.red_boost' config key.
         # Extract the display sub-section from the config (supports both plain
@@ -499,8 +484,8 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         )
         self._display_cfg: dict = config_dict.get('display', {})
         _cfg_red_boost = self._display_cfg.get('red_boost', None)
-        self._lut_pmt1: np.ndarray = _build_colormap_lut(
-            _DISPLAY_COLORMAP_PMT1,
+        self._lut_pmt1: np.ndarray = build_colormap_lut(
+            DISPLAY_COLORMAP_PMT1,
             red_boost=_cfg_red_boost,
         )
         # Raw 16-bit frame kept so that gain/channel changes can re-render
@@ -754,7 +739,7 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         names = ['green', 'green_white', 'gray']
         name = names[index] if 0 <= index < len(names) else 'green'
         self._colormap = name
-        self._lut = _build_colormap_lut(name)
+        self._lut = build_colormap_lut(name)
 
     def save_snapshot(self, path: str) -> bool:
         """Save the current frame as a PNG file at its original resolution.

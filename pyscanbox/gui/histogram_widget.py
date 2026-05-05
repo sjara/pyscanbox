@@ -13,18 +13,17 @@ import PyQt6.QtWidgets as QtWidgets
 import PyQt6.QtCore as QtCore
 import PyQt6.QtGui as QtGui
 
-from .colormaps import _build_colormap_lut, _RED_BOOST
+from .colormaps import (
+    build_colormap_lut, RED_BOOST,
+    DISPLAY_COLORMAP_PMT0, DISPLAY_COLORMAP_PMT1, DISPLAY_LUT,
+)
 
 
-# Module-level display configuration
-_DISPLAY_COLORMAP: str = 'green_white'
-_DISPLAY_COLORMAP_PMT1: str = 'red_white'
 _HISTOGRAM_COLOR_LEVEL: float = 0.4
-_DISPLAY_LUT: np.ndarray = _build_colormap_lut(_DISPLAY_COLORMAP)
 # Plain single-colour LUTs used for the overlay (ch==2) colourbar, where the
 # canvas draws pure R/G channels without the white-blend transition.
-_GREEN_LUT: np.ndarray = _build_colormap_lut('green')
-_RED_LUT: np.ndarray = _build_colormap_lut('red')
+_GREEN_LUT: np.ndarray = build_colormap_lut('green')
+_RED_LUT: np.ndarray = build_colormap_lut('red')
 
 
 class HistogramWidget(QtWidgets.QWidget):
@@ -101,16 +100,16 @@ class HistogramWidget(QtWidgets.QWidget):
         )
         self._y_zoom = 1.0
 
-        # PMT0 bar/border colours (derived from _DISPLAY_LUT / green_white).
+        # PMT0 bar/border colours (derived from DISPLAY_LUT / green_white).
         _bar_idx = int(_HISTOGRAM_COLOR_LEVEL * 255)
-        _bar_rgb = _DISPLAY_LUT[_bar_idx]
+        _bar_rgb = DISPLAY_LUT[_bar_idx]
         self._bar_color = QtGui.QColor(
             int(_bar_rgb[0]), int(_bar_rgb[1]), int(_bar_rgb[2])
         )
         self._border_color = self._bar_color.lighter(130)
 
-        # PMT1 bar/border colours and LUT (red_white, module-level _RED_BOOST).
-        _lut1 = _build_colormap_lut(_DISPLAY_COLORMAP_PMT1, red_boost=_RED_BOOST)
+        # PMT1 bar/border colours and LUT (red_white, module-level RED_BOOST).
+        _lut1 = build_colormap_lut(DISPLAY_COLORMAP_PMT1, red_boost=RED_BOOST)
         _bar_rgb1 = _lut1[_bar_idx]
         self._bar_color1 = QtGui.QColor(
             int(_bar_rgb1[0]), int(_bar_rgb1[1]), int(_bar_rgb1[2])
@@ -305,13 +304,13 @@ class HistogramWidget(QtWidgets.QWidget):
             counts_a   = self._counts[::-1].copy()
             bar_col_a  = self._bar_color
             brd_col_a  = self._border_color
-            lut_a      = _DISPLAY_LUT
+            lut_a      = DISPLAY_LUT
             counts_b   = self._counts1[::-1].copy()
         else:  # PMT0 (default)
             counts_a   = self._counts[::-1].copy()
             bar_col_a  = self._bar_color
             brd_col_a  = self._border_color
-            lut_a      = _DISPLAY_LUT
+            lut_a      = DISPLAY_LUT
             counts_b   = None
 
         # --- Chart geometry ---
@@ -405,7 +404,7 @@ class HistogramWidget(QtWidgets.QWidget):
                 cb0 = np.ascontiguousarray(_GREEN_LUT)
                 cb1 = np.ascontiguousarray(_RED_LUT)
             else:  # ch == 3, dual-canvas
-                cb0 = np.ascontiguousarray(_DISPLAY_LUT)
+                cb0 = np.ascontiguousarray(DISPLAY_LUT)
                 cb1 = np.ascontiguousarray(self._lut_pmt1)
             img0 = QtGui.QImage(cb0.data, 256, 1, 256*3, QtGui.QImage.Format.Format_RGB888)
             img1 = QtGui.QImage(cb1.data, 256, 1, 256*3, QtGui.QImage.Format.Format_RGB888)

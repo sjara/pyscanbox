@@ -4,7 +4,8 @@
 """Shared colormap lookup-table utilities for pyscanbox GUI.
 
 Provides the single source of truth for PMT display colormaps used by
-both ImageDisplayWidget and HistogramWidget.
+ImageDisplayWidget, HistogramWidget, and external analysis tools that
+replicate the realtime display appearance.
 """
 
 import numpy as np
@@ -13,19 +14,23 @@ import numpy as np
 # Scaling factor applied to the red channel in the 'red_white' colormap.
 # Compensates for the lower perceived brightness of red vs. green so that
 # PMT1 (red) and PMT0 (green) appear equally bright at the same gain.
-_RED_BOOST: float = 1.963
+RED_BOOST: float = 1.963
+
+# Default colormap names for each PMT channel.
+DISPLAY_COLORMAP_PMT0: str = 'green_white'
+DISPLAY_COLORMAP_PMT1: str = 'red_white'
 
 
-def _build_colormap_lut(name: str, red_boost: float | None = None) -> np.ndarray:
+def build_colormap_lut(name: str, red_boost: float | None = None) -> np.ndarray:
     """Build a 256×3 uint8 lookup table for a named colormap.
 
-    This is the single source of truth for all display colormaps; both
-    ``HistogramWidget`` and ``ImageDisplayWidget`` use this function.
+    This is the single source of truth for all display colormaps used by
+    ImageDisplayWidget, HistogramWidget, and analysis tools.
 
     Args:
         name: Colormap name ('green', 'green_white', 'red', 'red_white', 'gray').
         red_boost: Optional scaling factor for red channel (red_white only).
-            Defaults to the module-level ``_RED_BOOST`` constant.
+            Defaults to the module-level ``RED_BOOST`` constant.
 
     Returns:
         256×3 uint8 array where lut[i] = [R, G, B] for intensity i.
@@ -41,12 +46,12 @@ def _build_colormap_lut(name: str, red_boost: float | None = None) -> np.ndarray
         lut[:, 0] = white
         lut[:, 2] = white
     elif name == 'red_white':
-        # R ramps 0→255 scaled by _RED_BOOST.
-        # Tune _RED_BOOST to adjust perceived brightness independently of the
+        # R ramps 0→255 scaled by RED_BOOST.
+        # Tune RED_BOOST to adjust perceived brightness independently of the
         # white blend.  The white onset is fixed at v=128 (same fraction as
-        # green_white) so changing _RED_BOOST never shifts when the colour
+        # green_white) so changing RED_BOOST never shifts when the colour
         # saturates to white.
-        boost = red_boost if red_boost is not None else _RED_BOOST
+        boost = red_boost if red_boost is not None else RED_BOOST
         r = np.clip(v * boost, 0.0, 255.0).astype(np.uint8)
         lut[:, 0] = r
         # White blend: G and B kick in at v=128, independent of boost.
@@ -62,3 +67,8 @@ def _build_colormap_lut(name: str, red_boost: float | None = None) -> np.ndarray
     else:  # 'green' (default)
         lut[:, 1] = v.astype(np.uint8)
     return lut
+
+
+# Precomputed LUT for PMT0.  The PMT1 LUT is built per-widget so that the
+# config-file red_boost override (display.red_boost) is applied correctly.
+DISPLAY_LUT: np.ndarray = build_colormap_lut(DISPLAY_COLORMAP_PMT0)
