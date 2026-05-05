@@ -18,8 +18,8 @@ import PyQt6.QtCore as QtCore
 import PyQt6.QtGui as QtGui
 
 from .colormaps import (
-    build_colormap_lut, RED_BOOST,
-    DISPLAY_COLORMAP_PMT0, DISPLAY_COLORMAP_PMT1, DISPLAY_LUT,
+    build_colormap_lut, DISPLAY_COLORMAP_PMT1,
+    DISPLAY_LUT_PMT0, DISPLAY_LUT_PMT1,
 )
 
 
@@ -470,23 +470,19 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         # more light, so we flip: background=0/black, signal=bright).
         # False = direct/debug mode (high ADC value = bright).
         self._invert: bool = True
-        # Active colormap name and precomputed 256×3 uint8 LUT.
-        # Initialised from the module-level DISPLAY_COLORMAP_PMT0 constant; can
-        # still be changed at runtime via set_colormap().
-        self._colormap: str = DISPLAY_COLORMAP_PMT0
-        self._lut: np.ndarray = DISPLAY_LUT
-        # Separate LUT for PMT1 (red_white by default).
-        # red_boost can be overridden via the 'display.red_boost' config key.
-        # Extract the display sub-section from the config (supports both plain
-        # dicts and objects with a to_dict() method such as AppConfig).
+        # Precomputed 256×3 uint8 LUTs for each PMT channel.
+        self._lut: np.ndarray = DISPLAY_LUT_PMT0
+        # PMT1 LUT: use the precomputed default unless the config overrides
+        # the red_boost value (display.red_boost in YAML).
         config_dict = (
             config.to_dict() if hasattr(config, 'to_dict') else (config or {})
         )
         self._display_cfg: dict = config_dict.get('display', {})
         _cfg_red_boost = self._display_cfg.get('red_boost', None)
-        self._lut_pmt1: np.ndarray = build_colormap_lut(
-            DISPLAY_COLORMAP_PMT1,
-            red_boost=_cfg_red_boost,
+        self._lut_pmt1: np.ndarray = (
+            build_colormap_lut(DISPLAY_COLORMAP_PMT1, red_boost=_cfg_red_boost)
+            if _cfg_red_boost is not None
+            else DISPLAY_LUT_PMT1
         )
         # Raw 16-bit frame kept so that gain/channel changes can re-render
         # the last frame without waiting for the next acquisition.
@@ -715,31 +711,6 @@ class ImageDisplayWidget(QtWidgets.QWidget):
             self._rolling_delta = math.exp(-1.0 / tau)
         self._rolling_avg = None   # reset accumulator on every tau change
         self._render_frame()
-
-    def set_colormap(self, index: int) -> None:
-        """Set the display colormap from the Colormap combobox index.
-
-        Colormaps (indices match the combobox order in
-        ``ImageDisplayControlGroup``):
-
-        * 0 – **Green** (default): black → green.  Matches the original
-          Scanbox MATLAB convention for PMT0.
-        * 1 – **Green-White**: black → green → white.  Lower half of the
-          intensity range maps to shades of green; upper half adds equal
-          red and blue so the brightest pixels saturate to white.
-          Useful for seeing fine structure that would otherwise clip to
-          a single saturated colour.
-        * 2 – **Gray**: black → white.  Standard grayscale reference.
-
-        The change takes effect on the next call to ``update_frame``.
-
-        Args:
-            index: 0 = Green, 1 = Green-White, 2 = Gray.
-        """
-        names = ['green', 'green_white', 'gray']
-        name = names[index] if 0 <= index < len(names) else 'green'
-        self._colormap = name
-        self._lut = build_colormap_lut(name)
 
     def save_snapshot(self, path: str) -> bool:
         """Save the current frame as a PNG file at its original resolution.

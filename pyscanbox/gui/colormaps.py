@@ -69,6 +69,8 @@ def build_colormap_lut(name: str, red_boost: float | None = None) -> np.ndarray:
     return lut
 
 
-# Precomputed LUT for PMT0.  The PMT1 LUT is built per-widget so that the
-# config-file red_boost override (display.red_boost) is applied correctly.
-DISPLAY_LUT: np.ndarray = build_colormap_lut(DISPLAY_COLORMAP_PMT0)
+# Precomputed LUTs for each PMT channel.  The PMT1 LUT uses the default
+# RED_BOOST; widgets that read display.red_boost from config build their own
+# LUT via build_colormap_lut(DISPLAY_COLORMAP_PMT1, red_boost=value).
+DISPLAY_LUT_PMT0: np.ndarray = build_colormap_lut(DISPLAY_COLORMAP_PMT0)
+DISPLAY_LUT_PMT1: np.ndarray = build_colormap_lut(DISPLAY_COLORMAP_PMT1)
