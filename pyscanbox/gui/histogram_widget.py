@@ -13,59 +13,12 @@ import PyQt6.QtWidgets as QtWidgets
 import PyQt6.QtCore as QtCore
 import PyQt6.QtGui as QtGui
 
-
-def _build_colormap_lut(name: str, red_boost: float | None = None) -> np.ndarray:
-    """Build a 256×3 uint8 lookup table for a named colormap.
-
-    This is the single source of truth for all display colormaps; both
-    ``HistogramWidget`` and ``ImageDisplayWidget`` (via import in
-    ``widgets.py``) use this function.
-
-    Args:
-        name: Colormap name ('green', 'green_white', 'red', 'red_white', 'gray').
-        red_boost: Optional scaling factor for red channel (red_white only).
-
-    Returns:
-        256×3 uint8 array where lut[i] = [R, G, B] for intensity i.
-    """
-    v = np.arange(256, dtype=np.float32)
-    lut = np.zeros((256, 3), dtype=np.uint8)
-    if name == 'green_white':
-        # G ramps 0→255 linearly (same as plain green).
-        lut[:, 1] = v.astype(np.uint8)
-        # R and B stay 0 until v=128, then ramp to 255 — creates the
-        # transition from green to white in the upper half of the range.
-        white = np.clip(2.0 * v - 255.0, 0.0, 255.0).astype(np.uint8)
-        lut[:, 0] = white
-        lut[:, 2] = white
-    elif name == 'red_white':
-        # R ramps 0→255 scaled by the module-level _RED_BOOST constant.
-        # Tune _RED_BOOST to adjust perceived brightness independently of the
-        # white blend.  The white onset is fixed at v=128 (same fraction as
-        # green_white) so changing _RED_BOOST never shifts when the colour
-        # saturates to white.
-        boost = red_boost if red_boost is not None else _RED_BOOST
-        r = np.clip(v * boost, 0.0, 255.0).astype(np.uint8)
-        lut[:, 0] = r
-        # White blend: G and B kick in at v=128, independent of boost.
-        white = np.clip(2.0 * v - 255.0, 0.0, 255.0).astype(np.uint8)
-        lut[:, 1] = white
-        lut[:, 2] = white
-    elif name == 'red':
-        lut[:, 0] = v.astype(np.uint8)
-    elif name == 'gray':
-        lut[:, 0] = v.astype(np.uint8)
-        lut[:, 1] = v.astype(np.uint8)
-        lut[:, 2] = v.astype(np.uint8)
-    else:  # 'green' (default)
-        lut[:, 1] = v.astype(np.uint8)
-    return lut
+from .colormaps import _build_colormap_lut, _RED_BOOST
 
 
-# Module-level display configuration (matching widgets.py conventions)
+# Module-level display configuration
 _DISPLAY_COLORMAP: str = 'green_white'
 _DISPLAY_COLORMAP_PMT1: str = 'red_white'
-_RED_BOOST: float = 1.963
 _HISTOGRAM_COLOR_LEVEL: float = 0.4
 _DISPLAY_LUT: np.ndarray = _build_colormap_lut(_DISPLAY_COLORMAP)
 # Plain single-colour LUTs used for the overlay (ch==2) colourbar, where the
@@ -232,7 +185,7 @@ class HistogramWidget(QtWidgets.QWidget):
         frame-skip counter has not yet reached ``UPDATE_EVERY``.
 
         Accepts the same ``frame_data_ready`` signal payload as
-        ``ImageDisplayWidget.update_frame``.  Only channel 0 is used.
+        ``ImageDisplayWidget.update_frame``.
 
         Args:
             frame_data: Shape ``(channels, lines_per_frame, pixels_per_line)``,
