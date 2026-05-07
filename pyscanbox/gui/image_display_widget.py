@@ -38,10 +38,13 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
 
     # Emitted when the user selects "Save Snapshot" from the context menu.
     snapshot_requested = QtCore.pyqtSignal()
+    # Emitted whenever the crosshair is shown or hidden (bool = new visible state).
+    crosshair_toggled = QtCore.pyqtSignal(bool)
 
     _ZOOM_FACTOR = 1.25    # scale multiplier per wheel step
     _MARKER_COLOR = QtGui.QColor("#80AAAA00")   # Qt uses ARGB not RGBA
     _MARKER_SIZE = 5        # plus-arm half-length in image pixels
+    _CROSSHAIR_COLOR = QtGui.QColor(0x19, 0x2D, 0x50, 0xC0)  # matches QSlider add-page blue (#192d50), ~75% opacity
 
     # Nominal scene size used for the placeholder text before the first frame.
     _PLACEHOLDER_W = 512
@@ -57,6 +60,8 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
             self._MARKER_COLOR = QtGui.QColor(cfg['marker_color'])
         if 'marker_size' in cfg:
             self._MARKER_SIZE = int(cfg['marker_size'])
+        if 'crosshair_color' in cfg:
+            self._CROSSHAIR_COLOR = QtGui.QColor(cfg['crosshair_color'])
         self._scene = QtWidgets.QGraphicsScene(self)
         self.setScene(self._scene)
 
@@ -113,6 +118,11 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
 
         self._logical_markers: list[QtCore.QPointF] = []
         self._drawn_markers: list = []
+
+        # Crosshair state
+        self._crosshair_visible: bool = False
+        self._crosshair_h: QtWidgets.QGraphicsLineItem | None = None
+        self._crosshair_v: QtWidgets.QGraphicsLineItem | None = None
 
         # Peer canvas for synchronized dual-canvas mode ("PMT0 | PMT1").
         self._peer: "_ImageCanvas | None" = None
@@ -178,6 +188,8 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         if self._placeholder.isVisible():
             self._placeholder.setVisible(False)
         self._scene.setSceneRect(self._pixmap_item.boundingRect())
+        if self._crosshair_visible:
+            self._set_crosshair(True)
         if self._is_fit:
             self._fit_in_view()
 
@@ -268,6 +280,9 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         menu.addSeparator()
         clear_action     = menu.addAction("Clear Markers")
         menu.addSeparator()
+        crosshair_label  = "Hide Crosshair" if self._crosshair_visible else "Show Crosshair"
+        crosshair_action = menu.addAction(crosshair_label)
+        menu.addSeparator()
         snapshot_action  = menu.addAction("Save Snapshot")
         action = menu.exec(event.globalPos())
         if action == fit_action:
@@ -289,6 +304,12 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
             self._sync_peer_view()
         elif action == clear_action:
             self.clear_markers()
+        elif action == crosshair_action:
+            self._set_crosshair(not self._crosshair_visible)
+            if self._peer and not self._syncing:
+                self._syncing = True
+                self._peer._set_crosshair(self._crosshair_visible)
+                self._syncing = False
         elif action == snapshot_action:
             # Emit a signal that will be connected to MainWindow._on_save_snapshot
             self.snapshot_requested.emit()
@@ -470,6 +491,32 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
         self._peer.verticalScrollBar().setValue(self.verticalScrollBar().value())
         self._peer._syncing = False
         self._syncing = False
+
+    def _set_crosshair(self, visible: bool) -> None:
+        """Show or hide a full-image crosshair centred on the scene."""
+        self._crosshair_visible = visible
+        for item in (self._crosshair_h, self._crosshair_v):
+            if item is not None:
+                self._scene.removeItem(item)
+        self._crosshair_h = None
+        self._crosshair_v = None
+        self.crosshair_toggled.emit(visible)
+        if not visible:
+            return
+        rect = self._scene.sceneRect()
+        cx, cy = rect.center().x(), rect.center().y()
+        pen = QtGui.QPen(self._CROSSHAIR_COLOR, 1.0)
+        pen.setCosmetic(True)  # 1 px regardless of zoom level
+        self._crosshair_h = QtWidgets.QGraphicsLineItem(
+            rect.left(), cy, rect.right(), cy
+        )
+        self._crosshair_v = QtWidgets.QGraphicsLineItem(
+            cx, rect.top(), cx, rect.bottom()
+        )
+        for item in (self._crosshair_h, self._crosshair_v):
+            item.setPen(pen)
+            item.setZValue(3)
+            self._scene.addItem(item)
 
     def set_peer(self, peer: "_ImageCanvas | None") -> None:
         """Link or unlink a peer canvas for synchronized zoom/pan/markers.
@@ -747,6 +794,8 @@ class ImageDisplayWidget(QtWidgets.QWidget):
             )
             self._canvas2._logical_markers = list(self._canvas._logical_markers)
             self._canvas2._draw_markers()
+            if self._canvas._crosshair_visible:
+                self._canvas2._set_crosshair(True)
             self._canvas.set_peer(self._canvas2)
         else:
             self._canvas2.hide()

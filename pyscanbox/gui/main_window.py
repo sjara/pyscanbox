@@ -145,6 +145,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._right_panel.image_display._canvas2.snapshot_requested.connect(
             self._on_save_snapshot
         )
+        # Keep the View > Toggle Crosshair checkbox in sync when toggled via context menu.
+        self._right_panel.image_display._canvas.crosshair_toggled.connect(
+            self._crosshair_action.setChecked
+        )
 
         # Sync Save Channels with Image Display channel selection (if enabled in config).
         config_dict = (
@@ -344,7 +348,17 @@ class MainWindow(QtWidgets.QMainWindow):
         histogram_action.triggered.connect(self._toggle_histogram)
         view_menu.addAction(histogram_action)
         self._histogram_action = histogram_action
-        
+
+        view_menu.addSeparator()
+
+        crosshair_action = QtGui.QAction("Toggle &Crosshair", self)
+        crosshair_action.setShortcut("Ctrl+X")
+        crosshair_action.setCheckable(True)
+        crosshair_action.setChecked(False)
+        crosshair_action.triggered.connect(self._toggle_crosshair)
+        view_menu.addAction(crosshair_action)
+        self._crosshair_action = crosshair_action
+
         # Help menu
         help_menu = menubar.addMenu("&Help")
         
@@ -409,6 +423,17 @@ class MainWindow(QtWidgets.QMainWindow):
             checked: True to show the frame selector, False to hide it.
         """
         self._right_panel.frame_selector.setVisible(checked)
+
+    def _toggle_crosshair(self, checked: bool) -> None:
+        """Show or hide the crosshair on the image canvas(es).
+
+        Args:
+            checked: True to show the crosshair, False to hide it.
+        """
+        image_display = self._right_panel.image_display
+        image_display._canvas._set_crosshair(checked)
+        if image_display._channel == 3:
+            image_display._canvas2._set_crosshair(checked)
 
     # ------------------------------------------------------------------
     # Data loading
