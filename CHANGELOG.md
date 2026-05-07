@@ -5,6 +5,14 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
+## v1.9.1.dev0 - May 6, 2026
+- **Fix: Snapshot context menu not working in 'PMT0 | PMT1' mode**
+  - Right-clicking 'Save Snapshot' on either canvas in dual-panel mode now triggers the save dialog (the PMT1 canvas signal was never connected).
+- **Fix: Snapshot saves only one channel in 'PMT0 | PMT1' mode**
+  - In dual-panel mode, saving a snapshot now writes two PNG files: `snap000_pmt0.png` (green/PMT0) and `snap000_pmt1.png` (red/PMT1). The index uniqueness check verifies both files before suggesting a filename.
+- **Fix: Markers not included in snapshots**
+  - Snapshots now render via `QGraphicsScene.render()` instead of the raw display buffer, so placed markers (crosshair overlays) appear in the saved image for all display modes.
+
 ## v1.9.0.dev0 - May 3, 2026
 - **Enhancement: Synchronized dual-canvas two-channel display ('PMT0 | PMT1')**
   - New channel display mode renders PMT0 and PMT1 in two equal side-by-side canvases instead of compositing them into a single image. Zoom, pan, marker placement, and marker-mode toggle are fully synchronized between the two panels.
