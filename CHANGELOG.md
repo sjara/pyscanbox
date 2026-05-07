@@ -5,6 +5,13 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
+## v1.10.0.dev0 - May 7, 2026
+- **Enhancement: Crosshair overlay for image canvas**
+  - Full-image crosshair (horizontal + vertical lines spanning the scene) toggled via right-click context menu or View > Toggle Crosshair (Ctrl+X).
+  - Crosshair color matches the dark blue used by the slider fill (`#192d50`), configurable via `display.crosshair_color` in the config file.
+  - Menu bar checkbox stays in sync when the crosshair is toggled via the context menu.
+  - Crosshair is synced to the PMT1 canvas when switching to dual-panel mode.
+
 ## v1.9.1.dev0 - May 6, 2026
 - **Fix: Snapshot context menu not working in 'PMT0 | PMT1' mode**
   - Right-clicking 'Save Snapshot' on either canvas in dual-panel mode now triggers the save dialog (the PMT1 canvas signal was never connected).
