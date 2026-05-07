@@ -11,6 +11,7 @@ Note: HistogramWidget is defined in histogram_widget.py.
 """
 
 import math
+import os
 
 import numpy as np
 import PyQt6.QtWidgets as QtWidgets
@@ -425,6 +426,22 @@ class _ImageCanvas(QtWidgets.QGraphicsView):
             self._peer._draw_markers()
             self._syncing = False
 
+    def render_to_image(self) -> "QtGui.QImage | None":
+        """Render the scene (image + markers) to a QImage at native resolution.
+
+        Returns None if no frame has been displayed yet.
+        """
+        rect = self._pixmap_item.boundingRect()
+        if rect.isEmpty():
+            return None
+        w, h = int(rect.width()), int(rect.height())
+        img = QtGui.QImage(w, h, QtGui.QImage.Format.Format_RGB888)
+        img.fill(QtCore.Qt.GlobalColor.black)
+        painter = QtGui.QPainter(img)
+        self._scene.render(painter, source=rect)
+        painter.end()
+        return img
+
     def clear_markers(self) -> None:
         """Remove all markers from the scene and reset the counter."""
         for item in self._drawn_markers:
@@ -776,22 +793,27 @@ class ImageDisplayWidget(QtWidgets.QWidget):
         frame) rather than from the scaled pixmap in the display label, so
         the output is always at the raw frame resolution.
 
+        In dual-panel mode ("PMT0 | PMT1") two files are written: ``path``
+        has its extension replaced with ``_pmt0.png`` and ``_pmt1.png``.
+
         Args:
             path: Absolute path to the output ``.png`` file.  The parent
                 directory must already exist.
 
         Returns:
-            True if the image was saved successfully, False if no frame has
-            been acquired yet.
+            True if the image(s) were saved successfully, False if no frame
+            has been acquired yet.
         """
         if self._display_buffer is None:
             return False
-        height, width = self._display_buffer.shape[:2]
-        img = QtGui.QImage(
-            self._display_buffer.data,
-            width,
-            height,
-            width * 3,
-            QtGui.QImage.Format.Format_RGB888,
-        )
+        if self._channel == 3 and self._display_buffer2 is not None:
+            img0 = self._canvas.render_to_image()
+            img1 = self._canvas2.render_to_image()
+            if img0 is None or img1 is None:
+                return False
+            stem, ext = os.path.splitext(path)
+            return img0.save(f'{stem}_pmt0{ext}', 'PNG') and img1.save(f'{stem}_pmt1{ext}', 'PNG')
+        img = self._canvas.render_to_image()
+        if img is None:
+            return False
         return img.save(path, 'PNG')
