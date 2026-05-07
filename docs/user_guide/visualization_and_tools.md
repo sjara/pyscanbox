@@ -9,6 +9,7 @@ The central visual element of `pyscanbox` is the *Image Display Canvas*, where a
 - *Context menu*: Right click on the image to open the context menu. This will allow you to set different zoom levels and clear markers from the image.
 - *Markers*: 
   - You can activate this mode by left clicking on the *[+]* icon in the top-right corner of the image canvas.
+  - You can also temporarily activate this mode by holding the Shift key.
   - After activating, you can add a marker by left clicking on the image canvas. 
   - To disable this mode, click the *[+]* icon again (or press 'Esc').
   - To clear all markers, right click on the image canvas and select "Clear markers".

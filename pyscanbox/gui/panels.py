@@ -12,6 +12,7 @@ import PyQt6.QtWidgets as QtWidgets
 import PyQt6.QtCore as QtCore
 
 from pyscanbox.gui import widgets
+from pyscanbox.gui import image_display_widget
 
 
 class LeftControlPanel(QtWidgets.QWidget):
@@ -91,7 +92,7 @@ class RightDisplayPanel(QtWidgets.QWidget):
         splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
 
         # Top: Main image display
-        self.image_display = widgets.ImageDisplayWidget(config=self.config)
+        self.image_display = image_display_widget.ImageDisplayWidget(config=self.config)
         splitter.addWidget(self.image_display)
 
         # Middle: Pixel-intensity histogram (full panel width)

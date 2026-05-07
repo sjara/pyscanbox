@@ -138,8 +138,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self._on_display_gain_changed
         )
 
-        # Connect canvas snapshot signal to save handler.
+        # Connect canvas snapshot signal to save handler (both canvases for dual-panel mode).
         self._right_panel.image_display._canvas.snapshot_requested.connect(
+            self._on_save_snapshot
+        )
+        self._right_panel.image_display._canvas2.snapshot_requested.connect(
             self._on_save_snapshot
         )
 
@@ -559,11 +562,21 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         # Advance the index until the proposed path does not exist.
+        image_display = self._right_panel.image_display
         file_grp = self._left_panel.file_group
         default_path = file_grp.get_snapshot_path()
-        while os.path.exists(default_path):
-            file_grp.increment_snapshot_index()
-            default_path = file_grp.get_snapshot_path()
+        dual = image_display._channel == 3
+        if dual:
+            stem, ext = os.path.splitext(default_path)
+            while (os.path.exists(f'{stem}_pmt0{ext}')
+                   or os.path.exists(f'{stem}_pmt1{ext}')):
+                file_grp.increment_snapshot_index()
+                default_path = file_grp.get_snapshot_path()
+                stem, ext = os.path.splitext(default_path)
+        else:
+            while os.path.exists(default_path):
+                file_grp.increment_snapshot_index()
+                default_path = file_grp.get_snapshot_path()
 
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self,
@@ -574,9 +587,14 @@ class MainWindow(QtWidgets.QMainWindow):
         if not path:
             return
 
-        saved = self._right_panel.image_display.save_snapshot(path)
+        saved = image_display.save_snapshot(path)
         if saved:
-            self.statusBar.showMessage(f"Snapshot saved: {os.path.basename(path)}")
+            if dual:
+                stem, ext = os.path.splitext(os.path.basename(path))
+                names = f"{stem}_pmt0{ext}, {stem}_pmt1{ext}"
+                self.statusBar.showMessage(f"Snapshot saved: {names}")
+            else:
+                self.statusBar.showMessage(f"Snapshot saved: {os.path.basename(path)}")
         else:
             QtWidgets.QMessageBox.critical(
                 self,

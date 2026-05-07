@@ -13,65 +13,10 @@ import PyQt6.QtWidgets as QtWidgets
 import PyQt6.QtCore as QtCore
 import PyQt6.QtGui as QtGui
 
-
-def _build_colormap_lut(name: str, red_boost: float | None = None) -> np.ndarray:
-    """Build a 256×3 uint8 lookup table for a named colormap.
-
-    This is the single source of truth for all display colormaps; both
-    ``HistogramWidget`` and ``ImageDisplayWidget`` (via import in
-    ``widgets.py``) use this function.
-
-    Args:
-        name: Colormap name ('green', 'green_white', 'red', 'red_white', 'gray').
-        red_boost: Optional scaling factor for red channel (red_white only).
-
-    Returns:
-        256×3 uint8 array where lut[i] = [R, G, B] for intensity i.
-    """
-    v = np.arange(256, dtype=np.float32)
-    lut = np.zeros((256, 3), dtype=np.uint8)
-    if name == 'green_white':
-        # G ramps 0→255 linearly (same as plain green).
-        lut[:, 1] = v.astype(np.uint8)
-        # R and B stay 0 until v=128, then ramp to 255 — creates the
-        # transition from green to white in the upper half of the range.
-        white = np.clip(2.0 * v - 255.0, 0.0, 255.0).astype(np.uint8)
-        lut[:, 0] = white
-        lut[:, 2] = white
-    elif name == 'red_white':
-        # R ramps 0→255 scaled by the module-level _RED_BOOST constant.
-        # Tune _RED_BOOST to adjust perceived brightness independently of the
-        # white blend.  The white onset is fixed at v=128 (same fraction as
-        # green_white) so changing _RED_BOOST never shifts when the colour
-        # saturates to white.
-        boost = red_boost if red_boost is not None else _RED_BOOST
-        r = np.clip(v * boost, 0.0, 255.0).astype(np.uint8)
-        lut[:, 0] = r
-        # White blend: G and B kick in at v=128, independent of boost.
-        white = np.clip(2.0 * v - 255.0, 0.0, 255.0).astype(np.uint8)
-        lut[:, 1] = white
-        lut[:, 2] = white
-    elif name == 'red':
-        lut[:, 0] = v.astype(np.uint8)
-    elif name == 'gray':
-        lut[:, 0] = v.astype(np.uint8)
-        lut[:, 1] = v.astype(np.uint8)
-        lut[:, 2] = v.astype(np.uint8)
-    else:  # 'green' (default)
-        lut[:, 1] = v.astype(np.uint8)
-    return lut
+from .colormaps import get_display_lut
 
 
-# Module-level display configuration (matching widgets.py conventions)
-_DISPLAY_COLORMAP: str = 'green_white'
-_DISPLAY_COLORMAP_PMT1: str = 'red_white'
-_RED_BOOST: float = 1.963
 _HISTOGRAM_COLOR_LEVEL: float = 0.4
-_DISPLAY_LUT: np.ndarray = _build_colormap_lut(_DISPLAY_COLORMAP)
-# Plain single-colour LUTs used for the overlay (ch==2) colourbar, where the
-# canvas draws pure R/G channels without the white-blend transition.
-_GREEN_LUT: np.ndarray = _build_colormap_lut('green')
-_RED_LUT: np.ndarray = _build_colormap_lut('red')
 
 
 class HistogramWidget(QtWidgets.QWidget):
@@ -148,22 +93,21 @@ class HistogramWidget(QtWidgets.QWidget):
         )
         self._y_zoom = 1.0
 
-        # PMT0 bar/border colours (derived from _DISPLAY_LUT / green_white).
+        # PMT0 bar/border colours (derived from DISPLAY_LUT_PMT0 / green_white).
         _bar_idx = int(_HISTOGRAM_COLOR_LEVEL * 255)
-        _bar_rgb = _DISPLAY_LUT[_bar_idx]
+        _bar_rgb = get_display_lut(pmt=0)[_bar_idx]
         self._bar_color = QtGui.QColor(
             int(_bar_rgb[0]), int(_bar_rgb[1]), int(_bar_rgb[2])
         )
         self._border_color = self._bar_color.lighter(130)
 
-        # PMT1 bar/border colours and LUT (red_white, module-level _RED_BOOST).
-        _lut1 = _build_colormap_lut(_DISPLAY_COLORMAP_PMT1, red_boost=_RED_BOOST)
-        _bar_rgb1 = _lut1[_bar_idx]
+        # PMT1 bar/border colours and LUT (red_white).
+        _bar_rgb1 = get_display_lut(pmt=1)[_bar_idx]
         self._bar_color1 = QtGui.QColor(
             int(_bar_rgb1[0]), int(_bar_rgb1[1]), int(_bar_rgb1[2])
         )
         self._border_color1 = self._bar_color1.lighter(130)
-        self._lut_pmt1 = _lut1
+        self._lut_pmt1 = get_display_lut(pmt=1)
 
         # Small toggle button overlaid on the top-right corner.
         self._scale_button = QtWidgets.QPushButton("Linear", self)
@@ -232,7 +176,7 @@ class HistogramWidget(QtWidgets.QWidget):
         frame-skip counter has not yet reached ``UPDATE_EVERY``.
 
         Accepts the same ``frame_data_ready`` signal payload as
-        ``ImageDisplayWidget.update_frame``.  Only channel 0 is used.
+        ``ImageDisplayWidget.update_frame``.
 
         Args:
             frame_data: Shape ``(channels, lines_per_frame, pixels_per_line)``,
@@ -352,13 +296,13 @@ class HistogramWidget(QtWidgets.QWidget):
             counts_a   = self._counts[::-1].copy()
             bar_col_a  = self._bar_color
             brd_col_a  = self._border_color
-            lut_a      = _DISPLAY_LUT
+            lut_a      = get_display_lut(pmt=0)
             counts_b   = self._counts1[::-1].copy()
         else:  # PMT0 (default)
             counts_a   = self._counts[::-1].copy()
             bar_col_a  = self._bar_color
             brd_col_a  = self._border_color
-            lut_a      = _DISPLAY_LUT
+            lut_a      = get_display_lut(pmt=0)
             counts_b   = None
 
         # --- Chart geometry ---
@@ -449,10 +393,10 @@ class HistogramWidget(QtWidgets.QWidget):
             # Side-by-side (ch==3): the canvas applies the full green_white /
             # red_white LUTs, so the colorbars match.
             if ch == 2:
-                cb0 = np.ascontiguousarray(_GREEN_LUT)
-                cb1 = np.ascontiguousarray(_RED_LUT)
+                cb0 = np.ascontiguousarray(get_display_lut(pmt=0, overlay=True))
+                cb1 = np.ascontiguousarray(get_display_lut(pmt=1, overlay=True))
             else:  # ch == 3, dual-canvas
-                cb0 = np.ascontiguousarray(_DISPLAY_LUT)
+                cb0 = np.ascontiguousarray(get_display_lut(pmt=0))
                 cb1 = np.ascontiguousarray(self._lut_pmt1)
             img0 = QtGui.QImage(cb0.data, 256, 1, 256*3, QtGui.QImage.Format.Format_RGB888)
             img1 = QtGui.QImage(cb1.data, 256, 1, 256*3, QtGui.QImage.Format.Format_RGB888)
