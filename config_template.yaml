@@ -189,13 +189,18 @@ display:
   # The Image Display control group offers these as choices in addition to "Off".
   rolling_avg_taus: [5, 10, 20]
 
-  # Colour of the plus-sign location markers placed in marker mode.
-  # Any CSS / Qt colour string is accepted (hex ARGB or named colour).
+  # Color of the plus-sign location markers placed in marker mode.
+  # Any CSS / Qt color string is accepted (hex ARGB or named color).
   # The leading two hex digits are the alpha channel (00=transparent, ff=opaque).
   marker_color: "#80AAAA00"    # semi-transparent olive/yellow
 
   # Half-length of each arm of the plus-sign marker, in image pixels.
   marker_size: 5
+
+  # Color of the full-image crosshair overlay.
+  # Any CSS / Qt color string is accepted (hex ARGB or named color).
+  # The leading two hex digits are the alpha channel (00=transparent, ff=opaque).
+  crosshair_color: "#C0192D50"   # semi-transparent dark blue (matches slider color)
 
   # Perceptual brightness boost for the PMT1 red_white colormap.
   # Increase to make the red channel appear brighter; decrease to dim it.
