@@ -563,19 +563,24 @@ class Scanner:
             logger.debug("Starting acquisition...")
             self._notify_cmd('System', 'Starting acquisition')
             logger.info("Acquisition started.")
-            
+
             # Prepare Alazar digitizer FIRST (equivalent to AlazarStartCapture).
             # The digitizer waits for hardware triggers from the PSoC5.
             self.alazar.start_acquisition()
-            
+
+            # Restore PMT gains (matching original MATLAB sb_gain0/sb_gain1 after
+            # AlazarStartCapture, scanbox.m lines 2529-2532).
+            for pmt_id in (0, 1):
+                self.controller.set_pmt_gain(pmt_id, self.controller.pmt_gains[pmt_id])
+
             # Small delay to let digitizer stabilize, matching original MATLAB
             # pause(0.2) at line 2536.
             time.sleep(0.05)  # 50ms delay (conservative)
-            
+
             # Apply Pockels cell blanking before starting scanner, matching original
             # MATLAB sequence (scanbox.m lines 2536-2538).
             self.synchronize_pockels_blanking()
-            
+
             # Start scanner (triggers line captures from digitizer).
             # In continuous resonant mode, this begins capturing at the current
             # scanner phase as established by deadband_period synchronization.
@@ -831,6 +836,9 @@ class Scanner:
             #   self.controller.set_shutter(open=False)
             # On this rig stop_scan() (CMD_SCAN, ID 4) closes the shutter automatically.
             self.controller.stop_scan()
+            for pmt_id in (0, 1):
+                self.controller.set_pmt_gain(pmt_id, 0)
+            logger.debug("PMT gains zeroed after scan stop.")
             if self._controller_owned:
                 self.controller.close()
             else:
