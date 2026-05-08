@@ -836,8 +836,10 @@ class Scanner:
             #   self.controller.set_shutter(open=False)
             # On this rig stop_scan() (CMD_SCAN, ID 4) closes the shutter automatically.
             self.controller.stop_scan()
+            saved_gains = list(self.controller.pmt_gains)
             for pmt_id in (0, 1):
                 self.controller.set_pmt_gain(pmt_id, 0)
+            self.controller.pmt_gains = saved_gains
             logger.debug("PMT gains zeroed after scan stop.")
             if self._controller_owned:
                 self.controller.close()
