@@ -1518,3 +1518,28 @@ class CommandLogPanel(QtWidgets.QWidget):
         """Return a ``HH:MM:SS.mmm`` timestamp string."""
         import datetime
         return datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]
+
+
+class LogWindow(QtWidgets.QDialog):
+    """Standalone window containing a CommandLogPanel.
+
+    Closing the window hides it rather than destroying it so it can be
+    reopened via the keyboard shortcut.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent, QtCore.Qt.WindowType.Tool)
+        self.setWindowTitle('Command Log')
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self._log_panel = CommandLogPanel()
+        layout.addWidget(self._log_panel)
+
+    @property
+    def panel(self):
+        """Return the embedded CommandLogPanel."""
+        return self._log_panel
+
+    def closeEvent(self, event):
+        event.ignore()
+        self.hide()
