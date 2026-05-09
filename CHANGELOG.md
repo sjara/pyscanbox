@@ -5,6 +5,12 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
+## v1.11.0.dev0 - May 8, 2026
+- **Enhancement: Command log as independent window**
+  - The command log is now a standalone `Tool` window (`LogWindow`) instead of a dock widget embedded at the bottom of the main window.
+  - Opening or closing the log no longer resizes the main window.
+  - On first open (Ctrl+L), the log window is placed to the right of the main window at the same height; it can be freely repositioned thereafter.
+
 ## v1.10.0.dev0 - May 7, 2026
 - **Enhancement: Crosshair overlay for image canvas**
   - Full-image crosshair (horizontal + vertical lines spanning the scene) toggled via right-click context menu or View > Toggle Crosshair (Ctrl+X).
