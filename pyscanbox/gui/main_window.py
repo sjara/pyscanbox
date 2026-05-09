@@ -169,25 +169,9 @@ class MainWindow(QtWidgets.QMainWindow):
         version_label.setStyleSheet("color: #888888; padding-right: 0px;")
         self.statusBar.addPermanentWidget(version_label)
 
-        # Create the command log dock at the bottom of the window.
-        self._log_panel = widgets.CommandLogPanel()
-        self._log_dock = QtWidgets.QDockWidget('Command Log', self)
-        self._log_dock.setObjectName('CommandLogDock')
-        self._log_dock.setAllowedAreas(
-            QtCore.Qt.DockWidgetArea.BottomDockWidgetArea
-            | QtCore.Qt.DockWidgetArea.TopDockWidgetArea
-        )
-        self._log_dock.setWidget(self._log_panel)
-        # Give the dock a reasonable default height.
-        self._log_panel.setMinimumHeight(120)
-        self.addDockWidget(
-            QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self._log_dock
-        )
-        self._log_dock.setVisible(False)
-        # Keep the rest of the window at its current size when the log dock
-        # is detached.  topLevelChanged fires before Qt reflows the layout,
-        # so we use a zero-delay timer to resize after the layout settles.
-        self._log_dock.topLevelChanged.connect(self._on_log_dock_floating)
+        # Create the command log as an independent window.
+        self._log_window = widgets.LogWindow(self)
+        self._log_panel = self._log_window.panel
         
     def _create_menu_bar(self):
         """Create the application menu bar."""
@@ -329,9 +313,9 @@ class MainWindow(QtWidgets.QMainWindow):
         log_action.setShortcut("Ctrl+L")
         log_action.setCheckable(True)
         log_action.setChecked(False)
-        log_action.triggered.connect(self._toggle_log_dock)
+        log_action.triggered.connect(self._toggle_log_window)
         view_menu.addAction(log_action)
-        self._log_dock_action = log_action
+        self._log_window_action = log_action
 
         frame_selector_action = QtGui.QAction("Show &Frame Selector", self)
         frame_selector_action.setShortcut("Ctrl+F")
@@ -377,32 +361,32 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             self.showNormal()
 
-    def _toggle_log_dock(self, checked):
-        """Show or hide the Command Log dock widget.
+    def _place_log_window(self):
+        """Position the log window to the right of the main window."""
+        frame = self.frameGeometry()
+        content = self.geometry()
+        # Title-bar height so the log window's frame top aligns with ours.
+        title_bar_h = content.top() - frame.top()
+        log_w = 680
+        self._log_window.setGeometry(
+            frame.right(),
+            frame.top() + title_bar_h,
+            log_w,
+            frame.height() - title_bar_h,
+        )
 
-        Resizes the main window to compensate for the space the dock
-        occupies so the rest of the UI keeps its current size.
+    def _toggle_log_window(self, checked):
+        """Show or hide the Command Log window.
 
         Args:
-            checked: True to show the dock, False to hide it.
+            checked: True to show the window, False to hide it.
         """
-        if not checked:
-            # Snapshot the full window height (dock included) and the dock
-            # height *before* anything is hidden, so we have exact numbers.
-            self._win_height_with_log = self.height()
-            self._log_dock_saved_h = self._log_dock.height()
-            self._log_dock.setVisible(False)
-            target_h = self._win_height_with_log - self._log_dock_saved_h
-            QtCore.QTimer.singleShot(
-                0, lambda: self.resize(self.width(), target_h)
-            )
+        if checked:
+            self._place_log_window()
+            self._log_window.show()
+            self._log_window.raise_()
         else:
-            self._log_dock.setVisible(True)
-            # Restore the exact window height that included the log dock.
-            restore_h = getattr(self, '_win_height_with_log', self.height())
-            QtCore.QTimer.singleShot(
-                0, lambda: self.resize(self.width(), restore_h)
-            )
+            self._log_window.hide()
 
     def _toggle_histogram(self, checked: bool) -> None:
         """Show or hide the pixel-intensity histogram.
@@ -627,25 +611,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 f"Could not write to {path}",
             )
 
-    def _on_log_dock_floating(self, floating: bool) -> None:
-        """Resize the main window when the log dock is detached or re-docked.
-
-        When the dock becomes a floating window Qt expands the remaining
-        content to fill the freed space.  We compensate by shrinking the
-        main window back to its pre-float height.  The QTimer delay lets
-        the layout reflow complete before we apply the resize.
-
-        Args:
-            floating: True when the dock is being detached (made floating).
-        """
-        if floating:
-            dock_h = self._log_dock.height()
-            self._win_height_with_log = self.height()
-            target_h = self._win_height_with_log - dock_h
-            QtCore.QTimer.singleShot(
-                0, lambda: self.resize(self.width(), target_h)
-            )
-            
     def _show_about(self):
         """Show the about dialog."""
         QtWidgets.QMessageBox.about(
@@ -1026,6 +991,18 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         if hasattr(self, '_bidir_cal_dialog') and self._bidir_cal_dialog is not None:
             self._bidir_cal_dialog.update_done(mag_index, shift)
+
+    # def moveEvent(self, event):
+    #     """Reposition the log window when the main window moves."""
+    #     super().moveEvent(event)
+    #     if self._log_window.isVisible():
+    #         self._place_log_window()
+
+    # def resizeEvent(self, event):
+    #     """Reposition the log window when the main window is resized."""
+    #     super().resizeEvent(event)
+    #     if self._log_window.isVisible():
+    #         self._place_log_window()
 
     def closeEvent(self, event):
         """Stop acquisition and close hardware before the window is destroyed.
