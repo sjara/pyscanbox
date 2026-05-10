@@ -364,6 +364,9 @@ class AppController(QtCore.QObject):
         else:
             self._virtual_knobby_dialog = None
 
+        # Forward position updates to any plugin that overrides on_position_updated.
+        self.position_updated.connect(self._plugin_manager.on_position_updated)
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -1767,10 +1770,10 @@ class AppController(QtCore.QObject):
                 try:
                     steps = self._motor.get_position(motor_id)
                     if steps is not None:
-                        self._abs_positions[motor_id] = hw_knobby.steps_to_units(
-                            motor_id, steps
-                        )
-                        abs_changed = True
+                        new_pos = hw_knobby.steps_to_units(motor_id, steps)
+                        if new_pos != self._abs_positions[motor_id]:
+                            self._abs_positions[motor_id] = new_pos
+                            abs_changed = True
                 except Exception as exc:
                     logger.warning(
                         "get_position(motor=%d) failed: %s", motor_id, exc

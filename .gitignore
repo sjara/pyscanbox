@@ -82,3 +82,4 @@ pyscanbox/vendor/alazar/atsapi.py
 /tmp
 /devel
 /clear_numba_cache.py
+/examples
