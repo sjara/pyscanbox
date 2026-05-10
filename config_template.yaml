@@ -30,9 +30,12 @@ motor:
 
 # Knobby Position Display/Control (separate from motor controller)
 # MATLAB: sbconfig.tri_knob, sbconfig.tri_knob_ver
+# Set virtual: true to use the on-screen Virtual Knobby dialog instead of
+# (or alongside) the physical Knobby device. Useful in emulation mode on Linux.
 knobby:
   com_port: COM5              # Serial port or IP address for Knobby display
   version: 2                  # Knobby version (1=small screen, 2=large screen)
+  virtual: true               # Set to true to show the Virtual Knobby dialog
 
 
 # ============================================================================
