@@ -180,6 +180,17 @@ class AcquisitionPlugin(abc.ABC):
             n_frames: Actual number of frames acquired.
         """
 
+    def on_position_updated(self, pos: dict) -> None:
+        """React to a motor position update.
+
+        Called on the Qt main thread each time AppController emits a new
+        position (~every 50 ms, independent of acquisition state).
+
+        Args:
+            pos: Dict with keys 'X', 'Y', 'Z', 'A' (Knobby dpos, μm/°) and
+                'abs_X', 'abs_Y', 'abs_Z', 'abs_A' (absolute motor positions).
+        """
+
     def get_metadata(self) -> dict[str, Any]:
         """Return metadata to embed in the .mat sidecar file.
 
@@ -313,6 +324,20 @@ class PluginManager:
                 _logger.exception(
                     'Plugin %s: on_acquisition_stop failed', p.name
                 )
+
+    def on_position_updated(self, pos: dict) -> None:
+        """Dispatch on_position_updated to all active plugins that override it.
+
+        Args:
+            pos: Position dict from AppController.position_updated signal.
+        """
+        for p in self._active():
+            if type(p).on_position_updated is AcquisitionPlugin.on_position_updated:
+                continue
+            try:
+                p.on_position_updated(pos)
+            except Exception:
+                _logger.exception('Plugin %s: on_position_updated failed', p.name)
 
     def collect_metadata(self) -> dict:
         """Collect and merge metadata dicts from all active plugins.
