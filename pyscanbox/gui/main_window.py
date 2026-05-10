@@ -238,8 +238,7 @@ class MainWindow(QtWidgets.QMainWindow):
         disconnect_knobby_action.triggered.connect(self._on_disconnect_knobby)
         hardware_menu.addAction(disconnect_knobby_action)
 
-        # Virtual Knobby action (only shown when enabled in config).
-        self._virtual_knobby_action = None
+        # Virtual Knobby action (always present; auto-shown on startup when enabled).
         _knobby_cfg = {}
         if self.config is not None:
             raw = (
@@ -248,15 +247,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 else self.config
             )
             _knobby_cfg = raw.get('knobby', {})
-        if _knobby_cfg.get('virtual', False):
-            virtual_knobby_action = QtGui.QAction("&Virtual Knobby...", self)
-            virtual_knobby_action.setShortcut("Ctrl+K")
-            virtual_knobby_action.setShortcutContext(
-                QtCore.Qt.ShortcutContext.ApplicationShortcut
-            )
-            virtual_knobby_action.triggered.connect(self._on_show_virtual_knobby)
-            hardware_menu.addAction(virtual_knobby_action)
-            self._virtual_knobby_action = virtual_knobby_action
+        self._virtual_knobby_autoshow = _knobby_cfg.get('virtual', False)
+        virtual_knobby_action = QtGui.QAction("&Virtual Knobby...", self)
+        virtual_knobby_action.setShortcut("Ctrl+K")
+        virtual_knobby_action.setShortcutContext(
+            QtCore.Qt.ShortcutContext.ApplicationShortcut
+        )
+        virtual_knobby_action.triggered.connect(self._on_show_virtual_knobby)
+        hardware_menu.addAction(virtual_knobby_action)
+        self._virtual_knobby_action = virtual_knobby_action
 
         hardware_menu.addSeparator()
 
@@ -836,7 +835,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._ctrl.enable_plugin(pname)
 
         # Auto-show the Virtual Knobby dialog when virtual: true in config.
-        if self._virtual_knobby_action is not None:
+        if self._virtual_knobby_autoshow:
             self._on_show_virtual_knobby()
 
     def _connect_hardware(self):
@@ -1046,7 +1045,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if hasattr(self, '_scanner_gains_dialog') and self._scanner_gains_dialog is not None:
             self._scanner_gains_dialog.close()
             self._scanner_gains_dialog = None
-        if self._ctrl is not None and self._ctrl.virtual_knobby_dialog is not None:
+        if self._ctrl is not None:
             self._ctrl.virtual_knobby_dialog.close()
         if self._ctrl is not None and self._ctrl.is_open:
             # Zero PMTs and Pockels via hardware calls before closing.

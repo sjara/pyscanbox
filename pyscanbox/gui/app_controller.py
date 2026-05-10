@@ -347,22 +347,17 @@ class AppController(QtCore.QObject):
         obj_config = config.get('objective', {})
         self._objective_length_um = float(obj_config.get('length', 0.0))
 
-        # Virtual Knobby dialog (created only when enabled in config).
-        if config.get('knobby', {}).get('virtual', False):
-            self._virtual_knobby_dialog = (
-                virtual_knobby_dialog.VirtualKnobbyDialog()
-            )
-            self._virtual_knobby_dialog.move_requested.connect(
-                self._on_virtual_knobby_move
-            )
-            self._virtual_knobby_dialog.zero_requested.connect(
-                self._on_virtual_knobby_zero
-            )
-            self.position_updated.connect(
-                self._virtual_knobby_dialog.update_positions
-            )
-        else:
-            self._virtual_knobby_dialog = None
+        # Virtual Knobby dialog (always created; shown on startup when enabled).
+        self._virtual_knobby_dialog = virtual_knobby_dialog.VirtualKnobbyDialog()
+        self._virtual_knobby_dialog.move_requested.connect(
+            self._on_virtual_knobby_move
+        )
+        self._virtual_knobby_dialog.zero_requested.connect(
+            self._on_virtual_knobby_zero
+        )
+        self.position_updated.connect(
+            self._virtual_knobby_dialog.update_positions
+        )
 
         # Forward position updates to any plugin that overrides on_position_updated.
         self.position_updated.connect(self._plugin_manager.on_position_updated)
@@ -1572,7 +1567,7 @@ class AppController(QtCore.QObject):
     def virtual_knobby_dialog(
         self,
     ) -> 'virtual_knobby_dialog.VirtualKnobbyDialog | None':
-        """The VirtualKnobbyDialog instance, or None if not enabled."""
+        """The VirtualKnobbyDialog instance."""
         return self._virtual_knobby_dialog
 
     def move_by_steps(self, motor_id: int, delta_steps: int) -> None:
