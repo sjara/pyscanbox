@@ -238,6 +238,26 @@ class MainWindow(QtWidgets.QMainWindow):
         disconnect_knobby_action.triggered.connect(self._on_disconnect_knobby)
         hardware_menu.addAction(disconnect_knobby_action)
 
+        # Virtual Knobby action (only shown when enabled in config).
+        self._virtual_knobby_action = None
+        _knobby_cfg = {}
+        if self.config is not None:
+            raw = (
+                self.config.to_dict()
+                if hasattr(self.config, 'to_dict')
+                else self.config
+            )
+            _knobby_cfg = raw.get('knobby', {})
+        if _knobby_cfg.get('virtual', False):
+            virtual_knobby_action = QtGui.QAction("&Virtual Knobby...", self)
+            virtual_knobby_action.setShortcut("Ctrl+K")
+            virtual_knobby_action.setShortcutContext(
+                QtCore.Qt.ShortcutContext.ApplicationShortcut
+            )
+            virtual_knobby_action.triggered.connect(self._on_show_virtual_knobby)
+            hardware_menu.addAction(virtual_knobby_action)
+            self._virtual_knobby_action = virtual_knobby_action
+
         hardware_menu.addSeparator()
 
         connect_motor_action = QtGui.QAction("Connect &Motor", self)
@@ -814,6 +834,10 @@ class MainWindow(QtWidgets.QMainWindow):
         for pname, action in self._plugin_actions.items():
             if action.isChecked():
                 self._ctrl.enable_plugin(pname)
+
+        # Auto-show the Virtual Knobby dialog when virtual: true in config.
+        if self._virtual_knobby_action is not None:
+            self._on_show_virtual_knobby()
 
     def _connect_hardware(self):
         """Wire AppController signals to GUI widgets and vice versa."""
@@ -1773,6 +1797,20 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._ctrl is not None and self._ctrl._knobby.is_open:
             self._ctrl.close_knobby()
             self.statusBar.showMessage("Knobby disconnected.")
+
+    def _on_show_virtual_knobby(self):
+        """Toggle the Virtual Knobby dialog (show/hide)."""
+        if self._ctrl is None:
+            return
+        dlg = self._ctrl.virtual_knobby_dialog
+        if dlg is None:
+            return
+        if dlg.isVisible():
+            dlg.hide()
+        else:
+            dlg.show()
+            dlg.raise_()
+            dlg.activateWindow()
 
     def _on_connect_motor(self):
         """Open just the Trinamic motor controller."""

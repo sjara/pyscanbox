@@ -35,6 +35,7 @@ from pyscanbox.hardware import motor as hw_motor
 from pyscanbox.acquisition import scan as acq_scan
 from pyscanbox.acquisition import plugin as acq_plugin
 from pyscanbox.utils import coordinate_transform
+from pyscanbox.gui import virtual_knobby_dialog
 
 
 logger = logging.getLogger(__name__)
@@ -345,6 +346,23 @@ class AppController(QtCore.QObject):
         self._keep_tip_fixed = False
         obj_config = config.get('objective', {})
         self._objective_length_um = float(obj_config.get('length', 0.0))
+
+        # Virtual Knobby dialog (created only when enabled in config).
+        if config.get('knobby', {}).get('virtual', False):
+            self._virtual_knobby_dialog = (
+                virtual_knobby_dialog.VirtualKnobbyDialog()
+            )
+            self._virtual_knobby_dialog.move_requested.connect(
+                self._on_virtual_knobby_move
+            )
+            self._virtual_knobby_dialog.zero_requested.connect(
+                self._on_virtual_knobby_zero
+            )
+            self.position_updated.connect(
+                self._virtual_knobby_dialog.update_positions
+            )
+        else:
+            self._virtual_knobby_dialog = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -1542,6 +1560,77 @@ class AppController(QtCore.QObject):
         self._log_event('zero_angle(): A-axis motor → step 0')
         logger.debug("zero_angle: motor 3 commanded to step 0.")
         return success
+
+    # ------------------------------------------------------------------
+    # Virtual Knobby
+    # ------------------------------------------------------------------
+
+    @property
+    def virtual_knobby_dialog(
+        self,
+    ) -> 'virtual_knobby_dialog.VirtualKnobbyDialog | None':
+        """The VirtualKnobbyDialog instance, or None if not enabled."""
+        return self._virtual_knobby_dialog
+
+    def move_by_steps(self, motor_id: int, delta_steps: int) -> None:
+        """Move a motor by a relative number of steps.
+
+        Accumulates ``delta_steps`` into ``_desired_steps[motor_id]`` and
+        issues a :meth:`~pyscanbox.hardware.motor.TrinamicMotor.move_absolute`
+        command.  Also updates the Knobby relative-position tracker
+        (``_positions``) so the position display refreshes immediately.
+
+        This mirrors the Knobby polling path so that the Virtual Knobby
+        produces exactly the same effect as turning a physical encoder.
+
+        Args:
+            motor_id: Motor index 0=Z, 1=Y, 2=X, 3=A.
+            delta_steps: Signed step count.  Positive = forward.
+        """
+        if delta_steps == 0:
+            return
+
+        self._desired_steps[motor_id] += delta_steps
+        self._knobby_dpos_steps[motor_id] += delta_steps
+        self._positions[motor_id] = hw_knobby.steps_to_units(
+            motor_id, self._knobby_dpos_steps[motor_id]
+        )
+
+        if self._motor.is_open:
+            try:
+                self._motor.move_absolute(motor_id, self._desired_steps[motor_id])
+            except Exception as exc:
+                logger.warning(
+                    'move_by_steps: move_absolute(motor=%d, pos=%d) failed: %s',
+                    motor_id, self._desired_steps[motor_id], exc,
+                )
+        self._emit_positions()
+
+    def _on_virtual_knobby_move(self, motor_id: int, delta_steps: int) -> None:
+        """Slot: forward a Virtual Knobby move_requested signal.
+
+        Args:
+            motor_id: Motor index 0-3.
+            delta_steps: Signed step count from the dialog.
+        """
+        self.move_by_steps(motor_id, delta_steps)
+
+    def _on_virtual_knobby_zero(self, axes: str) -> None:
+        """Slot: handle a Virtual Knobby zero_requested signal.
+
+        Resets the Knobby relative-position tracking (``_positions`` and
+        ``_knobby_dpos_steps``) without moving the motors, mirroring the
+        physical zero-button behaviour.
+
+        Args:
+            axes: ``'xyz'`` to zero X/Y/Z, ``'xyza'`` to zero all axes.
+        """
+        axis_ids = (0, 1, 2, 3) if axes == 'xyza' else (0, 1, 2)
+        for motor_id in axis_ids:
+            self._knobby_dpos_steps[motor_id] = 0
+            self._positions[motor_id] = 0.0
+        self._emit_positions()
+        logger.debug('VirtualKnobby: zeroed axes=%s', axes)
 
     # ------------------------------------------------------------------
     # Position polling (internal)
