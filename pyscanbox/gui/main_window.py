@@ -251,6 +251,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if _knobby_cfg.get('virtual', False):
             virtual_knobby_action = QtGui.QAction("&Virtual Knobby...", self)
             virtual_knobby_action.setShortcut("Ctrl+K")
+            virtual_knobby_action.setShortcutContext(
+                QtCore.Qt.ShortcutContext.ApplicationShortcut
+            )
             virtual_knobby_action.triggered.connect(self._on_show_virtual_knobby)
             hardware_menu.addAction(virtual_knobby_action)
             self._virtual_knobby_action = virtual_knobby_action
