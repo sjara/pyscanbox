@@ -5,6 +5,14 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
+## v1.12.0.dev0 - May 9, 2026
+- **Enhancement: Virtual Knobby dialog**
+  - Floating on-screen dialog (`VirtualKnobbyDialog`) that emulates the physical Knobby rotary-encoder controller, usable in both emulation and hardware modes.
+  - Provides +/− buttons for X, Y, Z axes (Position group) and A axis (Rotation group), with Coarse/Fine/Superfine velocity modes.
+  - Normal and Rotated movement modes; Rotated mode projects Z/X moves onto world axes using the current A-axis angle.
+  - Zero XYZ and Zero XYZA buttons reset the Knobby relative-position origin without moving motors.
+  - Enabled via `knobby.virtual: true` in config; toggled with Ctrl+K (application-wide shortcut, works even when the dialog has focus).
+
 ## v1.11.0.dev0 - May 8, 2026
 - **Enhancement: Command log as independent window**
   - The command log is now a standalone `Tool` window (`LogWindow`) instead of a dock widget embedded at the bottom of the main window.
