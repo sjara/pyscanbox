@@ -1046,6 +1046,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if hasattr(self, '_scanner_gains_dialog') and self._scanner_gains_dialog is not None:
             self._scanner_gains_dialog.close()
             self._scanner_gains_dialog = None
+        if self._ctrl is not None and self._ctrl.virtual_knobby_dialog is not None:
+            self._ctrl.virtual_knobby_dialog.close()
         if self._ctrl is not None and self._ctrl.is_open:
             # Zero PMTs and Pockels via hardware calls before closing.
             # Setting the GUI sliders fires valueChanged, which calls the
