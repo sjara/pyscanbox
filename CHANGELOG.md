@@ -5,6 +5,11 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
+## v1.14.0.dev0 - May 10, 2026
+- **Enhancement: Virtual Knobby always available via menu**
+  - The Virtual Knobby dialog and its menu action (Hardware > Virtual Knobby..., Ctrl+K) are now always instantiated, regardless of the `knobby.virtual` config setting.
+  - `knobby.virtual: true` now only controls whether the dialog is shown automatically on startup (previously it also gated creation of the menu item entirely).
+
 ## v1.13.0.dev0 - May 10, 2026
 - **Feature: ZMQ position streaming**
   - Added `on_position_updated` hook to `AcquisitionPlugin` base class and `PluginManager`, enabling plugins to subscribe to motor position updates independently of acquisition.
