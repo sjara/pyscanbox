@@ -5,6 +5,13 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
+## v1.13.0.dev0 - May 10, 2026
+- **Feature: ZMQ position streaming**
+  - Added `on_position_updated` hook to `AcquisitionPlugin` base class and `PluginManager`, enabling plugins to subscribe to motor position updates independently of acquisition.
+  - Added `ZmqPositionStreamerPlugin` that publishes objective position over a ZMQ PUB socket (default port 5556) as JSON: world XYZ, angle, rotated-frame XYZ, and absolute motor positions.
+  - Position is streamed only when it actually changes (fixed spurious emissions from the abs-position poll when the motor is stationary).
+  - Renamed `ZmqStreamerPlugin` → `ZmqFrameStreamerPlugin` (module `zmq_streamer` → `zmq_frame_streamer`) to clearly distinguish frame streaming from position streaming.
+
 ## v1.12.0.dev0 - May 9, 2026
 - **Enhancement: Virtual Knobby dialog**
   - Floating on-screen dialog (`VirtualKnobbyDialog`) that emulates the physical Knobby rotary-encoder controller, usable in both emulation and hardware modes.
