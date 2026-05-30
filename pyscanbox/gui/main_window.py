@@ -303,7 +303,7 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             plugin_cfg = raw.get('plugins', {})
         for pname, pcfg in plugin_cfg.items():
-            label = pname.replace('_', ' ').title()
+            label = pcfg.get('display_name') or pname.replace('_', ' ').title()
             action = QtGui.QAction(label, self)
             action.setCheckable(True)
             action.setChecked(bool(pcfg.get('enabled', False)))

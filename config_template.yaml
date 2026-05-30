@@ -270,6 +270,7 @@ plugins:
   # ZeroMQ Frame Streamer: Broadcasts imaging frames to external applications.
   zmq_frame_streamer:
     enabled: false              # Set true to start publishing at startup
+    display_name: Frame Streamer
     module: pyscanbox.plugins.zmq_frame_streamer
     class: ZmqFrameStreamerPlugin
     host: 127.0.0.1             # IP address to bind to
@@ -278,6 +279,7 @@ plugins:
   # ZeroMQ Position Streamer: Broadcasts objective position to external applications.
   zmq_position_streamer:
     enabled: false              # Set true to start publishing at startup
+    display_name: Position Streamer
     module: pyscanbox.plugins.zmq_position_streamer
     class: ZmqPositionStreamerPlugin
     host: 127.0.0.1             # IP address to bind to
@@ -285,6 +287,7 @@ plugins:
 
   remote_control:
     enabled: false              # Set true to accept remote commands at startup
+    display_name: Remote Control
     module: pyscanbox.plugins.remote_control
     class: RemoteControlPlugin
     host: 127.0.0.1             # IP address to bind to (use 0.0.0.0 for network access)
