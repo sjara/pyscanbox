@@ -9,7 +9,7 @@ from pyscanbox.acquisition.plugin import AcquisitionPlugin
 
 logger = logging.getLogger(__name__)
 
-class ZmqFrameStreamerPlugin(AcquisitionPlugin):
+class FrameStreamerPlugin(AcquisitionPlugin):
     """Streams real-time imaging data over a ZeroMQ PUB socket.
 
     Follows the publisher/subscriber pattern to allow external applications
@@ -17,7 +17,7 @@ class ZmqFrameStreamerPlugin(AcquisitionPlugin):
     Multi-part message: JSON header + numpy array.
     """
 
-    name = 'zmq_frame_streamer'
+    name = 'frame_streamer'
 
     def __init__(self, config: dict):
         self._address = f"tcp://{config.get('host', '127.0.0.1')}:{config.get('port', 5555)}"
@@ -30,7 +30,7 @@ class ZmqFrameStreamerPlugin(AcquisitionPlugin):
         # Set High Water Mark to prevent memory bloat if subscribers are slow
         self._socket.set(zmq.SNDHWM, 2)
         self._socket.bind(self._address)
-        logger.info("ZmqFrameStreamerPlugin streaming on %s", self._address)
+        logger.info("FrameStreamerPlugin streaming on %s", self._address)
 
     def close(self) -> None:
         if self._socket:
@@ -39,7 +39,7 @@ class ZmqFrameStreamerPlugin(AcquisitionPlugin):
         if self._context:
             self._context.term()
             self._context = None
-        logger.info("ZmqFrameStreamerPlugin closed")
+        logger.info("FrameStreamerPlugin closed")
 
     def on_acquisition_start(self, n_frames: int, frame_rate: float, output_path: str = '') -> None:
         pass
@@ -60,7 +60,7 @@ class ZmqFrameStreamerPlugin(AcquisitionPlugin):
             self._socket.send(frame_data, copy=False)
         except Exception as e:
             # Swallow exceptions to not crash the imaging loop
-            logger.error("ZmqFrameStreamerPlugin send error: %s", e)
+            logger.error("FrameStreamerPlugin send error: %s", e)
 
     def on_acquisition_stop(self, n_frames: int) -> None:
         pass

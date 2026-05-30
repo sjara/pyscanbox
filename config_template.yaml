@@ -268,26 +268,23 @@ plugins:
     # emulation: false          # Override global emulation for this device only
 
   # ZeroMQ Frame Streamer: Broadcasts imaging frames to external applications.
-  zmq_frame_streamer:
+  frame_streamer:
     enabled: false              # Set true to start publishing at startup
-    display_name: Frame Streamer
-    module: pyscanbox.plugins.zmq_frame_streamer
-    class: ZmqFrameStreamerPlugin
+    module: pyscanbox.plugins.frame_streamer
+    class: FrameStreamerPlugin
     host: 127.0.0.1             # IP address to bind to
     port: 5555                  # Port to bind for the PUB socket
 
   # ZeroMQ Position Streamer: Broadcasts objective position to external applications.
-  zmq_position_streamer:
+  position_streamer:
     enabled: false              # Set true to start publishing at startup
-    display_name: Position Streamer
-    module: pyscanbox.plugins.zmq_position_streamer
-    class: ZmqPositionStreamerPlugin
+    module: pyscanbox.plugins.position_streamer
+    class: PositionStreamerPlugin
     host: 127.0.0.1             # IP address to bind to
     port: 5556                  # Port to bind for the PUB socket
 
   remote_control:
     enabled: false              # Set true to accept remote commands at startup
-    display_name: Remote Control
     module: pyscanbox.plugins.remote_control
     class: RemoteControlPlugin
     host: 127.0.0.1             # IP address to bind to (use 0.0.0.0 for network access)
