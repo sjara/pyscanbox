@@ -238,9 +238,27 @@ class RemoteControl:
         self._socket.set(zmq.RCVTIMEO, timeout_ms)
         self._socket.connect(self._address)
 
+    def _reconnect(self) -> None:
+        """Close and reopen the REQ socket.
+
+        A REQ socket that times out on recv is stuck in a broken state and
+        must be replaced before the next send.
+        """
+        self._socket.close()
+        self._socket = self._context.socket(zmq.REQ)
+        self._socket.set(zmq.RCVTIMEO, self._timeout_ms)
+        self._socket.connect(self._address)
+
     def _send(self, msg: dict) -> dict:
-        self._socket.send_json(msg)
-        return self._socket.recv_json()
+        try:
+            self._socket.send_json(msg)
+            return self._socket.recv_json()
+        except zmq.Again:
+            self._reconnect()
+            raise ConnectionError(
+                f"pyscanbox did not respond at {self._address}. "
+                "Check that pyscanbox is running and the remote_control plugin is enabled."
+            )
 
     def focus(self) -> dict:
         """Start focus mode."""
