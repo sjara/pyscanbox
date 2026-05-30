@@ -841,10 +841,21 @@ class AppController(QtCore.QObject):
             module = importlib.import_module(module_name)
             plugin_class = getattr(module, class_name)
             
-            # Special case for quadrature since it requires a QuadratureEncoder object
+            # Special cases for plugins that need controller callables
             if name == 'quadrature':
                 encoder = module.QuadratureEncoder(plugin_cfg)
                 return plugin_class(encoder)
+            elif name == 'remote_control':
+                return plugin_class(
+                    plugin_cfg,
+                    start_focus=self.start_focus,
+                    start_grab=lambda n: self.start_grab(
+                        frames=n if n is not None else getattr(self, '_remote_n_frames', None)
+                    ),
+                    stop_acquisition=self.stop_acquisition,
+                    get_state=self._get_acquisition_state,
+                    set_n_frames=self._set_remote_n_frames,
+                )
             else:
                 return plugin_class(plugin_cfg)
                 
@@ -858,6 +869,8 @@ class AppController(QtCore.QObject):
         """Slot called when PluginConnectThread.succeeded fires."""
         self._active_plugins[name] = plugin
         self._plugin_manager.register(plugin)
+        if hasattr(plugin, 'start_dispatch_timer'):
+            plugin.start_dispatch_timer()
         self.plugin_status_changed.emit(name, 'connected')
         logger.debug("AppController: plugin '%s' connected.", name)
         self._log_event(f"Plugin '{name}' connected")
@@ -1892,6 +1905,18 @@ class AppController(QtCore.QObject):
             self._scanner_thread is not None
             and self._scanner_thread.isRunning()
         )
+
+    def _get_acquisition_state(self) -> str:
+        """Return current state as a string for the remote control plugin."""
+        if not self.is_acquiring:
+            return 'idle'
+        if self._scanner_thread._focus_mode:
+            return 'focusing'
+        return 'grabbing'
+
+    def _set_remote_n_frames(self, n: int) -> None:
+        """Set default frame count used by remote grab commands."""
+        self._remote_n_frames = n
 
     def _start_scanner(self, focus_mode: bool, output_path,
                         frames_override: int = None,

@@ -283,6 +283,13 @@ plugins:
     host: 127.0.0.1             # IP address to bind to
     port: 5556                  # Port to bind for the PUB socket
 
+  remote_control:
+    enabled: false              # Set true to accept remote commands at startup
+    module: pyscanbox.plugins.remote_control
+    class: RemoteControlPlugin
+    host: 127.0.0.1             # IP address to bind to (use 0.0.0.0 for network access)
+    port: 5558                  # Port for the REP socket
+
 
 # ============================================================================
 # Terminal Output Settings
