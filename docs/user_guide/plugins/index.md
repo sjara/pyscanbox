@@ -16,15 +16,27 @@ plugins:
     port: 5555
 ```
 
-You can also enable or disable any plugin at runtime via the **Plugins** menu — no restart required. Note that connection parameters (host, port) must be set in the config file before pyscanbox starts; they cannot be changed from the menu.
+You can also enable or disable any plugin at runtime via the **Plugins** menu — no restart required. Note that connection parameters (host, port, serial port) must be set in the config file before pyscanbox starts; they cannot be changed from the menu.
 
 ## Available Plugins
+
+### ZeroMQ plugins
+
+These plugins communicate with external processes over the network using [ZeroMQ](https://zeromq.org/).
 
 | Plugin | Config key | Description |
 |---|---|---|
 | [Frame Streamer](frame_streamer.md) | `frame_streamer` | Streams live imaging frames over ZeroMQ |
 | [Position Streamer](position_streamer.md) | `position_streamer` | Streams objective position over ZeroMQ |
 | [Remote Control](remote_control.md) | `remote_control` | Accepts acquisition commands from external scripts |
+
+### Hardware plugins
+
+These plugins interface with physical hardware connected to the PC.
+
+| Plugin | Config key | Description |
+|---|---|---|
+| [Quadrature Encoder](quadrature.md) | `quadrature` | Records running wheel / platform rotation via Arduino serial |
 
 ---
 

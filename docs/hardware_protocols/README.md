@@ -10,6 +10,7 @@ This directory contains detailed protocol specifications for each hardware devic
 - **[Trinamic Motor](trinamic_motor.md)** - TMCL protocol for focus motor positioning
 - **[Knobby Controller](knobby.md)** - Physical knob interface and position reporting
 - **[AlazarTech Digitizer](alazar_digitizer.md)** - ATS9440 high-speed PMT data acquisition
+- **[Quadrature Encoder](quadrature_encoder.md)** - Arduino-based rotary encoder reader for running wheel / rotating platform
 
 ## Quick Reference
 
@@ -21,6 +22,8 @@ This directory contains detailed protocol specifications for each hardware devic
 | Trinamic Motor | 57,600 | 9-byte TMCL | Serial |
 | Knobby Controller | 57,600 | 5-byte/9-byte packets | Serial |
 | AlazarTech Digitizer | N/A | C API | PCIe |
+| Quadrature Encoder (DUE) | 115,200 | Binary command/response | Serial |
+| Quadrature Encoder (Mega) | 1,000,000 | Binary command/response | Serial |
 
 ### Example Implementations
 

@@ -21,4 +21,5 @@ Note that you can run **pyscanbox** in emulation mode even if you don't have the
     - [Frame Streamer](plugins/frame_streamer.md)
     - [Position Streamer](plugins/position_streamer.md)
     - [Remote Control](plugins/remote_control.md)
+    - [Quadrature Encoder](plugins/quadrature.md)
 
