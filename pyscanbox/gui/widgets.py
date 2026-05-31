@@ -952,7 +952,7 @@ class PMTControlGroup(QtWidgets.QGroupBox):
     - PMT1 gain slider
     """
 
-    _DEFAULT_PRESETS = [0, 50, 70]
+    _DEFAULT_PRESETS = [0, 70]
 
     def __init__(self, config=None):
         """Initialize the PMT control group.
@@ -960,14 +960,14 @@ class PMTControlGroup(QtWidgets.QGroupBox):
         Args:
             config: Optional AppConfig or plain dict.  When provided,
                 ``pmt.gain_presets`` is used to set the quick-access button
-                values.  Defaults to ``[0, 50, 70]``.
+                values.  Defaults to ``[0, 70]``.
         """
         super().__init__("PMT Control")
         config_dict = (
             config.to_dict() if hasattr(config, 'to_dict') else (config or {})
         )
         presets = config_dict.get('pmt', {}).get('gain_presets', self._DEFAULT_PRESETS)
-        self._presets = list(presets)[:3]  # use at most three preset values
+        self._presets = list(presets)
         self._init_ui()
         
     def _init_ui(self):
@@ -980,18 +980,13 @@ class PMTControlGroup(QtWidgets.QGroupBox):
         self.pmt0_label = QtWidgets.QLabel("PMT0 Gain:  0%")
         pmt0_top_layout.addWidget(self.pmt0_label)
         pmt0_top_layout.addStretch()
-        self.pmt0_preset0_btn = QtWidgets.QPushButton(f"{self._presets[0]}%")
-        self.pmt0_preset0_btn.setMaximumWidth(42)
-        self.pmt0_preset0_btn.clicked.connect(lambda: self.pmt0_slider.setValue(self._presets[0]))
-        pmt0_top_layout.addWidget(self.pmt0_preset0_btn)
-        self.pmt0_preset1_btn = QtWidgets.QPushButton(f"{self._presets[1]}%")
-        self.pmt0_preset1_btn.setMaximumWidth(42)
-        self.pmt0_preset1_btn.clicked.connect(lambda: self.pmt0_slider.setValue(self._presets[1]))
-        pmt0_top_layout.addWidget(self.pmt0_preset1_btn)
-        self.pmt0_preset2_btn = QtWidgets.QPushButton(f"{self._presets[2]}%")
-        self.pmt0_preset2_btn.setMaximumWidth(42)
-        self.pmt0_preset2_btn.clicked.connect(lambda: self.pmt0_slider.setValue(self._presets[2]))
-        pmt0_top_layout.addWidget(self.pmt0_preset2_btn)
+        self.pmt0_preset_btns = []
+        for val in self._presets:
+            btn = QtWidgets.QPushButton(f"{val}%")
+            btn.setMaximumWidth(42)
+            btn.clicked.connect(lambda checked, v=val: self.pmt0_slider.setValue(v))
+            pmt0_top_layout.addWidget(btn)
+            self.pmt0_preset_btns.append(btn)
         pmt0_layout.addLayout(pmt0_top_layout)
 
         self.pmt0_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
@@ -1003,27 +998,22 @@ class PMTControlGroup(QtWidgets.QGroupBox):
         self.pmt0_slider.valueChanged.connect(
             lambda v: self.pmt0_label.setText(f"PMT0 Gain:  {v}%")
         )
-        
+
         layout.addLayout(pmt0_layout)
-        
+
         # PMT1 gain
         pmt1_layout = QtWidgets.QVBoxLayout()
         pmt1_top_layout = QtWidgets.QHBoxLayout()
         self.pmt1_label = QtWidgets.QLabel("PMT1 Gain:  0%")
         pmt1_top_layout.addWidget(self.pmt1_label)
         pmt1_top_layout.addStretch()
-        self.pmt1_preset0_btn = QtWidgets.QPushButton(f"{self._presets[0]}%")
-        self.pmt1_preset0_btn.setMaximumWidth(42)
-        self.pmt1_preset0_btn.clicked.connect(lambda: self.pmt1_slider.setValue(self._presets[0]))
-        pmt1_top_layout.addWidget(self.pmt1_preset0_btn)
-        self.pmt1_preset1_btn = QtWidgets.QPushButton(f"{self._presets[1]}%")
-        self.pmt1_preset1_btn.setMaximumWidth(42)
-        self.pmt1_preset1_btn.clicked.connect(lambda: self.pmt1_slider.setValue(self._presets[1]))
-        pmt1_top_layout.addWidget(self.pmt1_preset1_btn)
-        self.pmt1_preset2_btn = QtWidgets.QPushButton(f"{self._presets[2]}%")
-        self.pmt1_preset2_btn.setMaximumWidth(42)
-        self.pmt1_preset2_btn.clicked.connect(lambda: self.pmt1_slider.setValue(self._presets[2]))
-        pmt1_top_layout.addWidget(self.pmt1_preset2_btn)
+        self.pmt1_preset_btns = []
+        for val in self._presets:
+            btn = QtWidgets.QPushButton(f"{val}%")
+            btn.setMaximumWidth(42)
+            btn.clicked.connect(lambda checked, v=val: self.pmt1_slider.setValue(v))
+            pmt1_top_layout.addWidget(btn)
+            self.pmt1_preset_btns.append(btn)
         pmt1_layout.addLayout(pmt1_top_layout)
 
         self.pmt1_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
