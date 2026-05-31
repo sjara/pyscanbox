@@ -259,6 +259,12 @@ class AppController(QtCore.QObject):
     #:   'disconnected'— plugin disabled and close() called
     #:   'error: ...'  — open() raised an exception
     plugin_status_changed = QtCore.pyqtSignal(str, str)
+    #: Emitted when a scanner thread starts.
+    #: Carries (focus_mode, output_path): focus_mode is True for focus mode,
+    #: False for grab; output_path is empty for focus mode.
+    acquisition_started = QtCore.pyqtSignal(bool, str)
+    #: Emitted when the remote control plugin changes the default frame count.
+    n_frames_changed = QtCore.pyqtSignal(int)
 
     def __init__(self, config: dict, config_path: str | None = None, parent=None):
         """Initialize the application controller.
@@ -1917,6 +1923,7 @@ class AppController(QtCore.QObject):
     def _set_remote_n_frames(self, n: int) -> None:
         """Set default frame count used by remote grab commands."""
         self._remote_n_frames = n
+        self.n_frames_changed.emit(n)
 
     def _start_scanner(self, focus_mode: bool, output_path,
                         frames_override: int = None,
@@ -1952,6 +1959,7 @@ class AppController(QtCore.QObject):
         )
         self._scanner_thread.acquisition_error.connect(self.hardware_error)
         self._scanner_thread.start()
+        self.acquisition_started.emit(focus_mode, output_path or '')
         # Apply the current Pockels/PMT values to the mock Alazar once the
         # thread has had time to initialise its alazar object (~100 ms).
         QtCore.QTimer.singleShot(150, self._update_mock_signal_scale)

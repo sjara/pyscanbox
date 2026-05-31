@@ -954,6 +954,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._right_panel.histogram.update_frame
         )
         self._ctrl.acquisition_finished.connect(self._on_acquisition_finished)
+        self._ctrl.acquisition_started.connect(self._on_acquisition_started)
+        self._ctrl.n_frames_changed.connect(self._on_n_frames_changed)
         self._ctrl.hardware_error.connect(self._on_hardware_error)
 
         # Command log: wire both the typed command signal and hardware errors.
@@ -1492,12 +1494,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 acq.focus_button.setChecked(False)
                 acq.focus_button.setText("Focus")
                 self.statusBar.showMessage(str(exc))
-                return
-            acq.grab_button.setEnabled(False)
-            self._left_panel.scanner_group.scan_mode_combobox.setEnabled(False)
-            self._acq_start_time = time.monotonic()
-            self._elapsed_timer.start()
-            self.statusBar.showMessage("Focus mode active")
         else:
             self._ctrl.stop_acquisition()
 
@@ -1595,12 +1591,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 acq.grab_button.setText("Grab")
                 self._grab_active = False
                 self.statusBar.showMessage(str(exc))
-                return
-            acq.focus_button.setEnabled(False)
-            self._left_panel.scanner_group.scan_mode_combobox.setEnabled(False)
-            self._acq_start_time = time.monotonic()
-            self._elapsed_timer.start()
-            self.statusBar.showMessage(f"Grabbing: {output_path}")
         else:
             self._ctrl.stop_acquisition()
 
@@ -1672,6 +1662,35 @@ class MainWindow(QtWidgets.QMainWindow):
             count: Cumulative number of frames acquired.
         """
         self._left_panel.acquisition_group.frames_label.setText(str(count))
+
+    def _on_acquisition_started(self, focus_mode: bool, output_path: str) -> None:
+        """Update controls when a scanner thread starts.
+
+        Called for both user-initiated and remote-control-initiated acquisitions.
+        """
+        acq = self._left_panel.acquisition_group
+        if focus_mode:
+            self._grab_active = False
+            acq.focus_button.setChecked(True)
+            acq.grab_button.setEnabled(False)
+            status = "Focus mode active"
+        else:
+            self._grab_active = True
+            acq.grab_button.setChecked(True)
+            acq.grab_button.setText("Abort")
+            acq.focus_button.setEnabled(False)
+            status = f"Grabbing: {output_path}" if output_path else "Grabbing"
+        self._left_panel.scanner_group.scan_mode_combobox.setEnabled(False)
+        self._acq_start_time = time.monotonic()
+        self._elapsed_timer.start()
+        self.statusBar.showMessage(status)
+
+    def _on_n_frames_changed(self, n: int) -> None:
+        """Update the frames spinbox when the remote control sets a new frame count."""
+        spinbox = self._left_panel.scanner_group.total_frames_spinbox
+        spinbox.blockSignals(True)
+        spinbox.setValue(n)
+        spinbox.blockSignals(False)
 
     def _on_acquisition_finished(self):
         """Reset acquisition controls when the scanner thread exits."""
