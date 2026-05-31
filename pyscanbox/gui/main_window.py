@@ -956,6 +956,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._ctrl.acquisition_finished.connect(self._on_acquisition_finished)
         self._ctrl.acquisition_started.connect(self._on_acquisition_started)
         self._ctrl.n_frames_changed.connect(self._on_n_frames_changed)
+        self._ctrl.file_storage_changed.connect(self._on_file_storage_changed)
         self._ctrl.hardware_error.connect(self._on_hardware_error)
 
         # Command log: wire both the typed command signal and hardware errors.
@@ -1691,6 +1692,18 @@ class MainWindow(QtWidgets.QMainWindow):
         spinbox.blockSignals(True)
         spinbox.setValue(n)
         spinbox.blockSignals(False)
+
+    def _on_file_storage_changed(self, fields: dict) -> None:
+        """Update file storage widgets from a remote set_file_storage command."""
+        fg = self._left_panel.file_group
+        if 'directory' in fields:
+            fg.directory_edit.setText(fields['directory'])
+        if 'subject' in fields:
+            fg.subject_edit.setText(fields['subject'])
+        if 'date' in fields:
+            fg.date_edit.setText(fields['date'])
+        if 'session' in fields:
+            fg.session_edit.setText(fields['session'])
 
     def _on_acquisition_finished(self):
         """Reset acquisition controls when the scanner thread exits."""

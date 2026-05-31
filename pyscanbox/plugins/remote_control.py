@@ -13,7 +13,8 @@ Wire protocol (REQ/REP, JSON):
     {"cmd": "grab", "n_frames": 500}         → {"ok": true}
     {"cmd": "stop"}                          → {"ok": true}
     {"cmd": "status"}                        → {"ok": true, "state": "idle"|"focusing"|"grabbing"}
-    {"cmd": "set_n_frames", "n_frames": 500} → {"ok": true}
+    {"cmd": "set_n_frames", "n_frames": 500}                              → {"ok": true}
+    {"cmd": "set_file_storage", "subject": "m01", "date": "...", ...}    → {"ok": true}
 
 All error replies: {"ok": false, "error": "<message>"}
 """
@@ -63,6 +64,7 @@ class RemoteControlPlugin(AcquisitionPlugin):
         stop_acquisition: Callable[[], None],
         get_state: Callable[[], str],
         set_n_frames: Callable[[int], None],
+        set_file_storage: Callable[[dict], None],
     ) -> None:
         self._address = (
             f"tcp://{config.get('host', DEFAULT_HOST)}:{config.get('port', DEFAULT_PORT)}"
@@ -72,6 +74,7 @@ class RemoteControlPlugin(AcquisitionPlugin):
         self._stop_acquisition = stop_acquisition
         self._get_state = get_state
         self._set_n_frames = set_n_frames
+        self._set_file_storage = set_file_storage
 
         self._context: zmq.Context | None = None
         self._socket: zmq.Socket | None = None
@@ -200,6 +203,12 @@ class RemoteControlPlugin(AcquisitionPlugin):
                 if n is None:
                     return {'ok': False, 'error': 'n_frames required'}
                 self._set_n_frames(int(n))
+            elif cmd == 'set_file_storage':
+                fields = {k: msg[k] for k in ('directory', 'subject', 'date', 'session')
+                          if k in msg}
+                if not fields:
+                    return {'ok': False, 'error': 'set_file_storage requires at least one field'}
+                self._set_file_storage(fields)
             else:
                 return {'ok': False, 'error': f'unknown command: {cmd!r}'}
         except Exception as exc:
@@ -287,6 +296,30 @@ class RemoteControl:
     def set_n_frames(self, n_frames: int) -> dict:
         """Set the default frame count used by subsequent grab() calls."""
         return self._send({'cmd': 'set_n_frames', 'n_frames': n_frames})
+
+    def set_file_storage(
+        self,
+        subject: str | None = None,
+        date: str | None = None,
+        session: str | None = None,
+        directory: str | None = None,
+    ) -> dict:
+        """Set one or more file storage fields in the GUI.
+
+        Args:
+            subject: Subject ID string.
+            date: Date string (e.g. '20260530').
+            session: Session ID string (e.g. '003').
+            directory: Output directory path.
+
+        At least one argument must be provided.
+        """
+        msg: dict = {'cmd': 'set_file_storage'}
+        for key, val in [('subject', subject), ('date', date),
+                         ('session', session), ('directory', directory)]:
+            if val is not None:
+                msg[key] = str(val)
+        return self._send(msg)
 
     def close(self) -> None:
         """Close the ZMQ socket and context."""

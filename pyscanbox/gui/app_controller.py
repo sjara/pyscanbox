@@ -265,6 +265,9 @@ class AppController(QtCore.QObject):
     acquisition_started = QtCore.pyqtSignal(bool, str)
     #: Emitted when the remote control plugin changes the default frame count.
     n_frames_changed = QtCore.pyqtSignal(int)
+    #: Emitted when the remote control sets file storage fields.
+    #: Dict may contain any subset of keys: 'directory', 'subject', 'date', 'session'.
+    file_storage_changed = QtCore.pyqtSignal(dict)
 
     def __init__(self, config: dict, config_path: str | None = None, parent=None):
         """Initialize the application controller.
@@ -861,6 +864,7 @@ class AppController(QtCore.QObject):
                     stop_acquisition=self.stop_acquisition,
                     get_state=self._get_acquisition_state,
                     set_n_frames=self._set_remote_n_frames,
+                    set_file_storage=self._set_remote_file_storage,
                 )
             else:
                 return plugin_class(plugin_cfg)
@@ -1924,6 +1928,14 @@ class AppController(QtCore.QObject):
         """Set default frame count used by remote grab commands."""
         self._remote_n_frames = n
         self.n_frames_changed.emit(n)
+
+    def _set_remote_file_storage(self, fields: dict) -> None:
+        """Set file storage fields from a remote command."""
+        valid = {'directory', 'subject', 'date', 'session'}
+        unknown = set(fields) - valid
+        if unknown:
+            raise ValueError(f"Unknown file storage field(s): {unknown}")
+        self.file_storage_changed.emit(fields)
 
     def _start_scanner(self, focus_mode: bool, output_path,
                         frames_override: int = None,

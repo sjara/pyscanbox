@@ -18,7 +18,7 @@ from pyscanbox.plugins.remote_control import RemoteControl, RemoteControlPlugin
 TEST_PORT = 15558  # non-default port to avoid clashing with a running instance
 
 
-def _make_plugin(state_ref, start_focus, start_grab, stop_acq, set_n):
+def _make_plugin(state_ref, start_focus, start_grab, stop_acq, set_n, set_fs=None):
     return RemoteControlPlugin(
         config={'host': '127.0.0.1', 'port': TEST_PORT},
         start_focus=start_focus,
@@ -26,6 +26,7 @@ def _make_plugin(state_ref, start_focus, start_grab, stop_acq, set_n):
         stop_acquisition=stop_acq,
         get_state=lambda: state_ref[0],
         set_n_frames=set_n,
+        set_file_storage=set_fs or (lambda fields: None),
     )
 
 
@@ -35,7 +36,7 @@ def app():
 
     The QTimer is not started here — tests call plugin._dispatch() manually.
     """
-    calls = {'focus': 0, 'grab': [], 'stop': 0, 'n_frames': []}
+    calls = {'focus': 0, 'grab': [], 'stop': 0, 'n_frames': [], 'file_storage': []}
     state = ['idle']
 
     plugin = _make_plugin(
@@ -44,6 +45,7 @@ def app():
         start_grab=lambda n: calls['grab'].append(n),
         stop_acq=lambda: calls.__setitem__('stop', calls['stop'] + 1),
         set_n=lambda n: calls['n_frames'].append(n),
+        set_fs=lambda fields: calls['file_storage'].append(fields),
     )
     # Open without creating a QTimer so no Qt event loop is required.
     plugin._open_no_timer()
@@ -128,6 +130,20 @@ def test_status_focusing(app):
     state[0] = 'focusing'
     reply = _send_and_dispatch(plugin, {'cmd': 'status'})
     assert reply == {'ok': True, 'state': 'focusing'}
+
+
+def test_set_file_storage(app):
+    plugin, calls, state = app
+    reply = _send_and_dispatch(plugin, {'cmd': 'set_file_storage', 'subject': 'mouse01', 'session': '003'})
+    assert reply['ok']
+    assert calls['file_storage'] == [{'subject': 'mouse01', 'session': '003'}]
+
+
+def test_set_file_storage_empty(app):
+    plugin, calls, state = app
+    reply = _send_and_dispatch(plugin, {'cmd': 'set_file_storage'})
+    assert not reply['ok']
+    assert 'at least one field' in reply['error']
 
 
 def test_client(app):
