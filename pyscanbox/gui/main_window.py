@@ -843,6 +843,13 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._ctrl is None:
             return
 
+        # Provide the remote control plugin with a way to read the current
+        # output path from the file storage widgets.
+        fg = self._left_panel.file_group
+        self._ctrl._get_output_path = lambda: os.path.join(
+            fg.directory_edit.text(), fg.get_output_basename()
+        )
+
         acq = self._left_panel.acquisition_group
         laser = self._left_panel.laser_group
 

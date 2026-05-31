@@ -332,6 +332,12 @@ class AppController(QtCore.QObject):
 
         # Most-recently sent hardware values for Pockels and PMT gains.
         # Used in emulation mode to scale mock signal brightness in real time.
+        # Default frame count set by the remote control plugin.
+        self._remote_n_frames: int | None = None
+        # Callable set by MainWindow that returns the current output file path
+        # built from the file storage widgets.  Used by the remote grab command.
+        self._get_output_path = None
+
         self._pockels_hw: int = 0
         self._pmt_hw: list = [0, 0]
 
@@ -859,7 +865,10 @@ class AppController(QtCore.QObject):
                     plugin_cfg,
                     start_focus=self.start_focus,
                     start_grab=lambda n: self.start_grab(
-                        frames=n if n is not None else getattr(self, '_remote_n_frames', None)
+                        output_path=(
+                            self._get_output_path() if self._get_output_path else None
+                        ),
+                        frames=n if n is not None else self._remote_n_frames,
                     ),
                     stop_acquisition=self.stop_acquisition,
                     get_state=self._get_acquisition_state,
