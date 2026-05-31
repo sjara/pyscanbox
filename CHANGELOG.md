@@ -5,6 +5,23 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
+## v1.15.0.dev0 - May 31, 2026
+- **Feature: Remote Control plugin**
+  - Added `RemoteControlPlugin` (ZeroMQ REQ/REP, default port 5558) accepting JSON commands: `focus`, `grab`, `stop`, `status`, `set_n_frames`, `set_file_storage`.
+  - Added `RemoteControl` Python client class in the same module for driving the plugin from external scripts or IPython.
+  - GUI updates (button states, status bar, elapsed timer, frames spinbox, file storage fields) are applied identically whether the command comes from the GUI or from a remote client.
+- **Enhancement: ZMQ plugin rename**
+  - Renamed `ZmqFrameStreamerPlugin` → `FrameStreamerPlugin` (module `zmq_frame_streamer` → `frame_streamer`).
+  - Renamed `ZmqPositionStreamerPlugin` → `PositionStreamerPlugin` (module `zmq_position_streamer` → `position_streamer`).
+  - Config keys updated accordingly (`zmq_frame_streamer` → `frame_streamer`, `zmq_position_streamer` → `position_streamer`).
+- **Feature: Quadrature Encoder plugin**
+  - Added `QuadraturePlugin` recording one int32 encoder count per frame using the non-blocking poll pattern (matches original Scanbox behaviour).
+  - Saves `<basename>_quadrature.npy` alongside the `.sbx` file; calibration metadata written to the `.mat` sidecar.
+- **Documentation**
+  - Added user guide for all four plugins (`docs/user_guide/plugins/`), including configuration, usage examples, and performance impact sections.
+  - Added quadrature encoder protocol reference (`docs/hardware_protocols/quadrature_encoder.md`) with Arduino firmware installation instructions.
+  - Added advanced plugin performance reference (`docs/advanced/plugin_performance.md`) documenting acquisition thread overhead and guidelines for plugin authors.
+
 ## v1.14.0.dev0 - May 10, 2026
 - **Enhancement: Virtual Knobby always available via menu**
   - The Virtual Knobby dialog and its menu action (Hardware > Virtual Knobby..., Ctrl+K) are now always instantiated, regardless of the `knobby.virtual` config setting.
