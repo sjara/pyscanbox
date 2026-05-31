@@ -17,4 +17,9 @@ Note that you can run **pyscanbox** in emulation mode even if you don't have the
 7. [Volumetric imaging/Z-stacks](volumetric_imaging.md)
 8. [Hardware Calibration](calibration.md)
 9. [File Formats (.sbx / .mat)](file_formats.md)
+10. [Plugins](plugins/index.md)
+    - [Frame Streamer](plugins/frame_streamer.md)
+    - [Position Streamer](plugins/position_streamer.md)
+    - [Remote Control](plugins/remote_control.md)
+    - [Quadrature Encoder](plugins/quadrature.md)
 

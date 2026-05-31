@@ -259,6 +259,15 @@ class AppController(QtCore.QObject):
     #:   'disconnected'— plugin disabled and close() called
     #:   'error: ...'  — open() raised an exception
     plugin_status_changed = QtCore.pyqtSignal(str, str)
+    #: Emitted when a scanner thread starts.
+    #: Carries (focus_mode, output_path): focus_mode is True for focus mode,
+    #: False for grab; output_path is empty for focus mode.
+    acquisition_started = QtCore.pyqtSignal(bool, str)
+    #: Emitted when the remote control plugin changes the default frame count.
+    n_frames_changed = QtCore.pyqtSignal(int)
+    #: Emitted when the remote control sets file storage fields.
+    #: Dict may contain any subset of keys: 'directory', 'subject', 'date', 'session'.
+    file_storage_changed = QtCore.pyqtSignal(dict)
 
     def __init__(self, config: dict, config_path: str | None = None, parent=None):
         """Initialize the application controller.
@@ -323,6 +332,12 @@ class AppController(QtCore.QObject):
 
         # Most-recently sent hardware values for Pockels and PMT gains.
         # Used in emulation mode to scale mock signal brightness in real time.
+        # Default frame count set by the remote control plugin.
+        self._remote_n_frames: int | None = None
+        # Callable set by MainWindow that returns the current output file path
+        # built from the file storage widgets.  Used by the remote grab command.
+        self._get_output_path = None
+
         self._pockels_hw: int = 0
         self._pmt_hw: list = [0, 0]
 
@@ -841,10 +856,25 @@ class AppController(QtCore.QObject):
             module = importlib.import_module(module_name)
             plugin_class = getattr(module, class_name)
             
-            # Special case for quadrature since it requires a QuadratureEncoder object
+            # Special cases for plugins that need controller callables
             if name == 'quadrature':
                 encoder = module.QuadratureEncoder(plugin_cfg)
                 return plugin_class(encoder)
+            elif name == 'remote_control':
+                return plugin_class(
+                    plugin_cfg,
+                    start_focus=self.start_focus,
+                    start_grab=lambda n: self.start_grab(
+                        output_path=(
+                            self._get_output_path() if self._get_output_path else None
+                        ),
+                        frames=n if n is not None else self._remote_n_frames,
+                    ),
+                    stop_acquisition=self.stop_acquisition,
+                    get_state=self._get_acquisition_state,
+                    set_n_frames=self._set_remote_n_frames,
+                    set_file_storage=self._set_remote_file_storage,
+                )
             else:
                 return plugin_class(plugin_cfg)
                 
@@ -858,6 +888,8 @@ class AppController(QtCore.QObject):
         """Slot called when PluginConnectThread.succeeded fires."""
         self._active_plugins[name] = plugin
         self._plugin_manager.register(plugin)
+        if hasattr(plugin, 'start_dispatch_timer'):
+            plugin.start_dispatch_timer()
         self.plugin_status_changed.emit(name, 'connected')
         logger.debug("AppController: plugin '%s' connected.", name)
         self._log_event(f"Plugin '{name}' connected")
@@ -1893,6 +1925,27 @@ class AppController(QtCore.QObject):
             and self._scanner_thread.isRunning()
         )
 
+    def _get_acquisition_state(self) -> str:
+        """Return current state as a string for the remote control plugin."""
+        if not self.is_acquiring:
+            return 'idle'
+        if self._scanner_thread._focus_mode:
+            return 'focusing'
+        return 'grabbing'
+
+    def _set_remote_n_frames(self, n: int) -> None:
+        """Set default frame count used by remote grab commands."""
+        self._remote_n_frames = n
+        self.n_frames_changed.emit(n)
+
+    def _set_remote_file_storage(self, fields: dict) -> None:
+        """Set file storage fields from a remote command."""
+        valid = {'directory', 'subject', 'date', 'session'}
+        unknown = set(fields) - valid
+        if unknown:
+            raise ValueError(f"Unknown file storage field(s): {unknown}")
+        self.file_storage_changed.emit(fields)
+
     def _start_scanner(self, focus_mode: bool, output_path,
                         frames_override: int = None,
                         save_channels: int = 2,
@@ -1927,6 +1980,7 @@ class AppController(QtCore.QObject):
         )
         self._scanner_thread.acquisition_error.connect(self.hardware_error)
         self._scanner_thread.start()
+        self.acquisition_started.emit(focus_mode, output_path or '')
         # Apply the current Pockels/PMT values to the mock Alazar once the
         # thread has had time to initialise its alazar object (~100 ms).
         QtCore.QTimer.singleShot(150, self._update_mock_signal_scale)

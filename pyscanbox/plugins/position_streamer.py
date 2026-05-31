@@ -11,7 +11,7 @@ from pyscanbox.utils import coordinate_transform
 logger = logging.getLogger(__name__)
 
 
-class ZmqPositionStreamerPlugin(AcquisitionPlugin):
+class PositionStreamerPlugin(AcquisitionPlugin):
     """Streams objective position (world + rotated frame) over a ZeroMQ PUB socket.
 
     Publishes a JSON message on every position update (~50 ms) containing world
@@ -39,7 +39,7 @@ class ZmqPositionStreamerPlugin(AcquisitionPlugin):
     motor settles toward its target, useful for monitoring motion in progress.
     """
 
-    name = 'zmq_position_streamer'
+    name = 'position_streamer'
 
     def __init__(self, config: dict):
         self._address = f"tcp://{config.get('host', '127.0.0.1')}:{config.get('port', 5556)}"
@@ -51,7 +51,7 @@ class ZmqPositionStreamerPlugin(AcquisitionPlugin):
         self._socket = self._context.socket(zmq.PUB)
         self._socket.set(zmq.SNDHWM, 2)
         self._socket.bind(self._address)
-        logger.info("ZmqPositionStreamerPlugin streaming on %s", self._address)
+        logger.info("PositionStreamerPlugin streaming on %s", self._address)
 
     def close(self) -> None:
         if self._socket:
@@ -60,7 +60,7 @@ class ZmqPositionStreamerPlugin(AcquisitionPlugin):
         if self._context:
             self._context.term()
             self._context = None
-        logger.info("ZmqPositionStreamerPlugin closed")
+        logger.info("PositionStreamerPlugin closed")
 
     def on_position_updated(self, pos: dict) -> None:
         if self._socket is None:
@@ -89,4 +89,4 @@ class ZmqPositionStreamerPlugin(AcquisitionPlugin):
         try:
             self._socket.send_json(msg)
         except Exception as e:
-            logger.error("ZmqPositionStreamerPlugin send error: %s", e)
+            logger.error("PositionStreamerPlugin send error: %s", e)
