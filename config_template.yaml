@@ -63,8 +63,8 @@ alazar:
 
 pmt:
   amplifier_type: variable    # PMT amplifier type: 'variable' or 'fixed' - sbconfig.pmt_amp_type
-  gain_presets: [0, 50, 70]   # Quick-access PMT gain preset values shown as buttons in the GUI (%)
-
+  gain_presets: [0, 70]       # Quick-access PMT gain preset values shown as buttons in the GUI (%)
+                              # You can add more presets to this list if desired.
 
 # ============================================================================
 # Scanning and Acquisition Parameters
