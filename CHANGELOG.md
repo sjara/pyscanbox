@@ -5,6 +5,12 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
+## v1.16.0.dev0 - May 31, 2026
+- **Enhancement: PMT Control preset buttons**
+  - Replaced the fixed "Zero" button with a configurable set of preset buttons driven by `pmt.gain_presets` in config.
+  - Number of buttons is dynamic — determined by how many values are listed in `gain_presets`.
+  - Default presets changed to `[0, 70]`; config template updated to `[0, 50, 70]` with a note that more values can be added.
+
 ## v1.15.0.dev0 - May 31, 2026
 - **Feature: Remote Control plugin**
   - Added `RemoteControlPlugin` (ZeroMQ REQ/REP, default port 5558) accepting JSON commands: `focus`, `grab`, `stop`, `status`, `set_n_frames`, `set_file_storage`.
