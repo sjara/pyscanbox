@@ -61,6 +61,10 @@ while True:
 
 See also `examples/example_position_subscriber.py` for a complete working example.
 
+## Performance
+
+This plugin has no impact on acquisition. Position updates are published on the Qt main thread (~50 ms timer), completely independent of the acquisition loop.
+
 ---
 
 Back to [Plugins](index.md) | [Table of Contents](../index.md).

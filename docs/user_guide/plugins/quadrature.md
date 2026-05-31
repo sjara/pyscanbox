@@ -69,6 +69,14 @@ The plugin samples at the imaging frame rate (one count per frame). Element `[k]
 
 To convert frame index to time: `t[k] = k / frame_rate`.
 
+## Performance
+
+`on_frame` runs on the acquisition thread once per frame. Per call it performs one `serial.write(1 byte)` and one `serial.read(4 bytes)`. The non-blocking poll pattern (command sent before the Alazar buffer wait, response read after) gives the Arduino the full inter-frame interval (~33 ms at 30 fps) to prepare its reply. Under normal conditions the 4 bytes are already in the UART receive buffer when `read_count()` is called, so the read returns in microseconds.
+
+The main risk is **Windows USB serial latency**. USB CDC drivers on Windows introduce up to 16 ms of latency per transaction by default, which is within the 33 ms frame budget but leaves little margin. If the Arduino fails to respond in time and the 0.1 s timeout fires, the sample for that frame is lost and an error is logged — acquisition itself continues.
+
+To reduce latency: in Device Manager, find the Arduino COM port under Ports (COM & LPT), open Properties → Port Settings → Advanced, and set the **Latency Timer** to **1 ms** (default is 16 ms).
+
 ---
 
 Back to [Plugins](index.md) | [Table of Contents](../index.md).

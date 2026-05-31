@@ -1,6 +1,6 @@
 # Frame Streamer Plugin
 
-The **Frame Streamer** plugin publishes live imaging frames over a [ZeroMQ](https://zeromq.org/) PUB socket as they are acquired. Any number of external applications can subscribe and receive frames in real time without affecting acquisition performance.
+The **Frame Streamer** plugin publishes live imaging frames over a [ZeroMQ](https://zeromq.org/) PUB socket as they are acquired. Any number of external applications can subscribe and receive frames in real time.
 
 ## Configuration
 
@@ -53,6 +53,14 @@ while True:
 ```
 
 See also `examples/example_frame_subscriber.py` for a complete working example.
+
+## Performance
+
+`on_frame_data` runs on the acquisition thread once per frame. Per call it encodes a small JSON header and issues two ZMQ sends (zero-copy for the frame payload). The PUB socket has a send high-water mark of 2: when a subscriber is slow or absent, frames are **dropped silently** — the send never blocks. Typical overhead is well under 1 ms per frame on localhost.
+
+Streaming to a remote machine adds network latency to each send. As long as the subscriber keeps up, acquisition is unaffected; if it falls behind, frames are dropped rather than blocking the loop.
+
+If you observe unexpected frame-rate drops, try disabling the plugin to rule it out.
 
 ---
 

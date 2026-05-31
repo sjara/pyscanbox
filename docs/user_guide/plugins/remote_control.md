@@ -73,6 +73,10 @@ sock.send(jsonencode(struct('cmd', 'grab', 'n_frames', 500)));
 reply = jsondecode(sock.recv());
 ```
 
+## Performance
+
+This plugin has no impact on acquisition. Commands are received in a background ZMQ thread and dispatched on the Qt main thread via a 50 ms timer — the acquisition loop is never touched.
+
 ---
 
 Back to [Plugins](index.md) | [Table of Contents](../index.md).
