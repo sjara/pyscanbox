@@ -173,14 +173,21 @@ class QuadraturePlugin(plugin_module.AcquisitionPlugin):
 
     Frame alignment note
     --------------------
-    Because the read lags the poll by one frame, the saved array contains
-    ``n_frames - 1`` elements.  Element [k] is the count sampled at frame k
-    (polled during frame k, read during frame k+1).
+    Because the read lags the poll by one frame, the count read during
+    ``on_frame(k)`` corresponds to frame ``k - 1``.  Under normal conditions
+    the saved array has ``n_frames - 1`` rows.  If a USB latency timeout drops
+    a sample, that frame's row is simply absent — detectable via column 0.
 
     Output
     ------
-    The raw count array is saved as a .npy file alongside the .sbx file.
-    Multiply by ``encoder.calibration`` (cm/count) to convert to arc length.
+    The data are saved as a 2-column int32 .npy array of shape
+    ``(n_samples, 2)`` alongside the .sbx file:
+
+        col 0 — frame index the count belongs to
+        col 1 — raw encoder count (int32)
+
+    Multiply column 1 by ``encoder.calibration`` (cm/count) to convert to
+    arc length.
 
     Attributes:
         name: Plugin identifier; used to name the companion data file.
@@ -200,7 +207,7 @@ class QuadraturePlugin(plugin_module.AcquisitionPlugin):
         """
         self._encoder = encoder
         self._output_path = output_path
-        self._data: list[int] = []
+        self._data: list[tuple[int, int]] = []
         self._verbose = encoder._verbose
         self._print_every = encoder._print_every
 
@@ -227,7 +234,7 @@ class QuadraturePlugin(plugin_module.AcquisitionPlugin):
                 file is saved as ``output_path + '_quadrature.npy'``.
                 Ignored in focus mode (empty string).
         """
-        self._data = []
+        self._data: list[tuple[int, int]] = []
         if output_path:
             self._output_path = output_path + '_quadrature.npy'
         self._encoder.reset_count()
@@ -236,9 +243,11 @@ class QuadraturePlugin(plugin_module.AcquisitionPlugin):
         """Send next poll and read the response from the previous poll.
 
         On frame 0 there is no prior response to read; only the poll is sent.
-        When verbose mode is enabled (``plugins.quadrature.verbose`` in config),
-        the count is printed to the terminal every ``print_every_n_frames``
-        frames.  This works during Focus mode as well as Grab.
+        On frame k > 0, the response from frame k-1's poll is read and stored
+        as the tuple ``(k - 1, count)``.  When verbose mode is enabled
+        (``plugins.quadrature.verbose`` in config), the count is printed every
+        ``print_every_n_frames`` frames.  This works during Focus mode as well
+        as Grab.
 
         Args:
             frame_index: 0-based index of the just-completed frame.
@@ -246,16 +255,25 @@ class QuadraturePlugin(plugin_module.AcquisitionPlugin):
         self._encoder.poll()
         if frame_index > 0:
             count = self._encoder.read_count()
-            self._data.append(count)
+            self._data.append((frame_index - 1, count))
             if self._verbose and (frame_index % self._print_every == 0):
-                print(f'[quadrature] frame={frame_index}  count={count}')
+                print(f'[quadrature] frame={frame_index - 1}  count={count}')
 
     def on_acquisition_stop(self, n_frames: int) -> None:
         """Save the count array to disk.
 
         Args:
             n_frames: Actual number of frames acquired.
+
+        Saves a 2-column int32 array of shape ``(n_samples, 2)``:
+        column 0 is the frame index, column 1 is the encoder count.
         """
+        if n_frames > 0:
+            try:
+                count = self._encoder.read_count()
+                self._data.append((n_frames - 1, count))
+            except IOError:
+                pass
         if not self._output_path:
             return
         arr = np.asarray(self._data, dtype=np.int32)

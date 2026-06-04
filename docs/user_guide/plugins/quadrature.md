@@ -24,9 +24,29 @@ plugins:
 
 Enable the plugin via the **Plugins > Quadrature** menu or by setting `enabled: true` in the config. The serial port and baud rate must be configured before pyscanbox starts.
 
+## Output Data
+
+During a **Grab** acquisition the plugin saves a NumPy array alongside the `.sbx` file:
+
+```
+<basename>_quadrature.npy    # int32, shape (n_samples, 2)
+```
+
+Column 0 is the frame index; column 1 is the **raw encoder count** (a dimensionless integer). Under normal conditions `n_samples == n_frames`. If a USB latency timeout causes a sample to be dropped, that frame's row is simply absent — detectable by inspecting gaps in column 0.
+
+No data is saved during **Focus** mode.
+
+Calibration metadata (calibration factor, output file path) is also written to the `.mat` sidecar file so post-processing scripts can read it without consulting the config.
+
 ## Calibration
 
-The calibration factor converts raw encoder counts to arc length (cm/count):
+The raw counts saved in the `.npy` file must be multiplied by a calibration factor to obtain physical units. The factor has units of cm/count and is set in the config:
+
+```yaml
+calibration: 0.04363323  # cm/count
+```
+
+Compute it from your wheel geometry:
 
 ```
 calibration = (2 × π × radius_cm) / pulses_per_revolution
@@ -37,37 +57,25 @@ calibration = (2 × π × radius_cm) / pulses_per_revolution
 | large | 10 cm | 1440 | 0.04363 |
 | small | 7 cm | 2048 | 0.02150 |
 
-Use the formula above to compute the correct value for your encoder and wheel.
-
-## Output Data
-
-During a **Grab** acquisition the plugin saves a NumPy array alongside the `.sbx` file:
-
-```
-<basename>_quadrature.npy    # int32, shape (n_frames-1,)
-```
-
-The array contains raw encoder counts. To convert to arc length or angle in post-processing:
+To convert the saved data to arc length or angle in post-processing:
 
 ```python
 import numpy as np
 
-quad = np.load('mouse01_000_001_quadrature.npy')   # int32 counts
-calibration = 0.04363323   # cm/count — copy from your config
+quad = np.load('mouse01_000_001_quadrature.npy')   # int32, shape (n_frames, 2)
+frame_indices = quad[:, 0]
+counts        = quad[:, 1]
 
-arc_cm = quad * calibration
+calibration = 0.04363323   # cm/count — copy from your config
+arc_cm    = counts * calibration
 angle_rad = arc_cm / radius_cm   # if you need angle
 ```
 
-No data is saved during **Focus** mode.
-
-Calibration metadata (calibration factor, output file path) is also written to the `.mat` sidecar file so post-processing scripts can read it without consulting the config.
-
 ## Timing
 
-The plugin samples at the imaging frame rate (one count per frame). Element `[k]` of the saved array corresponds to frame `k`. Because the first poll fires before the frame-0 response is available, the array has `n_frames − 1` elements.
+The plugin samples at the imaging frame rate (one count per frame). Row `[k]` of the saved array has `[frame_index, count]` for that sample. The frame index in column 0 is the ground truth for timing — use it rather than the row number when samples may be dropped.
 
-To convert frame index to time: `t[k] = k / frame_rate`.
+To convert frame index to time: `t = frame_indices / frame_rate`.
 
 ## Performance
 
