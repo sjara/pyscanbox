@@ -5,6 +5,14 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
+## v1.17.0.dev0 - Jun 4, 2026
+- **Enhancement: Quadrature plugin output format**
+  - Saved `.npy` file is now a 2-column int32 array `(n_samples, 2)`: col 0 = frame index, col 1 = raw encoder count. Dropped samples (USB latency timeouts) are detectable by inspecting gaps in column 0.
+  - Fixed off-by-one: the last frame's poll response was never read; `on_acquisition_stop` now reads it before saving.
+  - Fixed `.mat` sidecar corruption: `quadrature_calibration_cm_per_count` (35 chars) exceeded MATLAB's 31-char field name limit; renamed to `quadrature_cal_cm_per_count`.
+  - `quadrature_file` in the `.mat` sidecar now stores the filename only, not the full path.
+  - Updated user guide (`docs/user_guide/plugins/quadrature.md`) to reflect new array shape, clarify raw integer units, and move the Calibration section after Output Data.
+
 ## v1.16.0.dev0 - May 31, 2026
 - **Enhancement: PMT Control preset buttons**
   - Replaced the fixed "Zero" button with a configurable set of preset buttons driven by `pmt.gain_presets` in config.
