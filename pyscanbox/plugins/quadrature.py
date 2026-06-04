@@ -30,6 +30,7 @@ Reference:
 
 from __future__ import annotations
 
+import os
 import struct
 
 import numpy as np
@@ -288,6 +289,6 @@ class QuadraturePlugin(plugin_module.AcquisitionPlugin):
         """
         return {
             'quadrature_enabled': True,
-            'quadrature_calibration_cm_per_count': self._encoder.calibration,
-            'quadrature_file': self._output_path,
+            'quadrature_cal_cm_per_count': self._encoder.calibration,
+            'quadrature_file': os.path.basename(self._output_path),
         }
