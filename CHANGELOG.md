@@ -5,7 +5,7 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
-## v1.17.0.dev0 - Jun 4, 2026
+## v1.17.0 - Jun 6, 2026
 - **Enhancement: Quadrature plugin output format**
   - Saved `.npy` file is now a 2-column int32 array `(n_samples, 2)`: col 0 = frame index, col 1 = raw encoder count. Dropped samples (USB latency timeouts) are detectable by inspecting gaps in column 0.
   - Fixed off-by-one: the last frame's poll response was never read; `on_acquisition_stop` now reads it before saving.
