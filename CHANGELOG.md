@@ -5,7 +5,13 @@ All notable changes to this project are documented here. This file is append-onl
 > **Reminder:** When adding a new version entry, also bump the version string in `pyscanbox/__init__.py` to match.
 
 
-## v1.18.0.dev0 - in development
+## v1.18.1.dev0 - in development
+
+## v1.18.0.dev0 - Jun 28, 2026
+- **Refactor: load_mat_info() module-level function in sbx_reader**
+  - Extracted .mat metadata parsing into a standalone `load_mat_info(mat_path)` function so scripts can read session info without opening the .sbx binary or instantiating `SbxReader`.
+  - `SbxReader._load_info` now delegates to `load_mat_info`.
+  - `_CHANNELS_TO_NCHAN` promoted to module-level constant.
 
 
 ## v1.17.0 - Jun 6, 2026
