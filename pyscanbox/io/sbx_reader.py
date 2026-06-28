@@ -25,6 +25,56 @@ import scipy.io
 from typing import Dict, Any, Optional
 
 
+# Mapping from .mat ``channels`` field value to number of active PMT channels.
+_CHANNELS_TO_NCHAN = {1: 2, 2: 1, 3: 1}
+
+
+def load_mat_info(mat_path: str) -> Dict[str, Any]:
+    """Load and flatten the ``info`` struct from a Scanbox .mat metadata file.
+
+    Can be called without opening the associated .sbx binary, making it
+    suitable for scripts that only need session metadata.
+
+    Args:
+        mat_path: Path to the .mat file (e.g., ``'mydata.mat'``).
+
+    Returns:
+        Flat dictionary of ``info`` struct fields plus a computed ``nchan``
+        key derived from the ``channels`` bitmask.
+
+    Raises:
+        FileNotFoundError: If ``mat_path`` does not exist.
+        KeyError: If the .mat file does not contain an ``info`` struct.
+        ValueError: If ``channels`` encodes an unknown PMT configuration.
+    """
+    if not os.path.exists(mat_path):
+        raise FileNotFoundError(f".mat file not found: {mat_path}")
+
+    raw = scipy.io.loadmat(mat_path, squeeze_me=True, struct_as_record=False)
+    if 'info' not in raw:
+        raise KeyError(
+            f"No 'info' struct found in {mat_path}. "
+            "This file may have been written by the old pyscanbox native "
+            "format — use SbxReader instead."
+        )
+
+    info_obj = raw['info']
+    flat: Dict[str, Any] = {}
+    for field in info_obj._fieldnames:
+        flat[field] = getattr(info_obj, field)
+
+    channels = int(flat['channels'])
+    if channels not in _CHANNELS_TO_NCHAN:
+        raise ValueError(
+            f"Unexpected 'channels' value {channels} in {mat_path}. "
+            f"Expected one of {list(_CHANNELS_TO_NCHAN)}: "
+            "1=both PMTs, 2=PMT0, 3=PMT1."
+        )
+    flat['nchan'] = _CHANNELS_TO_NCHAN[channels]
+
+    return flat
+
+
 class SbxReader:
     """Reader for .sbx files produced by the original MATLAB Scanbox.
 
@@ -63,9 +113,6 @@ class SbxReader:
             processed data in the standard
             ``(nchan, lines_per_frame, pixels_per_line)`` orientation.
     """
-
-    # Mapping from .mat ``channels`` field value to number of active PMT channels.
-    _CHANNELS_TO_NCHAN = {1: 2, 2: 1, 3: 1}
 
     def __init__(self, filepath: str):
         """Initialize the original Scanbox .sbx reader.
@@ -126,47 +173,8 @@ class SbxReader:
     # ------------------------------------------------------------------
 
     def _load_info(self) -> Dict[str, Any]:
-        """Load and flatten the ``info`` struct from the .mat file.
-
-        Scanbox saves a MATLAB struct named ``info`` into the .mat file.
-        ``scipy.io.loadmat`` returns it as a structured numpy array;
-        this method unwraps all scalar fields to plain Python scalars.
-
-        Returns:
-            Flat dictionary of ``info`` struct fields plus a computed
-            ``nchan`` key.
-
-        Raises:
-            KeyError: If ``info`` key is absent from the .mat file.
-            ValueError: If ``channels`` encodes an unknown PMT configuration.
-        """
-        raw = scipy.io.loadmat(self.mat_path, squeeze_me=True,
-                               struct_as_record=False)
-        if 'info' not in raw:
-            raise KeyError(
-                f"No 'info' struct found in {self.mat_path}. "
-                "This file may have been written by the old pyscanbox native "
-                "format — use SbxReader instead."
-            )
-
-        info_obj = raw['info']  # scipy MatlabObject or structured array
-        # Convert to a plain dict by iterating over _fieldnames
-        flat: Dict[str, Any] = {}
-        for field in info_obj._fieldnames:
-            val = getattr(info_obj, field)
-            flat[field] = val
-
-        # Derive nchan from the channels bitmask
-        channels = int(flat['channels'])
-        if channels not in self._CHANNELS_TO_NCHAN:
-            raise ValueError(
-                f"Unexpected 'channels' value {channels} in {self.mat_path}. "
-                f"Expected one of {list(self._CHANNELS_TO_NCHAN)}: "
-                "1=both PMTs, 2=PMT0, 3=PMT1."
-            )
-        flat['nchan'] = self._CHANNELS_TO_NCHAN[channels]
-
-        return flat
+        """Load and flatten the ``info`` struct from the .mat file."""
+        return load_mat_info(self.mat_path)
 
     def _open_sbx(self) -> np.memmap:
         """Memory-map the .sbx binary file.
